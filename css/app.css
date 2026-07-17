@@ -1,0 +1,1084 @@
+/* ============================================================
+   Birds Executive Hub – app.css
+   Modern 2026 professional styling
+   ============================================================ */
+
+/* ── 1. Font Imports (Local Google Fonts) ──────────────────── */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/inter-v20-latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/inter-v20-latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/inter-v20-latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('../fonts/inter-v20-latin-800.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/outfit-v15-latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/outfit-v15-latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('../fonts/outfit-v15-latin-800.woff2') format('woff2');
+}
+
+
+/* ── 2. CSS Variables ──────────────────────────────────────── */
+
+:root {
+  --birds-green:       #00A88E;
+  --birds-green-hover: #009478;
+  --birds-dark:        #0f172a;
+  --birds-radius:      16px;
+  --birds-radius-sm:   12px;
+  --birds-radius-xs:   8px;
+  --birds-radius-pill: 9999px;
+  --birds-shadow:      0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --birds-shadow-md:   0 4px 6px -1px rgba(0,0,0,.07), 0 2px 4px -2px rgba(0,0,0,.05);
+  --birds-shadow-lg:   0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.04);
+  --birds-transition:  150ms cubic-bezier(.4,0,.2,1);
+  --birds-font:        'Inter', system-ui, -apple-system, sans-serif;
+  --birds-font-display:'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+/* convenience utility used inline via `style` */
+.birds-green { color: var(--birds-green) !important; }
+.bg-birds { background-color: var(--birds-green) !important; }
+.bg-birds:hover { background-color: var(--birds-green-hover) !important; }
+
+
+/* ── 3. Base Styles ────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--birds-font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8fafc; /* slate-50 */
+  color: var(--birds-dark);
+  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+}
+
+
+/* ── 4. Outfit Display Font ────────────────────────────────── */
+
+.outfit {
+  font-family: var(--birds-font-display);
+}
+
+
+/* ── 5. Header Glass Effect ────────────────────────────────── */
+
+.header-glass {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(255,255,255,0.80);
+  box-shadow: var(--birds-shadow-md);
+  border: 1px solid rgba(255,255,255,0.60);
+}
+
+
+/* ── 6. Segmented Nav ──────────────────────────────────────── */
+
+.segmented {
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: var(--birds-shadow);
+  border: 1px solid #e2e8f0;
+}
+
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  border-radius: 0.75rem;
+  border: none;
+  cursor: pointer;
+  transition: all var(--birds-transition);
+  background: transparent;
+  color: #475569;
+  user-select: none;
+  white-space: nowrap;
+}
+.seg-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+.seg-btn:focus-visible {
+  outline: 2px solid var(--birds-green);
+  outline-offset: 2px;
+}
+
+.seg-btn-active,
+.seg-btn-active:hover {
+  background: var(--birds-green);
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0,168,142,0.30);
+}
+
+.nav-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 4px;
+  background: #d1d5db;
+  opacity: 0.6;
+}
+
+
+/* ── 7. Cards ──────────────────────────────────────────────── */
+
+.card {
+  background: #ffffff;
+  border-radius: var(--birds-radius);
+  box-shadow: var(--birds-shadow);
+  border: 1px solid #e2e8f0;
+  transition: box-shadow var(--birds-transition), transform var(--birds-transition);
+}
+.card:hover {
+  box-shadow: var(--birds-shadow-md);
+}
+
+
+/* ── 8. Buttons ────────────────────────────────────────────── */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: var(--birds-green);
+  color: #ffffff;
+  border-radius: 0.75rem;
+  border: none;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  box-shadow: var(--birds-shadow);
+  cursor: pointer;
+  transition: opacity var(--birds-transition), box-shadow var(--birds-transition);
+  white-space: nowrap;
+}
+.btn-primary:hover {
+  opacity: 0.90;
+  box-shadow: var(--birds-shadow-md);
+}
+.btn-primary:focus-visible {
+  outline: 2px solid var(--birds-green);
+  outline-offset: 2px;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: #f1f5f9;
+  color: #334155;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background var(--birds-transition);
+  white-space: nowrap;
+}
+.btn-secondary:hover {
+  background: #e2e8f0;
+}
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--birds-green);
+  outline-offset: 2px;
+}
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.625rem;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--birds-shadow);
+  transition: background var(--birds-transition);
+  white-space: nowrap;
+}
+.export-btn:hover {
+  background: #e2e8f0;
+}
+
+
+/* ── 9. Input Chips ────────────────────────────────────────── */
+
+.input-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #334155;
+  transition: box-shadow var(--birds-transition), border-color var(--birds-transition);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.input-chip:focus {
+  border-color: var(--birds-green);
+  box-shadow: 0 0 0 3px rgba(0,168,142,0.15);
+}
+.input-chip::placeholder {
+  color: #94a3b8;
+}
+
+
+/* ── 10. Progress Bars ─────────────────────────────────────── */
+
+.progress-bar {
+  background: #f1f5f9;
+  border-radius: 9999px;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: var(--birds-green);
+  border-radius: 9999px;
+  height: 100%;
+  transition: width 600ms cubic-bezier(.4,0,.2,1);
+}
+
+.progress-fill-warn {
+  background: #facc15; /* amber-400 */
+  border-radius: 9999px;
+  height: 100%;
+  transition: width 600ms cubic-bezier(.4,0,.2,1);
+}
+
+.progress-fill-crit {
+  background: #ef4444; /* red-500 */
+  border-radius: 9999px;
+  height: 100%;
+  transition: width 600ms cubic-bezier(.4,0,.2,1);
+}
+
+
+/* ── 11. Trend Indicators ──────────────────────────────────── */
+
+.trend-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.trend-up {
+  color: #059669; /* emerald-600 */
+  font-weight: 900;
+  font-size: 0.75rem;
+}
+
+.trend-down {
+  color: #ef4444; /* red-500 */
+  font-weight: 900;
+  font-size: 0.75rem;
+}
+
+.trend-flat {
+  color: #94a3b8; /* slate-400 */
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+
+/* ── 12. Winner Podium ─────────────────────────────────────── */
+
+.winner-1st {
+  background: linear-gradient(to bottom, #facc15, #f59e0b);
+  color: #ffffff;
+  border-radius: var(--birds-radius);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+
+/* ── 13. Champion Cards ────────────────────────────────────── */
+
+.champion-gold {
+  border-top: 4px solid #facc15;
+  background: linear-gradient(to bottom right, #fffbeb, #ffffff);
+}
+.champion-silver {
+  border-top: 4px solid #cbd5e1; /* slate-300 */
+}
+.champion-bronze {
+  border-top: 4px solid #fb923c; /* orange-400 */
+}
+
+.champion-title {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #d97706; /* amber-600 */
+}
+
+.champion-kpi-box {
+  background: #f8fafc; /* slate-50 */
+  border-radius: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.champion-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.champion-summary {
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.champion-section-title {
+  font-size: 0.625rem;
+  font-weight: 900;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
+}
+
+
+/* ── 14. Print Styles ──────────────────────────────────────── */
+
+@media print {
+  * {
+    visibility: hidden !important;
+  }
+
+  #print-doc-area,
+  #print-doc-area *,
+  #mainView,
+  #mainView * {
+    visibility: visible !important;
+  }
+
+  #print-doc-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .header-glass,
+  nav,
+  .btn-primary,
+  .btn-secondary,
+  .export-btn,
+  .seg-btn {
+    display: none !important;
+  }
+}
+
+
+/* ── 15. Scrollbars ────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+
+/* ── 16. Scorecard Cards ───────────────────────────────────── */
+
+.store-card.supportive-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--birds-radius);
+  box-shadow: var(--birds-shadow);
+  overflow: hidden;
+  transition: box-shadow var(--birds-transition), transform var(--birds-transition);
+}
+.store-card.supportive-card:hover {
+  box-shadow: var(--birds-shadow-md);
+}
+
+.card-header {
+  padding: 16px 20px 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.card-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.store-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.store-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  font-family: var(--birds-font-display);
+}
+
+.store-area-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--birds-green);
+  background: rgba(0,168,142,0.08);
+  padding: 2px 8px;
+  border-radius: var(--birds-radius-pill);
+}
+
+.medal { font-size: 16px; line-height: 1; }
+
+.card-score {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.score-value {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--birds-green);
+  line-height: 1;
+  font-family: var(--birds-font-display);
+}
+
+.score-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.score-diff {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: var(--birds-radius-pill);
+  margin-top: 2px;
+  display: inline-block;
+}
+.score-up { color: #059669; background: #ecfdf5; }
+.score-down { color: #ef4444; background: #fef2f2; }
+.score-same { color: #94a3b8; background: #f8fafc; }
+
+.card-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.week-badge {
+  font-weight: 700;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: var(--birds-radius-pill);
+}
+
+.am-name { font-weight: 600; color: #64748b; }
+
+.card-ranks {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.rank-item { display: flex; align-items: center; gap: 6px; }
+.rank-label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; }
+.rank-value { font-size: 13px; font-weight: 900; color: #1e293b; }
+.rank-change { font-size: 10px; font-weight: 800; }
+.rank-up { color: #059669; }
+.rank-down { color: #ef4444; }
+.rank-same { color: #94a3b8; }
+
+
+/* ── 17. Scorecard Pills ───────────────────────────────────── */
+
+.card-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--birds-radius-pill);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.pill-green { color: #065f46; background: #d1fae5; border-color: #a7f3d0; }
+.pill-amber { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+.pill-grey  { color: #475569; background: #f1f5f9; border-color: #e2e8f0; }
+.pill-red   { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+
+
+/* ── 18. Scorecard Card Body Sections ──────────────────────── */
+
+.card-body { padding: 12px 20px 16px; }
+
+.card-section { margin-bottom: 12px; }
+.card-section:last-child { margin-bottom: 0; }
+
+.section-title {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 2px solid transparent;
+}
+.section-title-green { color: #059669; border-bottom-color: #d1fae5; }
+.section-title-amber { color: #d97706; border-bottom-color: #fef3c7; }
+.section-title-grey  { color: #64748b; border-bottom-color: #e2e8f0; }
+
+.metrics-list { display: flex; flex-direction: column; gap: 4px; }
+
+.metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-radius: var(--birds-radius-xs);
+  font-size: 12px;
+}
+.metric-winning { background: #f0fdf4; }
+.metric-focus   { background: #fffbeb; }
+.metric-neutral { background: #f8fafc; }
+
+.metric-name { font-weight: 600; color: #334155; flex: 1; }
+.metric-value { font-weight: 800; color: #0f172a; margin: 0 8px; text-align: right; }
+.metric-variance { font-size: 11px; font-weight: 800; min-width: 60px; text-align: right; }
+.variance-positive { color: #059669; }
+.variance-negative { color: #ef4444; }
+.variance-neutral  { color: #94a3b8; }
+
+
+/* ── 19. Audit Hub Data Table ──────────────────────────────── */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.data-table thead th {
+  background: #f8fafc;
+  font-weight: 800;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+  padding: 10px 12px;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  cursor: default;
+  white-space: nowrap;
+}
+.data-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background var(--birds-transition);
+}
+.data-table tbody tr:hover { background: #f8fafc; }
+.data-table tbody td {
+  padding: 10px 12px;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.sort-arrow { font-size: 10px; color: var(--birds-green); }
+
+.status-open {
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: var(--birds-radius-pill);
+  background: #fef3c7;
+  color: #92400e;
+}
+.status-closed {
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: var(--birds-radius-pill);
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge-critical {
+  display: inline-flex;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 2px 8px;
+  border-radius: var(--birds-radius-pill);
+  background: #ef4444;
+  color: #ffffff;
+  letter-spacing: 0.05em;
+}
+
+.sla-badge {
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--birds-radius-pill);
+  background: #f1f5f9;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.action-text {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+tr.risk-high { background: #fef2f2; }
+tr.risk-high:hover { background: #fee2e2; }
+tr.risk-med  { background: #fffbeb; }
+tr.risk-med:hover  { background: #fef3c7; }
+tr.risk-low  { background: #ffffff; }
+
+
+/* ── 20. Filter Bar ────────────────────────────────────────── */
+
+.filter-bar .filter-group { display: flex; flex-direction: column; gap: 2px; }
+.filter-bar .filter-group label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.filter-bar .filter-group select,
+.filter-bar .filter-group input {
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  min-width: 110px;
+}
+
+
+/* ── 21. KPI Card (Audit Hub) ──────────────────────────────── */
+
+.kpi-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--birds-radius);
+  box-shadow: var(--birds-shadow);
+}
+
+
+/* ── 22. Breakdown Sections ────────────────────────────────── */
+
+.breakdown-section {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--birds-radius);
+  padding: 14px;
+  box-shadow: var(--birds-shadow);
+}
+
+.breakdown-title {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+  margin: 0 0 10px 0;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.bd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid #f8fafc;
+  cursor: pointer;
+  transition: background var(--birds-transition);
+}
+.bd-row:hover { background: #f8fafc; }
+.bd-row:last-child { border-bottom: none; }
+
+.bd-label {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bd-val {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  min-width: 24px;
+  text-align: right;
+}
+.bd-bar {
+  width: 80px;
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.bd-fill {
+  height: 100%;
+  background: var(--birds-green);
+  border-radius: 3px;
+  transition: width 400ms ease;
+}
+
+
+/* ── 23. Modal Overlay ─────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: #ffffff;
+  border-radius: var(--birds-radius);
+  box-shadow: var(--birds-shadow-lg);
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.modal-header h3 {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: #f1f5f9;
+  border-radius: 8px;
+  font-size: 18px;
+  color: #475569;
+  cursor: pointer;
+  transition: background var(--birds-transition);
+}
+.modal-close:hover { background: #e2e8f0; }
+
+.modal-body { padding: 20px; }
+
+
+/* ── 24. Detail Table (Modal) ──────────────────────────────── */
+
+.detail-table { width: 100%; border-collapse: collapse; }
+.detail-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+  color: #334155;
+  vertical-align: top;
+}
+.detail-table td:first-child {
+  font-weight: 700;
+  color: #475569;
+  width: 130px;
+}
+
+
+/* ── 25. View Header ───────────────────────────────────────── */
+
+.view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.view-header h2 {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--birds-green);
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  margin: 0;
+  font-family: var(--birds-font-display);
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+
+/* ── 26. Small Button ──────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--birds-transition);
+  white-space: nowrap;
+}
+.btn:hover { background: #f1f5f9; }
+.btn-sm { font-size: 0.6875rem; padding: 0.3rem 0.6rem; }
+
+
+/* ── 27. Loading Spinner ───────────────────────────────────── */
+
+.loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+
+/* ── 28. Filter Group (standalone) ─────────────────────────── */
+
+.filter-group { display: flex; flex-direction: column; gap: 2px; }
+.filter-group label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.filter-group select,
+.filter-group input {
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+}
+
+
+/* ── 29. Responsive ────────────────────────────────────────── */
+
+/* Review pack overflow protection */
+#reviewPackBody .card { overflow: hidden; }
+#reviewPackBody table { word-break: break-word; }
+#reviewPackBody td, #reviewPackBody th { word-break: break-word; overflow-wrap: break-word; }
+#reviewPackBody .overflow-auto { max-height: 600px; overflow-y: auto; }
+
+@media (max-width: 768px) {
+  .header-glass {
+    padding: 1rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .seg-btn {
+    font-size: 0.75rem;
+    padding: 0.375rem 0.625rem;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.875rem;
+  }
+
+  .export-btn {
+    font-size: 0.6875rem;
+  }
+
+  .input-chip {
+    font-size: 0.8125rem;
+    padding: 0.375rem 0.75rem;
+  }
+
+  .champion-kpi-box {
+    padding: 0.75rem;
+  }
+
+  .winner-1st {
+    border-radius: 0.75rem;
+  }
+
+  .card-header { padding: 12px 14px 10px; }
+  .card-pills { padding: 8px 14px; }
+  .card-body { padding: 10px 14px 14px; }
+  .store-name { font-size: 13px; }
+  .score-value { font-size: 20px; }
+  .card-ranks { gap: 10px; }
+
+  .data-table thead th,
+  .data-table tbody td {
+    padding: 8px 8px;
+    font-size: 11px;
+  }
+
+  .filter-bar .filter-group select,
+  .filter-bar .filter-group input {
+    min-width: 90px;
+    font-size: 11px;
+  }
+
+  .modal-content { max-width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .seg-btn {
+    font-size: 0.6875rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    font-size: 0.6875rem;
+    padding: 0.4rem 0.75rem;
+  }
+}
