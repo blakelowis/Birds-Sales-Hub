@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Birds Executive Hub</title>
+  <link rel="stylesheet" href="tailwind.min.css?v=85">
+  <link rel="stylesheet" href="css/app.css?v=85">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#00A88E">
+  <script src="xlsx.full.min.js?v=85"></script>
+  <script src="chart.js?v=85"></script>
+  <script src="jspdf.umd.min.js?v=85"></script>
+  <script src="jspdf.plugin.autotable.min.js?v=85"></script>
+  <script src="html2canvas.min.js?v=85"></script>
+  <script src="jszip.min.js?v=85"></script>
+  <script src="papaparse.min.js?v=85"></script>
+  <style>
+    .nav-tab-bar{display:flex;gap:6px;margin-bottom:0;}
+    .nav-tab{flex:1;padding:14px 16px;border-radius:16px 16px 0 0;font-weight:900;font-size:14px;letter-spacing:.06em;text-transform:uppercase;text-align:center;cursor:pointer;border:2px solid transparent;border-bottom:none;transition:all .2s;opacity:.55;}
+    .nav-tab:hover{opacity:.8;}
+    .nav-tab.active{opacity:1;border-color:var(--tab-color);background:var(--tab-bg);color:var(--tab-color);}
+    .nav-panel{display:none;padding:12px 16px;background:var(--panel-bg);border:2px solid var(--tab-color);border-top:none;border-radius:0 0 16px 16px;margin-bottom:24px;flex-wrap:wrap;gap:6px;}
+    .nav-panel.open{display:flex;}
+    .nav-tab[data-tab="sales"]{--tab-color:#059669;--tab-bg:#ecfdf5;}
+    .nav-tab[data-tab="audits"]{--tab-color:#d97706;--tab-bg:#fffbeb;}
+    .nav-tab[data-tab="docs"]{--tab-color:#2563eb;--tab-bg:#eff6ff;}
+    .nav-panel[data-panel="sales"]{--tab-color:#059669;--panel-bg:#f0fdf4;}
+    .nav-panel[data-panel="audits"]{--tab-color:#d97706;--panel-bg:#fefce8;}
+    .nav-panel[data-panel="docs"]{--tab-color:#2563eb;--panel-bg:#f0f9ff;}
+  </style>
+</head>
+<body class="bg-slate-50 font-sans antialiased">
+  <div class="max-w-[1800px] mx-auto p-4 md:p-8">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-center mb-6 header-glass p-5 rounded-3xl">
+      <div class="flex items-center gap-4">
+        <div>
+          <h1 class="text-[32px] font-extrabold outfit birds-green leading-none tracking-tight">Birds Sales Hub</h1>
+          <div class="flex items-center gap-2 mt-1">
+            <span id="activeWeekBadge" class="bg-birds text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">LATEST DATA</span>
+            <p id="ingestStatus" class="text-slate-400 text-xs font-bold">&mdash;</p>
+            <span id="missingWeeksBadge" class="text-[10px] font-black text-amber-600"></span>
+            <span id="lastSyncedBadge" class="text-[10px] font-bold text-slate-400"></span>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <button onclick="startAudit()" class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-4 py-2.5 rounded-full transition-colors shadow-md whitespace-nowrap" title="Perform a retail audit">Audit Store</button>
+        <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
+        <button onclick="document.getElementById('mobileAuditZipInput').click()" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-black px-4 py-2.5 rounded-full transition-colors shadow-md whitespace-nowrap" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
+        <button onclick="doRefresh()" class="btn-secondary rounded-none text-sm whitespace-nowrap" id="syncBtn" title="Refresh Data">
+          &#x21bb; Refresh
+        </button>
+        <span id="folderStatus" class="text-[10px] font-bold text-slate-400"></span>
+        <button onclick="openSettings()" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors" title="Settings">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-1.066 2.573c-1.756.426-1.756 2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Horizontal Tab Navigation -->
+    <nav>
+      <div class="nav-tab-bar">
+        <div class="nav-tab active" data-tab="sales" onclick="setActiveTab('sales')">Sales &amp; KPIs</div>
+        <div class="nav-tab" data-tab="audits" onclick="setActiveTab('audits')">Audits &amp; Complaints</div>
+        <div class="nav-tab" data-tab="docs" onclick="setActiveTab('docs')">Documents</div>
+      </div>
+      <div class="nav-panel open" data-panel="sales">
+        <button onclick="setView('overview')" id="btn-overview" class="seg-btn seg-btn-active flex-1 whitespace-nowrap">Overview</button>
+        <button onclick="setView('trends')" id="btn-trends" class="seg-btn flex-1 whitespace-nowrap">Trends</button>
+        <button onclick="setView('masterreview')" id="btn-masterreview" class="seg-btn flex-1 whitespace-nowrap">Quarterly Summary</button>
+        <span class="nav-divider"></span>
+        <button onclick="setView('areas')" id="btn-areas" class="seg-btn flex-1 whitespace-nowrap">Area Report</button>
+        <button onclick="setView('storecards')" id="btn-storecards" class="seg-btn flex-1 whitespace-nowrap">Scorecards</button>
+        <button onclick="setView('storereports')" id="btn-storereports" class="seg-btn flex-1 whitespace-nowrap">Store Report</button>
+        <button onclick="setView('leaderboard')" id="btn-leaderboard" class="seg-btn flex-1 whitespace-nowrap">Leaderboard</button>
+        <button onclick="setView('banding')" id="btn-banding" class="seg-btn flex-1 whitespace-nowrap">Banding</button>
+        <span class="nav-divider"></span>
+        <button onclick="setView('halloffame')" id="btn-halloffame" class="seg-btn flex-1 whitespace-nowrap">YTD Awards</button>
+        <button onclick="setView('winners')" id="btn-winners" class="seg-btn flex-1 whitespace-nowrap">Podium</button>
+        <button onclick="setView('champions')" id="btn-champions" class="seg-btn flex-1 whitespace-nowrap">Champions</button>
+      </div>
+      <div class="nav-panel" data-panel="audits">
+        <button onclick="setView('auditexport')" id="btn-auditexport" class="seg-btn flex-1 whitespace-nowrap">Audit Action Hub</button>
+        <button onclick="setView('tracker')" id="btn-tracker" class="seg-btn flex-1 whitespace-nowrap">Tracker</button>
+        <button onclick="setView('complaints')" id="btn-complaints" class="seg-btn flex-1 whitespace-nowrap">Complaints Hub</button>
+      </div>
+      <div class="nav-panel" data-panel="docs">
+        <button onclick="setView('documents')" id="btn-documents" class="seg-btn flex-1 whitespace-nowrap">Document Hub</button>
+        <button onclick="setView('documentarchive')" id="btn-documentarchive" class="seg-btn flex-1 whitespace-nowrap">Archive</button>
+        <button onclick="setView('documentcreate')" id="btn-documentcreate" class="seg-btn flex-1 whitespace-nowrap">Create Document</button>
+      </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="mainView" class="space-y-6"></main>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.4);backdrop-filter:blur(4px);">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <h3 class="font-black outfit text-slate-800 text-lg">Settings</h3>
+        <button onclick="closeSettings()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+      </div>
+      <div class="px-6 py-5 space-y-5">
+        <div>
+          <h4 class="font-bold text-sm text-slate-700 uppercase tracking-wide mb-3">Data Folder</h4>
+          <p class="text-xs text-slate-400 mb-3">Select the folder containing your .xlsx/.csv data files and tracker_data.json. Works in Chrome or Edge.</p>
+          <button onclick="selectAndAnchorFolder()" class="px-4 py-2 text-sm font-bold text-white bg-birds hover:bg-emerald-700 rounded-lg transition">Select Data Folder</button>
+          <p id="folderStatusModal" class="text-[10px] font-bold text-slate-400 mt-2"></p>
+        </div>
+        <div class="border-t border-slate-200 pt-4">
+          <h4 class="font-bold text-sm text-slate-700 uppercase tracking-wide mb-2">Cloud Sync (Azure AD)</h4>
+          <p class="text-xs text-slate-400 mb-3">Optional: Enter Azure AD credentials to sync directly with SharePoint via Microsoft Graph API. Leave blank to use local folder instead.</p>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Azure AD Client ID</label>
+              <input type="text" id="azureClientId" placeholder="e.g. a1b2c3d4-e5f6-7890-abcd-ef1234567890" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-birds focus:border-birds outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Tenant ID</label>
+              <input type="text" id="azureTenantId" placeholder="e.g. your-tenant-id.onmicrosoft.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-birds focus:border-birds outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">SharePoint Site URL</label>
+              <input type="text" id="azureSiteUrl" placeholder="e.g. https://birdsofderby.sharepoint.com/sites/RetailAudits" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-birds focus:border-birds outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Document Library Path</label>
+              <input type="text" id="azureLibraryPath" placeholder="e.g. Shared Documents/Data" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-birds focus:border-birds outline-none" />
+            </div>
+          </div>
+          <p id="azureStatus" class="text-[10px] font-bold text-slate-400 mt-2"></p>
+        </div>
+        <div class="border-t border-slate-200 pt-4">
+          <h4 class="font-bold text-sm text-slate-700 uppercase tracking-wide mb-2">Clear All Data</h4>
+          <p class="text-xs text-slate-400 mb-2">Removes all ingested data. Re-load data afterwards.</p>
+          <button onclick="clearAllData()" class="px-4 py-2 text-sm font-bold text-white bg-red-500 hover:bg-red-600 rounded-lg transition">Clear All Data</button>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+        <button onclick="closeSettings()" class="px-5 py-3 text-sm font-bold text-slate-600 hover:text-slate-800 rounded-lg border border-slate-300">Cancel</button>
+        <button onclick="saveSettings()" class="px-8 py-3 text-sm font-black text-white bg-birds hover:bg-emerald-700 rounded-lg transition shadow-lg">OK — Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
+  <script src="js/db.js?v=85"></script>
+  <script src="js/utils.js?v=85"></script>
+  <script src="js/sharepoint.js?v=85"></script>
+  <script src="js/graph.js?v=85"></script>
+  <script src="js/data.js?v=85"></script>
+  <script src="js/charts.js?v=85"></script>
+  <script src="js/scorecards.js?v=85"></script>
+  <script src="js/reports.js?v=85"></script>
+  <script src="js/complaints.js?v=85"></script>
+  <script src="js/documents.js?v=85"></script>
+  <script src="js/audits.js?v=85"></script>
+  <script src="js/tracker.js?v=85"></script>
+  <script src="js/awards.js?v=85"></script>
+  <script src="js/audit-perform.js?v=85"></script>
+  <script src="js/app.js?v=85"></script>
+  <script>
+    // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
+    var _activeTab = 'sales';
+    var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'documents' };
+    function setActiveTab(tab) {
+      if (tab === _activeTab) return; // Already on this tab, skip
+      _activeTab = tab;
+      document.querySelectorAll('.nav-tab').forEach(function(t) {
+        t.classList.toggle('active', t.getAttribute('data-tab') === tab);
+      });
+      document.querySelectorAll('.nav-panel').forEach(function(p) {
+        p.classList.toggle('open', p.getAttribute('data-panel') === tab);
+      });
+      // Switch view to default for this tab
+      var defaultView = _tabDefaults[tab];
+      if (defaultView && typeof setView === 'function') setView(defaultView);
+    }
+
+    // PNG export for scorecards and audit views
+    function exportToPNG(elementId, filename) {
+      var el = document.getElementById(elementId);
+      if(!el) return;
+      if (typeof html2canvas === 'undefined') {
+        var script = document.createElement('script');
+        script.src = './html2canvas.min.js';
+        script.onload = function() { doExport(el, filename); };
+        document.head.appendChild(script);
+      } else {
+        doExport(el, filename);
+      }
+    }
+    function doExport(el, filename) {
+      var btns = el.querySelectorAll('.export-btn');
+      btns.forEach(function(b) { b.style.display = 'none'; });
+      html2canvas(el, { scale: 2.5, useCORS: true, backgroundColor: '#ffffff', logging: false }).then(function(canvas) {
+        btns.forEach(function(b) { b.style.display = ''; });
+        var link = document.createElement('a');
+        link.download = filename + '.png';
+        link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
+    }
+
+    // Settings modal helpers
+    async function doRefresh() {
+      var isCloud = window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
+      if (!isCloud && (typeof directoryHandle === 'undefined' || !directoryHandle)) {
+        alert('No data folder selected. Open Settings (cog icon) to select a folder or configure Cloud Sync.');
+        return;
+      }
+      const btn = document.getElementById('syncBtn');
+      const origText = btn.innerHTML;
+      btn.innerHTML = '&#x21bb; Syncing...';
+      btn.disabled = true;
+      btn.classList.add('opacity-50','cursor-not-allowed');
+      try {
+        const stores = ['kpi','audits','actions','complaints','ingest_log',
+                        'area_winners_log','area_metric_winners_log','store_winners_log'];
+        for (const s of stores) { try { await idbClear(s); } catch(e) {} }
+        storeMap.clear(); originalStoreNames.clear();
+        window.ComplaintsData = null;
+        await syncData();
+      } catch(e) {
+        console.error('[Refresh] Sync failed:', e);
+        alert('Refresh failed: ' + e.message);
+      } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+        btn.classList.remove('opacity-50','cursor-not-allowed');
+      }
+    }
+    function openSettings() { document.getElementById('settingsModal').classList.remove('hidden'); }
+    function closeSettings() { document.getElementById('settingsModal').classList.add('hidden'); }
+    async function saveSettings() {
+      var azureConfig = {
+        id: 'azureConfig',
+        clientId: (document.getElementById('azureClientId').value || '').trim(),
+        tenantId: (document.getElementById('azureTenantId').value || '').trim(),
+        siteUrl: (document.getElementById('azureSiteUrl').value || '').trim(),
+        libraryPath: (document.getElementById('azureLibraryPath').value || '').trim()
+      };
+      await idbPut('settings', azureConfig);
+      var statusEl = document.getElementById('azureStatus');
+      if (azureConfig.clientId && azureConfig.tenantId) {
+        if (statusEl) { statusEl.innerText = 'Cloud sync enabled — will use Microsoft Graph API on next load'; statusEl.className = 'text-[10px] font-bold text-emerald-600 mt-2'; }
+      } else {
+        if (statusEl) { statusEl.innerText = 'Cloud sync disabled — using local folder'; statusEl.className = 'text-[10px] font-bold text-slate-400 mt-2'; }
+      }
+      closeSettings();
+    }
+    async function loadSettings() {
+      // Show local folder status in settings modal
+      if (typeof __anchorMeta !== 'undefined' && __anchorMeta.folderName) {
+        var el = document.getElementById('folderStatus');
+        if (el) el.innerText = 'Selected: ' + __anchorMeta.folderName;
+      }
+      // Load Azure AD config into settings form
+      try {
+        var azureConfig = await idbGet('settings', 'azureConfig');
+        if (azureConfig) {
+          if (document.getElementById('azureClientId')) document.getElementById('azureClientId').value = azureConfig.clientId || '';
+          if (document.getElementById('azureTenantId')) document.getElementById('azureTenantId').value = azureConfig.tenantId || '';
+          if (document.getElementById('azureSiteUrl')) document.getElementById('azureSiteUrl').value = azureConfig.siteUrl || '';
+          if (document.getElementById('azureLibraryPath')) document.getElementById('azureLibraryPath').value = azureConfig.libraryPath || '';
+          var statusEl = document.getElementById('azureStatus');
+          if (azureConfig.clientId && azureConfig.tenantId) {
+            if (statusEl) { statusEl.innerText = 'Cloud sync enabled'; statusEl.className = 'text-[10px] font-bold text-emerald-600 mt-2'; }
+          }
+        }
+      } catch (_) {}
+    }
+    async function clearAllData() {
+      if (!confirm('This will delete ALL stored data. Continue?')) return;
+      if (!db) { alert('Database not ready.'); return; }
+      await idbClear('kpi'); await idbClear('audits'); await idbClear('stores');
+      await idbClear('actions'); await idbClear('settings'); await idbClear('area_winners_log');
+      await idbClear('area_metric_winners_log'); await idbClear('store_winners_log');
+      await idbClear('ingest_log'); await idbClear('tracker_audits'); await idbClear('eho_data');
+      await idbClear('complaints');
+      storeMap.clear(); originalStoreNames.clear();
+      window.ComplaintsData = null;
+      directoryHandle = null;
+      closeSettings();
+      document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">Data Cleared</h2><p class="text-slate-500 mb-6">Click "Select Data Folder" to reload.</p></div>';
+    }
+
+    // Boot: auto-sync from local folder on load
+    (function() {
+      // Load EHO ratings
+      if (typeof window.loadEHORatings === 'function') {
+        window.loadEHORatings();
+      }
+    })();
+
+    // Diagnostic: Test xlsx write to anchored folder
+    window.testXlsxWrite = async function() {
+      var c = console.log.bind(console);
+      var msg = '=== JSON Write Test ===\n\n';
+      c('[JSON Test] Starting...');
+      var dh = (typeof directoryHandle !== 'undefined' && directoryHandle) ? directoryHandle : null;
+      msg += 'Step 1 — Folder: ' + (dh ? dh.name : '❌ NOT ANCHORED') + '\n';
+      c('[JSON Test] Step 1 — Folder:', dh ? dh.name : 'NOT ANCHORED');
+      if (!dh) { msg += '\nFix: Settings → Select Data Folder'; alert(msg); return; }
+
+      // Step 2: Permission
+      try {
+        var opt = { mode: 'readwrite' };
+        var perm = await dh.queryPermission(opt);
+        c('[JSON Test] Step 2 — Permission query:', perm);
+        if (perm !== 'granted') {
+          perm = await dh.requestPermission(opt);
+          c('[JSON Test] Step 2 — Permission request:', perm);
+        }
+        msg += 'Step 2 — Permission: ' + perm + '\n';
+        if (perm !== 'granted') { msg += '❌ Denied'; alert(msg); return; }
+      } catch(e) { msg += 'Step 2 — ❌ ' + e.message; c('[JSON Test] Step 2 FAIL', e); alert(msg); return; }
+
+      // Step 3: Get Open/ folder
+      var openDir;
+      try {
+        openDir = await dh.getDirectoryHandle('Open', { create: true });
+        msg += 'Step 3 — ✅ Open/ folder ready\n';
+        c('[JSON Test] Step 3 — Open/ folder ready');
+      } catch(e) { msg += 'Step 3 — ❌ ' + e.message; c('[JSON Test] Step 3 FAIL', e); alert(msg); return; }
+
+      // Step 4: Write test JSON
+      try {
+        var testPayload = {
+          storeName: 'TEST STORE',
+          storeEmail: 'test@birdsofderby.co.uk',
+          auditor: 'Test Auditor',
+          manager: 'Test Manager',
+          areaManager: '',
+          date: new Date().toISOString().slice(0,10),
+          scores: { total: 85, food: 90, fire: 80, handS: 85, coffee: 80, customerJourney: 85, birdsFocus: 85 },
+          actions: [
+            { questionId: 'TEST-001', sector: 'Food', category: 'Test', question: 'Test question?', answer: 'Fail', description: 'Test desc', personResponsible: 'Manager', actionNeeded: 'Fix it', status: 'Open', critical: 'No' }
+          ]
+        };
+        var jsonStr = JSON.stringify(testPayload, null, 2);
+        var blob = new Blob([jsonStr], { type: 'application/json' });
+        var fh = await openDir.getFileHandle('test-write.json', { create: true });
+        var writable = await fh.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        msg += 'Step 4 — ✅ test-write.json saved to Open/\n';
+        c('[JSON Test] Step 4 — Write OK');
+      } catch(e) { msg += 'Step 4 — ❌ ' + e.message; c('[JSON Test] Step 4 FAIL', e); alert(msg); return; }
+
+      // Step 5: Read it back
+      try {
+        var readHandle = await openDir.getFileHandle('test-write.json');
+        var file = await readHandle.getFile();
+        var text = await file.text();
+        var parsed = JSON.parse(text);
+        msg += 'Step 5 — ✅ Read back: ' + parsed.storeName + ' (' + parsed.actions.length + ' actions)\n';
+        c('[JSON Test] Step 5 — Read OK:', parsed.storeName);
+      } catch(e) { msg += 'Step 5 — ❌ ' + e.message; c('[JSON Test] Step 5 FAIL', e); alert(msg); return; }
+
+      // Step 6: Read Open/ folder
+      try {
+        var count = 0;
+        var names = [];
+        for await (var entry of openDir.values()) {
+          if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+            count++;
+            names.push(entry.name);
+          }
+        }
+        msg += 'Step 6 — ✅ Open/ has ' + count + ' files: ' + names.join(', ') + '\n';
+        c('[JSON Test] Step 6 — Open/ files:', names);
+      } catch(e) { msg += 'Step 6 — ❌ ' + e.message; c('[JSON Test] Step 6 FAIL', e); }
+
+      // Step 7: Read Closed/ folder
+      try {
+        var closedDir = await dh.getDirectoryHandle('Closed');
+        var ccount = 0;
+        var cnames = [];
+        for await (var entry of closedDir.values()) {
+          if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+            ccount++;
+            cnames.push(entry.name);
+          }
+        }
+        msg += 'Step 7 — ✅ Closed/ has ' + ccount + ' files\n';
+        c('[JSON Test] Step 7 — Closed/ files:', ccount);
+      } catch(e) { msg += 'Step 7 — ⚠️ Closed/ folder not found\n'; c('[JSON Test] Step 7 — no Closed/ folder'); }
+
+      // Cleanup
+      try { await openDir.removeEntry('test-write.json'); msg += '\n🧹 Cleaned up test file\n'; } catch(e) {}
+
+      c('[JSON Test] Done:', msg);
+      alert(msg);
+    };
+  </script>
+  <script>
+    // Register fresh service worker after all scripts loaded
+    window.addEventListener('load', function() {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').then(function(reg) {
+          console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? reg.active.scriptURL : 'unknown'), 'scope:', reg.scope);
+        }).catch(function(err) {
+          console.warn('[SW] Registration failed:', err);
+        });
+      }
+    });
+  </script>
+</body>
+</html>

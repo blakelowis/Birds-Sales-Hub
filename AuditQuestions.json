@@ -1,0 +1,2217 @@
+{
+  "food": {
+    "title": "Food",
+    "categories": [
+      {
+        "id": "5lgh0is",
+        "name": "Hazard Analysis and Critical Control Points (HACCP)",
+        "questions": [
+          {
+            "id": "muhmz1y",
+            "text": "Can staff give an example of what a critical control point (CCP) is? (ask staff members)",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "wfmyeax",
+            "text": "Are staff fully aware of the corrective actions to be taken as stated in the HACCP if a fault occurs? (ask staff members)",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "85d16f5",
+        "name": "Deliveries & Goods In",
+        "questions": [
+          {
+            "id": "90afac0",
+            "text": "Any current issues with goods being delivered",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "61b2a9d",
+            "text": "Are products rejected if damaged, out of date, or delivered at incorrect temperature?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "a81e766",
+            "text": "Are chemicals delivered and stored separately from food products?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "fq57r5w",
+        "name": "Storage / Cold Storage",
+        "questions": [
+          {
+            "id": "69qt3z6",
+            "text": "Is the meat divider in use?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "iby6x4p",
+            "text": "Is prep area stock rotated correctly and not out of date (include sauces/meats/drinks)?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "7qeyvxt",
+            "text": "Are all fridge door seals clean (inside fold) and intact?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "nv9lu5d",
+            "text": "Calibrate the probe:\nIs the probe within 0.5\u00b0C of the test cap? If not contact head office immediately.",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "meso47z",
+            "text": "Is food always covered and labelled when storing overnight? Use by date.",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "rw1hf8z",
+            "text": "Is food correctly loaded in the fridge i.e. raw at the bottom, cooked at the top?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "c022yl8",
+            "text": "Is the shop probe calibrated every 3 months using test caps and records up to date?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "6v5oeli",
+            "text": "Measure the temperatures of all of the below. Are all fridges below 8\u00b0C and all freezers below -18\u00b0C?\nIf no, contact maintenance and head office must be informed immediately.",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "o505eq9",
+            "text": "Measure the refrigerated temperature of:savoury product and cream product\u00a0Are both below 8\u00b0C? If not contact head office immediately.",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "nth91gw",
+            "text": "Are daily temperature sheets completed?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "8qa98vq",
+            "text": "Are all maintenance issues regarding refrigeration logged in shire",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "infrared_probe_results",
+        "name": "Infrared probe results",
+        "questions": [
+          {
+            "id": "ipr1",
+            "text": "Cream Chiller: Left Back",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr2",
+            "text": "Cream Chiller Left Front",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr3",
+            "text": "Cream Chiller Front Centre",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr4",
+            "text": "Cream Chiller Right Front",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr5",
+            "text": "Cream Chiller Right Back",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr6",
+            "text": "Cream Chiller Centre Back",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr7",
+            "text": "Savoury Chiller Left Back",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr8",
+            "text": "Savoury Left Front",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr9",
+            "text": "Savoury Centre Front",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr10",
+            "text": "Savoury Chiller Front Right",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr11",
+            "text": "Savoury Chiller Back Right",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ipr12",
+            "text": "Savoury Chiller Back Centre",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "3l98e1r",
+        "name": "Storage / Ambient Storage",
+        "questions": [
+          {
+            "id": "i99421p",
+            "text": "Are all staff aware of the 4-hour rule for sandwiches? Is it in practice if required (ask staff members)",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "qskgd9e",
+            "text": "Are all items stored off the floor?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "tk2206c",
+        "name": "Bake Off / Hot Product Holding",
+        "questions": [
+          {
+            "id": "owlme51",
+            "text": "Are all staff aware of the two hour rule for bake off? (ask staff members)",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "69gm0el",
+            "text": "Ask a staff member, what is the minimum product temperature for holding hot sausage and hot roast pork? Did they answer above 63\u00b0C?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "bqn5cmu",
+            "text": "Ask a staff member, what minimum temperature should products be baked to? Did they answer above 75\u00b0C?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "hik6b6s",
+            "text": "Check the temperature of a product leaving the oven. Is it in line with the temperatures above?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "r3sfxde",
+            "text": "Is the bake-off temperature being recorded by the shop and is this up to date?",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "new_sample_bakeoff",
+        "name": "Sample Bake off product",
+        "questions": [
+          {
+            "id": "sample_1",
+            "text": "What product has been taken to sample?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "sample_2",
+            "text": "When was product cooked and how long for?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "sample_3",
+            "text": "Probe product. What is the internal temperature reading at?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "sample_4",
+            "text": "Take photo of product and cut open. Does the inside of product meet company standards?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "9rp6cxq",
+        "name": "Raw / Cooked Product Handling",
+        "questions": [
+          {
+            "id": "tvd1o8d",
+            "text": "Are utensils used for cooked / raw meats stored separately and identifiable?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "dgxxxzd",
+            "text": "Are hands always washed immediately before and after handling raw product (including raw bake off)?",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "u3et4jo",
+            "text": "Is the probe wiped with an antibacterial wipe after each use?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "2qbpll2",
+        "name": "Personal Hygiene & Food Environment",
+        "questions": [
+          {
+            "id": "0txik6d",
+            "text": "Is all the correct signage in use: NOW WASH HANDS after toilets/restrooms  HAND WASH/ UTENSIL WASH ONLY above sinks  NO SMOKING at shop door NO DOGS at shop door Hairnets/Hair coverings",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "bdcth4u",
+            "text": "Handwash sinks do not have utensils in them.",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "qh1ev7j",
+            "text": "Handwash sinks are clean, have hot water, soap and a towel dispenser.\nIn the event any of the above are missing, contact maintenance and head office.",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "0cm10s8",
+            "text": "Staff are dressed correctly and clothing is clean.",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "dcy8e6i",
+            "text": "Does the manager know the procedure on staff illness, sickness and diarrhea? (ask manager)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "f80s73s",
+            "text": "Glass on display units is intact, particularly on edges. If no, report to maintenance immediately.",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "k452uep",
+            "text": "Is the manager aware of the glass breakage procedure?\u00a0Do they have a glass clean up kit?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "2eq7d16",
+            "text": "Are there NO foreign body threats? (shelves above prep, holes in walls, loose screws, damaged surfaces, etc.)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "k1dz33w",
+            "text": "Are there NO outstanding pest control issues?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "wqcpu53",
+        "name": "Cleaning and Chemical Use",
+        "questions": [
+          {
+            "id": "mnjbi6k",
+            "text": "Are there any areas of the shop that are not being cleaned correctly?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "wuf7gn2",
+            "text": "Are the structure and fittings smooth and easy to clean?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "k3zmfjs",
+            "text": "Is there an adequate stock of chemicals? (not overstock)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "wuftim2",
+            "text": "Are chemicals being stored away from food / packaging?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "hhial9t",
+            "text": "Floors under equipment such as fridges is free from debris?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cp4z2xr",
+            "text": "All waste is in lidded bins and areas are tidy?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "gmffgpe",
+        "name": "Cross contamination",
+        "questions": [
+          {
+            "id": "n5x6sny",
+            "text": "Do staff weara hairnet and wash hands when preparing food in prep area?",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "nkx7pfi",
+            "text": "Are boards being switched and surfaces being cleaned between changing fillings for filled rolls and sandwiches?",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "pvtw450",
+        "name": "Records, Equipment & Recall",
+        "questions": [
+          {
+            "id": "w91bn95",
+            "text": "Is the temperature file/check book readily available and all checks up to date",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "aqwaopm",
+            "text": "Calibrate the shop scales: Are all scales in good working order? Report any faults to maintenance immediately.",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cn08omy",
+            "text": "Are staff aware of the product recall procedure? (ask staff members)",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  },
+  "health": {
+    "title": "Health & Safety",
+    "categories": [
+      {
+        "id": "cej0q18",
+        "name": "General Workplace Environment",
+        "questions": [
+          {
+            "id": "9wngj5w",
+            "text": "Is the shop generally clean and tidy?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "seewxlc",
+            "text": "Are floors free from obstructions and trip hazards e.g. clutter, trailing cables?",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "kifl9cx",
+            "text": "BOH, are floors in good condition and non-slip",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "2soqu4i",
+            "text": "Is there adequate storage for materials and equipment?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "8cmcrr8",
+            "text": "Are boxes/items stored to prevent objects falling/collapsing?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "wsq921k",
+            "text": "Is racking/storage shelving secure, stable and in good condition?",
+            "weight": 10,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "urf567n",
+            "text": "Is proof of employers liability insurance on display and is it in date?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "0qd9xmd",
+            "text": "Is there a health and safety law poster on display with the relevant details included?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "13jpdjw",
+            "text": "Are there no sharp edges which could cause injury?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "qa76fhr",
+            "text": "Can the manager on shift tell you where the water/electricity cut-off is? Are they labelled?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "dtc2x1o",
+        "name": "Entrance/Exit",
+        "questions": [
+          {
+            "id": "hxo0ki0",
+            "text": "If there are glazed doors/fronts is there sufficient logos or bands?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "m9dhqrg",
+            "text": "Do doors open without introducing risks to customers/public?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "7cue3hw",
+            "text": "Is there a sign offering customers assistance if required?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "dm7fx9o",
+        "name": "Welfare",
+        "questions": [
+          {
+            "id": "uhdbntu",
+            "text": "Is there adequate ventilation to remove fumes e.g. oven steam?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "l6a4hu9",
+            "text": "Is the staff toilet functioning and clean with adequate handwashing facilities?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "4mfp65e",
+            "text": "Are there suitable break facilities including seating, facilities for having a meal and hot water?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "ogovhrb",
+        "name": "Machinery and Equipment",
+        "questions": [
+          {
+            "id": "q72e7kt",
+            "text": "Are there any obvious signs of wear and tear or damage that could affect the safety of the machinery or equipment?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "v07ubj5",
+        "name": "Hazardous Substances",
+        "questions": [
+          {
+            "id": "hkdz5gw",
+            "text": "Are hazardous substances stored safely and securely?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "olo4kdw",
+            "text": "Are hazardous substances in appropriate containers and not decanted in unmarked containers?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ttmzrtp",
+            "text": "Are there COSHH assessments and safety data sheets available for all hazardous substances? (no personal/unapproved chemicals on site)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "74li6n8",
+        "name": "Manual Handling",
+        "questions": [
+          {
+            "id": "0pi726y",
+            "text": "If manual handling is observed during the inspection visit, do staff lift with the correct technique?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "ab9p1o8",
+        "name": "Personal Protective Equipment",
+        "questions": [
+          {
+            "id": "6s5w7an",
+            "text": "Is there adequate PPE on site including oven gloves, rhino sleeves, disposable gloves and goggles?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "p1opv1p",
+            "text": "If observed, do staff use the PPE required for the task (as stipulated in the applicable assessment)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "olg97id",
+        "name": "Mental Health and Stress",
+        "questions": [
+          {
+            "id": "s5z35n6",
+            "text": "Are contact details for the mental health first aiders/advocates and other resources displayed in an area visible to all employees?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "jgeknb7",
+        "name": "Aggression and Violence",
+        "questions": [
+          {
+            "id": "q0sq6u0",
+            "text": "Have all incidents of violence and aggression been reported back to head office?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "806x0m3",
+            "text": "Are the risks of violence and aggression adequately controlled? (discuss with manager)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "wwd9xp2",
+        "name": "Asbestos",
+        "questions": [
+          {
+            "id": "1tv6yin",
+            "text": "Has an asbestos survey been carried out where appropriate and is it available to internal maintenance engineers and external contractors?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ja3ud3s",
+            "text": "Are any asbestos containing materials clearly labelled?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "6oxsedf",
+        "name": "Legionella",
+        "questions": [
+          {
+            "id": "3oj8cvi",
+            "text": "Is there a suitable and sufficient legionella risk assessment dated within the last 2 years?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "7td3741",
+            "text": "Are control measures as specified in the legionella risk assessment adhered to?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "nq0ifn4",
+        "name": "Vulnerable Persons",
+        "questions": [
+          {
+            "id": "qfdgjcr",
+            "text": "Is there a specific risk assessment in place for any vulnerable persons including new and expectant mothers and those with physical or mental health illnesses or disabilities?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  },
+  "fire": {
+    "title": "Fire",
+    "categories": [
+      {
+        "id": "rkhsx5o",
+        "name": "Ignition Sources",
+        "questions": [
+          {
+            "id": "sg87iz0",
+            "text": "Are any portable heating appliances fixed at a safe distance away from combustible materials and suitably guarded? Have current PAT test?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "jqkoqkl",
+            "text": "Are external waste disposal bins stored a minimum of 6m away from any part of the premises?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "es3c102",
+            "text": "Are there NO multiplug adaptors/extension leads in use?",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "nkpemnv",
+            "text": "Does the shop have necessary call point test keys",
+            "weight": 5,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "qlunlxd",
+            "text": "Are there NO light bulbs and fittings next to flammable materials?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "c9n0tfr",
+            "text": "Is there NO visibly damaged/faulty electrical equipment?Has it been reported to maintenance?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "io3oick",
+            "text": "Is there NO security issues which increase the risk of arson?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "rww4irq",
+        "name": "Fuel Sources & Kitchen Fire Risk",
+        "questions": [
+          {
+            "id": "063xwcz",
+            "text": "Are any flammable substances stored safely?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "tjjfph3",
+            "text": "Does all furniture upholstery comply with current fire regulations?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "c7c9p98",
+            "text": "Is there NO build up of combustibles inside the property? (e.g. cardboard, paper)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "571fq5s",
+            "text": "Is there NO build up of combustibles outside the property? (e.g. cardboard, wood)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "5naqpwq",
+            "text": "Walls and ceiling are NOT covered with flammable linings? (e.g. polystyrene panels)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "s4c5dyk",
+            "text": "Is oven extractor clean and fully operational",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "suytpr4",
+            "text": "Is there NO unnecessary build up of other combustibles (e.g. furniture, fabrics, artificial foliage, decorations)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "atq940h",
+        "name": "Structural",
+        "questions": [
+          {
+            "id": "lu2e2qe",
+            "text": "Are there NO unsealed holes in ceilings, walls, doors which would increase the rate of fire spread (fire stopping)? E.g. around pipework, cabling",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "5w66bf6",
+        "name": "Escape Routes and Doors",
+        "questions": [
+          {
+            "id": "nlhy50h",
+            "text": "Can all fire exits be opened immediately and easily? If electronic locks are fitted is there a functioning release button?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "8xkm6kj",
+            "text": "Do fire exit doors open in the direction of escape?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "opcx8tg",
+            "text": "Is the risk adequately controlled if the fire exit leads to a change in level? E.g. ramp, warning label",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "qjhjp4i",
+            "text": "Are escape routes clear of obstruction?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "8p53yqo",
+            "text": "Are the correct directional fire exit and fire exit signs displayed?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "dnb0bwy",
+            "text": "Are luminaires and exit signs in good condition and undamaged?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "w8w799n",
+            "text": "Are external escape stairs in good condition and non-slip? (if applicable)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "qp3l40n",
+            "text": "Are exit routes to the required width? (\u2265750 mm, or \u2265900 mm if wheelchair users may be present)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "xu4pi9w",
+            "text": "Is the exit travel distance suitable?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "hdojmb4",
+            "text": "Are fire doors closed and not propped open?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "g0cu9tn",
+            "text": "Do all fire doors display a \u201cfire door keep closed\u201d sign?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "6nyxees",
+            "text": "Are all fire doors fitted with intumescent strips and smoke seals?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "63dydkx",
+            "text": "Are there NO large gaps between the fire doors and frames (report anything thicker than a \u00a31 coin)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "f09xnf6",
+        "name": "Fire Alarms, Detection and Emergency Lighting",
+        "questions": [
+          {
+            "id": "p0tftv8",
+            "text": "Is a suitable fire alarm system installed which provides detection across the premises and alerts all employees and tenants (if applicable) in the event of a fire?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "lwq9oa3",
+            "text": "Is there sufficient emergency lighting? (illuminating rooms and escape routes)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "9qjfa3c",
+            "text": "Is the fire alarm panel easily accessible and visually undamaged?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "82ah3vd",
+            "text": "Is there a zone map next to the fire alarm panel?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "a5w9a4p",
+            "text": "Are detectors NOT covered and visibly undamaged?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "m1839j9",
+            "text": "Are there break glass call points at suitable points? (exits)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "mr0juod",
+        "name": "Fixed Installations and Firefighting Equipment",
+        "questions": [
+          {
+            "id": "mg4n0h4",
+            "text": "Are there suitable and sufficient fire extinguishers present?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "azf6hi0",
+            "text": "Are extinguishers secured to the wall or in a suitable stand?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "3wlrhf2",
+            "text": "Are there instruction signs adjacent to all fire extinguishers?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "gsm6ete",
+            "text": "If a sprinkler system is present is the panel clearly labelled?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "0rkx92q",
+        "name": "Fire Safety Management",
+        "questions": [
+          {
+            "id": "6yfa09u",
+            "text": "Is there a copy of the most recent fire safety policy available to staff (online training platform)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "n81iol0",
+            "text": "Is there a fire emergency plan in place in line with Birds Fire Safety Policy?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "0rlwgwa",
+            "text": "Are staff, including managers, suitably trained in fire safety? (online training modules)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "z59cxpr",
+            "text": "Are fire evacuation drills carried out at least every 3 months and recorded?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cqbko60",
+            "text": "Are there special arrangements (Personal Emergency Evacuation Plan (PEEP) in place for high-risk personnel e.g. disabled employees, lone workers?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "rbx5aty",
+            "text": "Is there a fire action notice clearly displayed in the shop which is visible to customers?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "fuq8fju",
+            "text": "Is an up to date, suitable and sufficient fire risk assessment which is available to staff? (review at least every 2 years or upon significant change)",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "ica5q60",
+        "name": "Testing and Maintenance of Equipment",
+        "questions": [
+          {
+            "id": "ubv97zl",
+            "text": "Has portable electrical equipment been tested in the past 24 months (PAT)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "plby3h7",
+            "text": "Has fixed electrical testing been undertaken in the past 5 years?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "58ctzcd",
+            "text": "Has the fire alarm system been serviced by a competent person in the past 6 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "d2qhg3n",
+            "text": "Has the emergency lighting been drain tested by a competent person in the past 6 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "mc8uyx0",
+            "text": "Have the fire extinguishers/blankets been serviced by a competent person in the past 12 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "n1d1z9c",
+            "text": "If present, has the sprinkler system been serviced by a competent person in the past 6 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "dl2dr6i",
+            "text": "Have refrigeration units been serviced within the past 12 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "6jsan2l",
+            "text": "Have air conditioning units been serviced within the past 12 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "4q702cm",
+            "text": "Has the fire alarm been tested by staff weekly and recorded, rotating the call point each week?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cqr5fve",
+            "text": "Have extinguishers/blankets been visually checked monthly and recorded?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cx6r04i",
+            "text": "Has the emergency lighting been flick tested monthly and recorded?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "d333gzq",
+            "text": "Has the sprinkler system been tested by staff and recorded every 3 months?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  },
+  "coffee": {
+    "title": "Coffee",
+    "categories": [
+      {
+        "id": "pzx415x",
+        "name": "External",
+        "questions": [
+          {
+            "id": "oa3ia9g",
+            "text": "Within viewing range how many other stores offer coffee?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "zqjone8",
+            "text": "Any signs/POS that the store sells coffee?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "0hiw2wb",
+            "text": "Coffee machine visible from outside?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ymr2e8o",
+            "text": "Is there a tea urn in the store?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "fxrpqzb",
+        "name": "Coffee machine",
+        "questions": [
+          {
+            "id": "wrzslvd",
+            "text": "Where is the coffee machine located?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "z489jo4",
+            "text": "Any POS advertising coffee?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "zopb9t7",
+            "text": "Enough cups, lids, sugar etc. accessible?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "2b1jlo1",
+            "text": "Observe service \u2013 are customers offered hot drinks? How?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "q82kg02",
+            "text": "How many coffees have been made before time of visit?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "19u4j0s",
+            "text": "Hopper appropriately filled with beans?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "rd7a6ql",
+            "text": "Do the beans look/smell fresh?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "sfuczcx",
+            "text": "Coffee station clean and tidy?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "ve0dqj4",
+            "text": "Is the hopper clean?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "tprzog6",
+            "text": "Open beans kept in an airtight container?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "74togfu",
+            "text": "Container labelled and dated?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "qqaa743",
+        "name": "Measurement \u2013 Technical Information",
+        "questions": [
+          {
+            "id": "s3n9bia",
+            "text": "Brew time of double espresso (21\u201325s)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "efhj1u1",
+            "text": "Double espresso weight (45\u201350g)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "4jhromg",
+            "text": "If out of range, did fresh beans correct the issue?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "1naq4yr",
+            "text": "Machine recently serviced?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "the0npj",
+            "text": "Any current issues with the coffee machine?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "yxucwaw",
+        "name": "Other observations",
+        "questions": [
+          {
+            "id": "92vuo5t",
+            "text": "Is the ice machine clean?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  },
+  "customer": {
+    "title": "Customer Journey",
+    "categories": [
+      {
+        "id": "o2ncagm",
+        "name": "Customer Journey",
+        "questions": [
+          {
+            "id": "cj_new_1",
+            "text": "Is the external part of the building well presented (e.g. no cracks, slip or trip hazards)?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_2",
+            "text": "Is there a sign offering customer assistance?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_3",
+            "text": "Is there a sign clearly stating opening times?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_4",
+            "text": "Is there a member of staff present behind the bar and/or on the shop floor?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_5",
+            "text": "Is the internal flooring in good condition?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_6",
+            "text": "Is all internal and external signage in good condition and clearly readable?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_7",
+            "text": "Are all products well displayed?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_8",
+            "text": "Are any products broken or damaged and requiring removal?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_9",
+            "text": "Do all products have tickets clearly displayed and in good condition?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_10",
+            "text": "Are all customer products in date and displayed in the correct date order?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_11",
+            "text": "Are all lights working and adequately illuminating the customer areas?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_12",
+            "text": "Is the air conditioning clean and fully operational?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_13",
+            "text": "Are all customer-facing surfaces and floors free from dust and debris?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_14",
+            "text": "Are customer toilets clean, well stocked and is the door fully operational?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "cj_new_15",
+            "text": "If tables and chairs are provided, are they neatly arranged and in good working condition?",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  },
+  "birds_focus": {
+    "title": "Birds Focus",
+    "categories": [
+      {
+        "id": "cd27bdf",
+        "name": "Energy",
+        "questions": [
+          {
+            "id": "97de397",
+            "text": "What are the hot plate settings",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "65e8672",
+            "text": "What is the heat lamp dial set to",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "69158df",
+            "text": "FOH: what are the fridges set to",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "c824628",
+            "text": "BOH: what are the fridges set to",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "6a6877b",
+            "text": "Aircon: what are they set to",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      },
+      {
+        "id": "4ff8d9d",
+        "name": "Training",
+        "questions": [
+          {
+            "id": "7270e5c",
+            "text": "Do all members of management have current Level 3 Food Safety",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          },
+          {
+            "id": "f2fb34b",
+            "text": "Do all team members have current Level 2 Food Safety",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  },
+  "test": {
+    "title": "TEST",
+    "categories": [
+      {
+        "id": "test_cat_1",
+        "name": "TEST",
+        "questions": [
+          {
+            "id": "test_q_1",
+            "text": "Please click close button",
+            "weight": 1,
+            "answer": null,
+            "photo": null,
+            "photoThumb": null,
+            "action": null,
+            "comment": ""
+          }
+        ]
+      }
+    ]
+  }
+}
