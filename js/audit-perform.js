@@ -1571,8 +1571,7 @@ window.importMobileAuditZIP = async function(event) {
     var week = meta.week || getISOWeek(d);
 
     if (meta.isTraining) {
-      alert('This is a training audit \u2014 not importing.');
-      return;
+      console.log('[Import] Training audit detected — importing as training');
     }
 
     var existing = await idbGet('audits', [meta.storeName, year, week]);
@@ -1592,7 +1591,8 @@ window.importMobileAuditZIP = async function(event) {
       HandS: scores.sectors.hs || 0,
       Journey: scores.sectors.journey || 0,
       Coffee: scores.sectors.coffee || 0,
-      Focus: scores.sectors.focus || 0
+      Focus: scores.sectors.focus || 0,
+      isTraining: meta.isTraining || false
     };
     await idbPut('audits', auditRecord);
     console.log('[Import] Saved audit record:', auditRecord);
@@ -1621,6 +1621,7 @@ window.importMobileAuditZIP = async function(event) {
         HowClosed: '',
         ExtraComment: '',
         Critical: a.critical || 'No',
+        isTraining: meta.isTraining || false,
         _source: 'mobile_zip_import'
       });
       importedCount++;
@@ -1636,7 +1637,7 @@ window.importMobileAuditZIP = async function(event) {
     }
 
     alert(
-      'Import complete: ' + meta.storeName + '\n' +
+      'Import complete: ' + meta.storeName + (meta.isTraining ? ' [TRAINING]' : '') + '\n' +
       'Week ' + week + ', ' + year + ' \u2014 Score: ' + scores.overall + '%\n' +
       importedCount + ' action items imported' +
       (photoCount ? '\n' + photoCount + ' photos in ZIP' : '')
