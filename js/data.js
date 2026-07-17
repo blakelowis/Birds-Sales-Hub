@@ -207,17 +207,17 @@ window.syncData = async function() {
   if (!directoryHandle) { alert("Please anchor a master folder first using 'Select Data Folder'."); return; }
   const hasPerm = await verifyPermission(directoryHandle, false);
   if(!hasPerm) { alert("Permission is needed to access the anchored folder. When prompted, choose Allow. If you no longer have access, use 'Select Data Folder' to re-anchor."); return; }
-  let cachedFiles = [];
+  let localFiles = [];
   let trackerJson = null;
   try {
       for await (const entry of directoryHandle.values()) {
-          if (entry.kind === 'file' && (entry.name.endsWith('.xlsx') || entry.name.endsWith('.csv')) && !entry.name.startsWith('~')) cachedFiles.push(await entry.getFile());
+          if (entry.kind === 'file' && (entry.name.endsWith('.xlsx') || entry.name.endsWith('.csv')) && !entry.name.startsWith('~')) localFiles.push(await entry.getFile());
           if (entry.kind === 'file' && entry.name === 'tracker_data.json') trackerJson = await entry.getFile();
       }
   } catch (err) { alert("Could not scan directory. Ensure the folder still exists."); window.__dataStatus.syncOk = false; return; }
-  window.__dataStatus.filesFound = cachedFiles.length + (trackerJson ? 1 : 0);
-  if (cachedFiles.length === 0 && !trackerJson) { document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json files found in the selected folder."; window.__dataStatus.syncOk = false; return; }
-  if (cachedFiles.length > 0) await processFiles(cachedFiles, 'file');
+  window.__dataStatus.filesFound = localFiles.length + (trackerJson ? 1 : 0);
+  if (localFiles.length === 0 && !trackerJson) { document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json files found in the selected folder."; window.__dataStatus.syncOk = false; return; }
+  if (localFiles.length > 0) await processFiles(localFiles, 'file');
   window.__dataStatus.syncOk = true;
   window.__dataStatus.ts = Date.now();
   window.__dataStatus.source = 'folder';
