@@ -179,14 +179,36 @@ function auditCollectComments() {
     var sec = auditState.sectors[sid];
     sec.categories.forEach(function(cat) {
       cat.questions.forEach(function(q) {
-        if ((q.comment && q.comment.trim()) || (q.action && q.action.enabled)) return;
-        if (q.photoThumb || q.extraPhotoThumb || q.extraPhoto2Thumb) {
-          items.push({ sector: sec.title, category: cat.name, question: q.text, answer: q.answer, photoThumb: q.photoThumb, extraPhotoThumb: q.extraPhotoThumb, extraPhoto2Thumb: q.extraPhoto2Thumb });
-        }
+        if (!q.comment || !q.comment.trim()) return;
+        if (q.action && q.action.enabled) return;
+        items.push({ sector: sec.title, category: cat.name, question: q.text, answer: q.answer, comment: q.comment, photoThumb: q.photoThumb, extraPhotoThumb: q.extraPhotoThumb, extraPhoto2Thumb: q.extraPhoto2Thumb });
       });
     });
   });
   return items;
+}
+
+function auditCollectAllComments() {
+  var withPhotos = [];
+  var withoutPhotos = [];
+  auditSectorKeys().forEach(function(sid) {
+    var sec = auditState.sectors[sid];
+    sec.categories.forEach(function(cat) {
+      cat.questions.forEach(function(q) {
+        if (!q.comment && !q.photoThumb && !q.extraPhotoThumb && !q.extraPhoto2Thumb) return;
+        var item = {
+          sector: sec.title, category: cat.name,
+          question: q.text, answer: q.answer,
+          comment: q.comment || '',
+          photoThumb: q.photoThumb, extraPhotoThumb: q.extraPhotoThumb, extraPhoto2Thumb: q.extraPhoto2Thumb
+        };
+        var hasPhotos = item.photoThumb || item.extraPhotoThumb || item.extraPhoto2Thumb;
+        if (hasPhotos) withPhotos.push(item);
+        else withoutPhotos.push(item);
+      });
+    });
+  });
+  return { withPhotos: withPhotos, withoutPhotos: withoutPhotos };
 }
 
 function auditCollectEvidence() {
@@ -1326,7 +1348,7 @@ async function auditGeneratePDF() {
 
   function checkPage(needed) { if (y + needed > H - M) { doc.addPage(); y = M; } }
 
-  // Header
+  // ── SECTION 1: Header & Scores ──────────────────────────────
   doc.setFillColor(0, 168, 142);
   doc.rect(0, 0, W, 32, 'F');
   doc.setTextColor(255, 255, 255);
@@ -1341,41 +1363,32 @@ async function auditGeneratePDF() {
   // Info Grid
   doc.setTextColor(60, 60, 60);
   doc.setFontSize(9);
-  doc.setFont(undefined, 'bold');
   var infoLabels = ['Store', 'Area Manager', 'Manager', 'Auditor'];
   var infoValues = [auditState.storeName, auditState.areaManager, auditState.manager, auditState.auditor];
   for (var i = 0; i < 4; i++) {
-    var col = i % 2;
-    var row = Math.floor(i / 2);
-    var ix = M + col * (CW / 2);
-    var iy = y + row * 12;
-    doc.setFont(undefined, 'bold');
-    doc.text(infoLabels[i] + ':', ix, iy);
-    doc.setFont(undefined, 'normal');
-    doc.text(infoValues[i] || '—', ix + 25, iy);
+    var col = i % 2, row = Math.floor(i / 2);
+    var ix = M + col * (CW / 2), iy = y + row * 12;
+    doc.setFont(undefined, 'bold'); doc.text(infoLabels[i] + ':', ix, iy);
+    doc.setFont(undefined, 'normal'); doc.text(infoValues[i] || '—', ix + 25, iy);
   }
   y += 30;
 
   // Summary
   if (auditState.summary) {
     checkPage(15);
-    doc.setFont(undefined, 'italic');
-    doc.setFontSize(9);
-    doc.text('Summary: ' + auditState.summary, M, y);
-    y += 10;
+    doc.setFont(undefined, 'italic'); doc.setFontSize(9);
+    doc.text('Summary: ' + auditState.summary, M, y); y += 10;
   }
 
-  // Score Section
+  // Overall Score
   var overall = auditOverallMetrics();
   checkPage(35);
   doc.setFillColor(240, 253, 250);
   doc.roundedRect(M, y, CW, 25, 3, 3, 'F');
-  doc.setFontSize(28);
-  doc.setFont(undefined, 'bold');
+  doc.setFontSize(28); doc.setFont(undefined, 'bold');
   doc.setTextColor(0, 168, 142);
   doc.text(overall.pct + '%', M + 5, y + 17);
-  doc.setFontSize(9);
-  doc.setTextColor(100, 100, 100);
+  doc.setFontSize(9); doc.setTextColor(100, 100, 100);
   doc.text('Overall Score (' + overall.totalMax + ' max points)', M + 50, y + 10);
   if (overall.totalCritical > 0) {
     doc.setTextColor(200, 50, 50);
@@ -1383,102 +1396,180 @@ async function auditGeneratePDF() {
   }
   y += 32;
 
-  // Sector scores
+  // Sector Scores
   checkPage(20);
-  var secX = M;
   var secW = CW / 6 - 2;
   overall.sectorData.forEach(function(s, idx) {
     var sx = M + idx * (secW + 2);
     var rag = s.metrics.failed ? [255, 200, 200] : s.metrics.penalisedPct >= 95 ? [209, 250, 229] : s.metrics.penalisedPct >= 90 ? [220, 252, 231] : s.metrics.penalisedPct >= 80 ? [254, 243, 199] : [254, 226, 226];
     doc.setFillColor(rag[0], rag[1], rag[2]);
     doc.roundedRect(sx, y, secW, 18, 2, 2, 'F');
-    doc.setFontSize(11);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(60, 60, 60);
+    doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(60, 60, 60);
     doc.text(s.metrics.penalisedPct + '%', sx + secW / 2, y + 8, { align: 'center' });
-    doc.setFontSize(6);
-    doc.setFont(undefined, 'normal');
+    doc.setFontSize(6); doc.setFont(undefined, 'normal');
     doc.text(s.title, sx + secW / 2, y + 14, { align: 'center' });
   });
   y += 25;
 
-  // Action Items
-  var actions = auditGetActions();
-  if (actions.length > 0) {
+  // ── SECTION 2: Critical Actions ─────────────────────────────
+  var allActions = auditGetActions();
+  var criticalActions = allActions.filter(function(a) { return a.action.critical; });
+  var nonCriticalActions = allActions.filter(function(a) { return !a.action.critical; });
+
+  if (criticalActions.length > 0) {
     checkPage(15);
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(40, 40, 40);
-    doc.text('Action Items (' + actions.length + ')', M, y);
-    y += 6;
+    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(200, 50, 50);
+    doc.text('Critical Actions (' + criticalActions.length + ')', M, y); y += 6;
 
-    for (var ai = 0; ai < actions.length; ai++) {
-      var item = actions[ai];
-      checkPage(25);
-      doc.setFillColor(255, 251, 235);
-      doc.roundedRect(M, y, CW, 22, 2, 2, 'F');
-      doc.setFontSize(8);
-      doc.setFont(undefined, 'bold');
-      doc.setTextColor(60, 60, 60);
-      var critTag = item.action.critical ? ' [CRITICAL]' : '';
-      doc.text(item.sector + ' > ' + item.category + critTag, M + 3, y + 5);
-      doc.setFont(undefined, 'normal');
-      doc.setFontSize(7);
-      doc.text(item.action.description || item.question, M + 3, y + 11);
-      doc.text('Responsible: ' + (item.action.person || '—') + '  |  Status: ' + (item.action.status || 'Open'), M + 3, y + 16);
-      y += 24;
+    for (var ci = 0; ci < criticalActions.length; ci++) {
+      var item = criticalActions[ci];
+      var cardH = 24;
+      // Estimate photo height
+      var hasAnyPhoto = item.photos[0] || item.photos[1] || item.photos[2];
+      if (hasAnyPhoto) cardH = 70;
 
-      // First photo in action card
-      if (item.photos[0]) {
-        try {
-          var ph = await addPhotoToDoc(doc, item.photos[0], M + 3, y, 40, 30);
-          if (ph) y += ph + 2;
-        } catch(e) {}
-      }
-    }
-  }
-
-  // Evidence Photos (2nd and 3rd)
-  var evidence = auditCollectEvidence();
-  if (evidence.length > 0) {
-    checkPage(15);
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(40, 40, 40);
-    doc.text('Evidence Photos', M, y);
-    y += 6;
-
-    for (var ei = 0; ei < evidence.length; ei++) {
-      var ev = evidence[ei];
-      var photos = [ev.photo2, ev.photo3].filter(Boolean);
-      var cardH = 40;
       checkPage(cardH + 5);
-      doc.setFillColor(248, 250, 252);
+
+      // Card background with red left border
+      doc.setFillColor(254, 226, 226);
       doc.roundedRect(M, y, CW, cardH, 2, 2, 'F');
-      doc.setFontSize(7);
-      doc.setFont(undefined, 'bold');
-      doc.setTextColor(80, 80, 80);
-      doc.text(ev.sector + ' > ' + ev.category, M + 3, y + 5);
-      doc.setFont(undefined, 'normal');
-      doc.setFontSize(6);
-      doc.text(ev.question, M + 3, y + 10);
-      y += 13;
-      for (var pi = 0; pi < photos.length; pi++) {
-        try {
-          var ph2 = await addPhotoToDoc(doc, photos[pi], M + 3 + pi * 45, y, 42, 28);
-        } catch(e) {}
+      doc.setFillColor(220, 38, 38);
+      doc.roundedRect(M, y, 4, cardH, 1, 1, 'F');
+
+      // Text content
+      doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(60, 60, 60);
+      doc.text(item.sector + ' > ' + item.category + ' [CRITICAL]', M + 8, y + 5);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(7);
+      doc.text(item.action.description || item.question, M + 8, y + 11);
+      doc.text('Responsible: ' + (item.action.person || '—') + '  |  Status: ' + (item.action.status || 'Open'), M + 8, y + 16);
+
+      // Photos — large, side by side
+      if (hasAnyPhoto) {
+        var photoY = y + 20;
+        var photoX = M + 8;
+        var photoW = 55, photoH = 45;
+        for (var pi = 0; pi < item.photos.length; pi++) {
+          if (!item.photos[pi]) continue;
+          try {
+            var ph = await addPhotoToDoc(doc, item.photos[pi], photoX, photoY, photoW, photoH);
+            photoX += photoW + 3;
+            if (photoX + photoW > M + CW) break;
+          } catch(e) {}
+        }
       }
-      y += cardH - 10;
+
+      y += cardH + 4;
     }
   }
 
-  // All Answered Questions Table
+  // ── SECTION 3: Non-Critical Actions ─────────────────────────
+  if (nonCriticalActions.length > 0) {
+    checkPage(15);
+    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
+    doc.text('Action Items (' + nonCriticalActions.length + ')', M, y); y += 6;
+
+    for (var ni = 0; ni < nonCriticalActions.length; ni++) {
+      var nitem = nonCriticalActions[ni];
+      var ncardH = 22;
+      if (nitem.photos[0]) ncardH = 54;
+
+      checkPage(ncardH + 4);
+
+      doc.setFillColor(255, 251, 235);
+      doc.roundedRect(M, y, CW, ncardH, 2, 2, 'F');
+      doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(60, 60, 60);
+      doc.text(nitem.sector + ' > ' + nitem.category, M + 3, y + 5);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(7);
+      doc.text(nitem.action.description || nitem.question, M + 3, y + 11);
+      doc.text('Responsible: ' + (nitem.action.person || '—') + '  |  Status: ' + (nitem.action.status || 'Open'), M + 3, y + 16);
+      y += 20;
+
+      if (nitem.photos[0]) {
+        try {
+          var nph = await addPhotoToDoc(doc, nitem.photos[0], M + 3, y, 40, 30);
+          if (nph) y += nph + 2;
+        } catch(e) {}
+      }
+      y += 2;
+    }
+  }
+
+  // ── SECTION 4: Comments & Evidence ──────────────────────────
+  var comments = auditCollectAllComments();
+
+  // 4a: Comments WITH photos
+  if (comments.withPhotos.length > 0) {
+    checkPage(15);
+    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
+    doc.text('Comments & Evidence (' + comments.withPhotos.length + ')', M, y); y += 6;
+
+    for (var ci2 = 0; ci2 < comments.withPhotos.length; ci2++) {
+      var cv = comments.withPhotos[ci2];
+      var allP = [cv.photoThumb, cv.extraPhotoThumb, cv.extraPhoto2Thumb].filter(Boolean);
+      var cCardH = cv.comment ? 55 : 45;
+
+      checkPage(cCardH + 4);
+
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(M, y, CW, cCardH, 2, 2, 'F');
+      doc.setFontSize(7); doc.setFont(undefined, 'bold'); doc.setTextColor(0, 140, 120);
+      doc.text(cv.sector + ' > ' + cv.category, M + 3, y + 5);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(6); doc.setTextColor(80, 80, 80);
+      doc.text(cv.question.substring(0, 90), M + 3, y + 10);
+
+      var commentY = y + 15;
+      if (cv.comment) {
+        doc.setFontSize(7); doc.setTextColor(60, 60, 60);
+        var commentLines = doc.splitTextToSize(cv.comment, CW - 6);
+        doc.text(commentLines, M + 3, commentY);
+        commentY += commentLines.length * 3 + 2;
+      }
+
+      // Photos — large and prominent
+      var photoStartY = Math.max(commentY, y + 16);
+      var pX = M + 3;
+      for (var pi2 = 0; pi2 < allP.length; pi2++) {
+        try {
+          var cph = await addPhotoToDoc(doc, allP[pi2], pX, photoStartY, 55, 38);
+          pX += 58;
+          if (pX + 55 > M + CW) break;
+        } catch(e) {}
+      }
+      y += cCardH + 4;
+    }
+  }
+
+  // 4b: Comments WITHOUT photos
+  if (comments.withoutPhotos.length > 0) {
+    checkPage(15);
+    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
+    doc.text('Notes (' + comments.withoutPhotos.length + ')', M, y); y += 6;
+
+    for (var ci3 = 0; ci3 < comments.withoutPhotos.length; ci3++) {
+      var cv2 = comments.withoutPhotos[ci3];
+      var nLines = cv2.comment ? doc.splitTextToSize(cv2.comment, CW - 6) : [];
+      var nCardH = 12 + nLines.length * 3;
+
+      checkPage(nCardH + 3);
+
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(M, y, CW, nCardH, 2, 2, 'F');
+      doc.setFontSize(7); doc.setFont(undefined, 'bold'); doc.setTextColor(0, 140, 120);
+      doc.text(cv2.sector + ' > ' + cv2.category, M + 3, y + 5);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(6); doc.setTextColor(80, 80, 80);
+      doc.text(cv2.question.substring(0, 90), M + 3, y + 10);
+      if (cv2.comment) {
+        doc.setFontSize(7); doc.setTextColor(60, 60, 60);
+        doc.text(nLines, M + 3, y + 15);
+      }
+      y += nCardH + 3;
+    }
+  }
+
+  // ── SECTION 5: All Answered Questions ───────────────────────
   checkPage(15);
-  doc.setFontSize(12);
-  doc.setFont(undefined, 'bold');
-  doc.setTextColor(40, 40, 40);
-  doc.text('All Questions', M, y);
-  y += 4;
+  doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
+  doc.text('All Questions', M, y); y += 4;
 
   var tableRows = [];
   auditSectorKeys().forEach(function(sid) {
@@ -1510,8 +1601,7 @@ async function auditGeneratePDF() {
   var pageCount = doc.internal.getNumberOfPages();
   for (var p = 1; p <= pageCount; p++) {
     doc.setPage(p);
-    doc.setFontSize(7);
-    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(7); doc.setTextColor(150, 150, 150);
     doc.text('Birds Bakery — Retail Audit Report — Generated ' + new Date().toLocaleString('en-GB'), M, H - 8);
     doc.text('Page ' + p + ' of ' + pageCount, W - M, H - 8, { align: 'right' });
   }
@@ -1563,87 +1653,129 @@ window.importMobileAuditZIP = async function(event) {
     console.log('[Import] Session data loaded:', sessionData.metadata.storeName);
 
     var meta = sessionData.metadata;
-    var scores = sessionData.scores;
     var actionItems = sessionData.actions || [];
+    var questionItems = sessionData.questions || [];
 
-    var d = new Date(meta.date);
-    var year = meta.year || d.getFullYear();
-    var week = meta.week || getISOWeek(d);
-
-    if (meta.isTraining) {
-      console.log('[Import] Training audit detected — importing as training');
+    // Determine branchId — use original if it's a real store, otherwise generate custom
+    var branchId = meta.branchId || '';
+    if (!branchId || branchId === '__training') {
+      branchId = 'custom_' + Date.now();
     }
 
-    var existing = await idbGet('audits', [meta.storeName, year, week]);
-    if (existing) {
-      if (!confirm('An audit already exists for ' + meta.storeName + ' (Week ' + week + ', ' + year + ')\n\nExisting score: ' + existing.Score + '%\nImported score: ' + scores.overall + '%\n\nOverwrite?')) {
-        return;
-      }
-    }
+    // 1. Init fresh auditState
+    auditInit(branchId, meta.storeName, meta.areaManager || '');
 
-    var auditRecord = {
-      Store: meta.storeName,
-      Year: year,
-      Week: week,
-      Score: scores.overall,
-      Food: scores.sectors.food || 0,
-      Fire: scores.sectors.fire || 0,
-      HandS: scores.sectors.hs || 0,
-      Journey: scores.sectors.journey || 0,
-      Coffee: scores.sectors.coffee || 0,
-      Focus: scores.sectors.focus || 0,
-      isTraining: meta.isTraining || false
-    };
-    await idbPut('audits', auditRecord);
-    console.log('[Import] Saved audit record:', auditRecord);
+    // 2. Override metadata from ZIP (don't wait for IndexedDB lookup)
+    auditState.email = meta.storeEmail || '';
+    auditState.manager = meta.manager || '';
+    auditState.auditor = meta.auditor || 'Blake Lowis';
+    auditState.date = meta.date || new Date().toISOString().slice(0, 10);
+    auditState.summary = meta.summary || '';
+    auditState.isTraining = meta.isTraining || false;
 
-    var importedCount = 0;
-    for (var i = 0; i < actionItems.length; i++) {
-      var a = actionItems[i];
-      await idbAdd('actions', {
-        Week: week, Year: year,
-        Store: meta.storeName,
-        StoreEmail: meta.storeEmail || '',
-        Auditor: meta.auditor || '',
-        Manager: meta.manager || '',
-        AreaManager: meta.areaManager || '',
-        AuditDate: meta.date,
-        Sector: a.sector || '',
-        Category: a.category || '',
-        QuestionID: a.questionId || '',
-        Question: a.question || '',
-        Answer: a.answer || '',
-        Description: a.description || '',
-        PersonResponsible: a.personResponsible || '',
-        ActionNeeded: a.actionNeeded || '',
-        Status: a.status || 'Open',
-        ClosedOn: '',
-        HowClosed: '',
-        ExtraComment: '',
-        Critical: a.critical || 'No',
-        isTraining: meta.isTraining || false,
-        _source: 'mobile_zip_import'
+    // 3. Init empty sector structure from question bank
+    auditInitSectors();
+
+    // 4. Populate answers + comments from session questions
+    var answerCount = 0;
+    questionItems.forEach(function(item) {
+      var sec = auditState.sectors[item.sectorId];
+      if (!sec) return;
+      var cat = sec.categories.find(function(c) { return c.id === item.categoryId; });
+      if (!cat) return;
+      var q = cat.questions.find(function(qq) { return qq.id === item.questionId; });
+      if (!q) return;
+      if (item.answer) { q.answer = item.answer; answerCount++; }
+      if (item.comment) q.comment = item.comment;
+    });
+    console.log('[Import] Populated', answerCount, 'answers');
+
+    // 5. Populate actions
+    var actionCount = 0;
+    actionItems.forEach(function(a) {
+      // Find question by questionId across all sectors
+      var found = null;
+      auditSectorKeys().forEach(function(sid) {
+        if (found) return;
+        auditState.sectors[sid].categories.forEach(function(cat) {
+          if (found) return;
+          var qq = cat.questions.find(function(q) { return q.id === a.questionId; });
+          if (qq) found = qq;
+        });
       });
-      importedCount++;
-    }
-    console.log('[Import] Imported', importedCount, 'action items');
+      if (!found) return;
+      var critical = a.critical === 'Yes' || a.critical === true || a.critical === 'true';
+      found.action = {
+        enabled: true,
+        description: a.description || '',
+        person: a.personResponsible || '',
+        actionNeeded: a.actionNeeded || '',
+        critical: critical,
+        status: a.status || 'Open',
+        closedOn: a.closedOn || '',
+        createdAt: a.createdAt || new Date().toISOString()
+      };
+      actionCount++;
+    });
+    console.log('[Import] Populated', actionCount, 'actions');
 
+    // 6. Load photos from ZIP
     var photoCount = 0;
     var photosFolder = zip.folder('photos');
     if (photosFolder) {
+      var photoPromises = [];
       photosFolder.forEach(function(relativePath, entry) {
-        if (!entry.dir) photoCount++;
+        if (entry.dir) return;
+        // Filename format: {sectorId}_{catId}_{qId}.jpg or {sectorId}_{catId}_{qId}_extra.jpg
+        var match = relativePath.match(/^([^_]+)_(.+)_(F?\d+[a-z]?)(?:_(extra|extra2))?\.\w+$/i);
+        if (!match) return;
+        var sectorId = match[1];
+        // catId may contain underscores, qId is the last segment before _extra
+        // Re-parse: sectorId is first token, everything between first _ and last _FXX is catId
+        var parts = relativePath.replace(/\.\w+$/, '').split('_');
+        // Find the question ID pattern (starts with F or is a number)
+        var qIdIdx = -1;
+        for (var pi = parts.length - 1; pi >= 1; pi--) {
+          if (/^(F?\d+[a-z]?|extra|extra2)$/i.test(parts[pi])) { qIdIdx = pi; break; }
+        }
+        if (qIdIdx < 2) return;
+        sectorId = parts[0];
+        var catId = parts.slice(1, qIdIdx).join('_');
+        var qId = parts[qIdIdx];
+        var slot = parts[qIdIdx + 1] || '';
+
+        var promise = entry.async('base64').then(function(b64) {
+          var ext = relativePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+          var dataURL = 'data:' + ext + ';base64,' + b64;
+          // Find question and set photo
+          var sec = auditState.sectors[sectorId];
+          if (!sec) return;
+          var cat = sec.categories.find(function(c) { return c.id === catId; });
+          if (!cat) return;
+          var q = cat.questions.find(function(qq) { return qq.id === qId; });
+          if (!q) return;
+          if (slot === 'extra') { q.extraPhoto = dataURL; q.extraPhotoThumb = dataURL; }
+          else if (slot === 'extra2') { q.extraPhoto2 = dataURL; q.extraPhoto2Thumb = dataURL; }
+          else { q.photo = dataURL; q.photoThumb = dataURL; }
+          photoCount++;
+        });
+        photoPromises.push(promise);
       });
+      await Promise.all(photoPromises);
     }
+    console.log('[Import] Loaded', photoCount, 'photos');
+
+    // 7. Open the perform view
+    auditState.view = 'sectors';
+    renderAuditPerform();
 
     alert(
       'Import complete: ' + meta.storeName + (meta.isTraining ? ' [TRAINING]' : '') + '\n' +
-      'Week ' + week + ', ' + year + ' \u2014 Score: ' + scores.overall + '%\n' +
-      importedCount + ' action items imported' +
-      (photoCount ? '\n' + photoCount + ' photos in ZIP' : '')
+      'Score: ' + (sessionData.scores ? sessionData.scores.overall + '%' : '—') + '\n' +
+      answerCount + ' answers, ' + actionCount + ' actions, ' + photoCount + ' photos loaded\n\n' +
+      'Review the audit and press Complete when ready.'
     );
 
-    if (typeof renderAuditExportView === 'function') renderAuditExportView();
   } catch (err) {
     console.error('[Import] Failed:', err);
     alert('Failed to import ZIP: ' + err.message);
