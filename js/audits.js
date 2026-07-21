@@ -77,14 +77,21 @@ async function getAuditActionsForReport(){
     // Build lookup of closed actions by questionId
     var closedMap = {};
     rawClosed.forEach(function(f) {
-      if (!f.actions) return;
-      f.actions.forEach(function(a) {
-        if (a.questionId) closedMap[a.questionId] = {
-          closedOn: a.closedOn || '',
-          howClosed: a.howClosed || '',
-          extraComment: a.extraComment || ''
+      if (f.questionId) {
+        closedMap[f.questionId] = {
+          closedOn: f.closedOn || '',
+          howClosed: f.howClosed || '',
+          extraComment: f.extraComment || ''
         };
-      });
+      } else if (f.actions) {
+        f.actions.forEach(function(a) {
+          if (a.questionId) closedMap[a.questionId] = {
+            closedOn: a.closedOn || '',
+            howClosed: a.howClosed || '',
+            extraComment: a.extraComment || ''
+          };
+        });
+      }
     });
     // Process open files — only non-training
     rawOpen.forEach(function(f) {

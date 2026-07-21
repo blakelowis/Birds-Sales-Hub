@@ -154,7 +154,18 @@ window.renderTracker = function() {
                     <label>Search Store</label>
                     <input type="text" id="trackerFilterSearch" placeholder="Type to search..." oninput="trackerApplyFilter()" class="w-56">
                 </div>
+                <div class="filter-group">
+                    <label>EHO Status</label>
+                    <select id="trackerFilterEHO" onchange="trackerApplyFilter()">
+                        <option value="ALL">All</option>
+                        <option value="overdue">Overdue</option>
+                        <option value="duesoon">Due Soon (6 weeks)</option>
+                        <option value="indate">In Date</option>
+                        <option value="nodate">No Date Set</option>
+                    </select>
+                </div>
                 <button onclick="trackerClearFilters()" class="btn text-xs">Clear Filters</button>
+                <button onclick="trackerExportPNG()" class="btn-primary text-xs">Export PNG</button>
                 <span id="trackerRowCount" class="text-xs font-bold text-slate-400 ml-auto"></span>
             </div>
         </div>
@@ -319,7 +330,8 @@ function trackerRowHTML(id, name, am, d) {
     }
 
         var baseScoreCls = 'w-14 text-xs border rounded px-1 py-1 text-center focus:ring-2 focus:ring-emerald-500 outline-none';
-        return '<tr class="tracker-row border-b border-slate-100 hover:bg-slate-50 transition-colors" data-storeid="' + escapeHtml(id) + '" data-am="' + escapeHtml(am) + '" data-rating="' + escapeHtml(rating) + '" data-total="' + escapeHtml(total) + '" data-name="' + escapeHtml(name.toLowerCase()) + '" data-nextdue="' + escapeHtml(nextDueVal) + '">' +
+        var ehoStatus = 'nodate'; var ehoDueDays = '9999'; if (nextDueVal) { var nd = parseUKDate(nextDueVal); if (nd && !isNaN(nd.getTime())) { var days = Math.ceil((nd - new Date()) / 86400000); ehoDueDays = String(days); if (days < 0) ehoStatus = 'overdue'; else if (days <= 42) ehoStatus = 'duesoon'; else ehoStatus = 'indate'; } }
+        return '<tr class="tracker-row border-b border-slate-100 hover:bg-slate-50 transition-colors" data-storeid="' + escapeHtml(id) + '" data-am="' + escapeHtml(am) + '" data-rating="' + escapeHtml(rating) + '" data-total="' + escapeHtml(total) + '" data-name="' + escapeHtml(name.toLowerCase()) + '" data-nextdue="' + escapeHtml(nextDueVal) + '" data-ehodue="' + ehoDueDays + '" data-ehostatus="' + ehoStatus + '">' +
         '<td class="p-2 border-b border-slate-100 sticky left-0 bg-white hover:bg-slate-50 z-10"><span class="text-xs font-black text-slate-800">' + escapeHtml(name) + '</span></td>' +
         '<td class="p-2 border-b border-slate-100"><select class="w-24 text-[10px] border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'am\',this.value)">' + AM_LIST.filter(function(a){return a!=='Unassigned'}).map(function(a){return '<option value="'+escapeHtml(a)+'"'+(a===am?' selected':'')+'>'+escapeHtml(a)+'</option>'}).join('') + '</select></td>' +
         '<td class="p-2 border-b border-slate-100"><div class="flex items-center gap-1"><select class="w-20 text-xs border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'ehoRating\',this.value)">' + ratingOpts + '</select>' + starHtml + '</div></td>' +
@@ -532,6 +544,7 @@ window.trackerRefreshFromFolder = async function() {
 window.trackerApplyFilter = function() {
     var amFilter = document.getElementById('trackerFilterAM').value;
     var search = (document.getElementById('trackerFilterSearch').value || '').toLowerCase();
+    var ehoFilter = document.getElementById('trackerFilterEHO').value;
     var tbody = document.getElementById('trackerTableBody');
     if (!tbody) return;
     var rows = Array.from(tbody.querySelectorAll('.tracker-row'));
@@ -542,6 +555,7 @@ window.trackerApplyFilter = function() {
         var show = true;
         if (amFilter !== 'ALL' && row.getAttribute('data-am') !== amFilter) show = false;
         if (search && !row.getAttribute('data-name').includes(search)) show = false;
+        if (ehoFilter !== 'ALL' && row.getAttribute('data-ehostatus') !== ehoFilter) show = false;
         row.style.display = show ? '' : 'none';
         if (show) visible++;
     });
@@ -560,16 +574,19 @@ window.trackerApplyFilter = function() {
             return dir * (aR - bR);
         }
         if (col === 'ehoDue') {
-            var aD = a.getAttribute('data-nextdue') || '9999';
-            var bD = b.getAttribute('data-nextdue') || '9999';
-            return dir * aD.localeCompare(bD);
+            var aD = parseInt(a.getAttribute('data-ehodue')) || 9999;
+            var bD = parseInt(b.getAttribute('data-ehodue')) || 9999;
+            return dir * (aD - bD);
         }
         if (col === 'total') {
             var aT = parseFloat(a.getAttribute('data-total')) || 0;
             var bT = parseFloat(b.getAttribute('data-total')) || 0;
             return dir * (aT - bT);
         }
-        return 0;
+        // Default sort: overdue first (ascending by days remaining)
+        var aS = parseInt(a.getAttribute('data-ehodue')) || 9999;
+        var bS = parseInt(b.getAttribute('data-ehodue')) || 9999;
+        return aS - bS;
     });
 
     visibleRows.forEach(function(row) { tbody.appendChild(row); });
@@ -579,6 +596,7 @@ window.trackerApplyFilter = function() {
 window.trackerClearFilters = function() {
     document.getElementById('trackerFilterAM').value = 'ALL';
     document.getElementById('trackerFilterSearch').value = '';
+    document.getElementById('trackerFilterEHO').value = 'ALL';
     _trackerSort = { col: 'name', dir: 'asc' };
     // Reset header arrows
     document.querySelectorAll('.tracker-th').forEach(function(th) {
@@ -743,4 +761,29 @@ window.trackerPrintPDF = function() {
     });
 
     doc.save('tracker_' + new Date().toISOString().slice(0, 10) + '.pdf');
+};
+
+window.trackerExportPNG = function() {
+    var el = document.getElementById('tracker-view');
+    if (!el) return;
+    var originalOverflow = el.style.overflow;
+    var originalHeight = el.style.height;
+    el.style.overflow = 'visible';
+    el.style.height = 'auto';
+    var tableWrapper = el.querySelector('.overflow-auto');
+    if (tableWrapper) { tableWrapper.style.overflow = 'visible'; tableWrapper.style.height = 'auto'; }
+    if (typeof html2canvas === 'undefined') { alert('html2canvas not loaded'); return; }
+    html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false }).then(function(canvas) {
+        canvas.toBlob(function(blob) {
+            safeDownload(blob, 'tracker_' + new Date().toISOString().slice(0, 10) + '.png');
+        });
+        el.style.overflow = originalOverflow;
+        el.style.height = originalHeight;
+        if (tableWrapper) { tableWrapper.style.overflow = 'auto'; tableWrapper.style.height = ''; }
+    }).catch(function(e) {
+        console.warn('[Tracker] PNG export failed:', e);
+        el.style.overflow = originalOverflow;
+        el.style.height = originalHeight;
+        if (tableWrapper) { tableWrapper.style.overflow = 'auto'; tableWrapper.style.height = ''; }
+    });
 };
