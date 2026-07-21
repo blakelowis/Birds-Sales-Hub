@@ -60,9 +60,10 @@
 /* ── 2. CSS Variables ──────────────────────────────────────── */
 
 :root {
-  --birds-green:       #00A88E;
-  --birds-green-hover: #009478;
-  --birds-dark:        #0f172a;
+  --birds-green:       #5B8C7A;
+  --birds-green-light: #B1D1BF;
+  --birds-green-hover: #4D7A69;
+  --birds-dark:        #4A4B53;
   --birds-radius:      16px;
   --birds-radius-sm:   12px;
   --birds-radius-xs:   8px;
@@ -77,8 +78,11 @@
 
 /* convenience utility used inline via `style` */
 .birds-green { color: var(--birds-green) !important; }
+.bird-green-light { color: var(--birds-green-light) !important; }
 .bg-birds { background-color: var(--birds-green) !important; }
 .bg-birds:hover { background-color: var(--birds-green-hover) !important; }
+.bg-birds-light { background-color: var(--birds-green-light) !important; }
+.focus\:ring-birds-green:focus { --tw-ring-color: var(--birds-green); }
 
 
 /* ── 3. Base Styles ────────────────────────────────────────── */
@@ -157,7 +161,7 @@ body {
 .seg-btn-active:hover {
   background: var(--birds-green);
   color: #ffffff;
-  box-shadow: 0 1px 4px rgba(0,168,142,0.30);
+  box-shadow: 0 1px 4px rgba(91,140,122,0.30);
 }
 
 .nav-divider {
@@ -275,7 +279,7 @@ body {
 }
 .input-chip:focus {
   border-color: var(--birds-green);
-  box-shadow: 0 0 0 3px rgba(0,168,142,0.15);
+  box-shadow: 0 0 0 3px rgba(91,140,122,0.15);
 }
 .input-chip::placeholder {
   color: #94a3b8;
@@ -517,7 +521,7 @@ body {
   font-size: 10px;
   font-weight: 700;
   color: var(--birds-green);
-  background: rgba(0,168,142,0.08);
+  background: rgba(91,140,122,0.10);
   padding: 2px 8px;
   border-radius: var(--birds-radius-pill);
 }
