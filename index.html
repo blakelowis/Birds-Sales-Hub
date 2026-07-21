@@ -4,18 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Birds Executive Hub</title>
-  <link rel="stylesheet" href="tailwind.min.css?v=85">
-  <link rel="stylesheet" href="css/app.css?v=85">
+  <link rel="stylesheet" href="tailwind.min.css?v=90">
+  <link rel="stylesheet" href="css/app.css?v=90">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#00A88E">
-  <script src="xlsx.full.min.js?v=85"></script>
-  <script src="chart.js?v=85"></script>
-  <script src="jspdf.umd.min.js?v=85"></script>
-  <script src="jspdf.plugin.autotable.min.js?v=85"></script>
-  <script src="html2canvas.min.js?v=85"></script>
-  <script src="jszip.min.js?v=85"></script>
-  <script src="papaparse.min.js?v=85"></script>
+  <meta name="theme-color" content="#5B8C7A">
+  <script src="xlsx.full.min.js?v=90"></script>
+  <script src="chart.js?v=90"></script>
+  <script src="jspdf.umd.min.js?v=90"></script>
+  <script src="jspdf.plugin.autotable.min.js?v=90"></script>
+  <script src="html2canvas.min.js?v=90"></script>
+  <script src="jszip.min.js?v=90"></script>
+  <script src="papaparse.min.js?v=90"></script>
   <style>
     .nav-tab-bar{display:flex;gap:6px;margin-bottom:0;}
     .nav-tab{flex:1;padding:14px 16px;border-radius:16px 16px 0 0;font-weight:900;font-size:14px;letter-spacing:.06em;text-transform:uppercase;text-align:center;cursor:pointer;border:2px solid transparent;border-bottom:none;transition:all .2s;opacity:.55;}
@@ -36,11 +36,12 @@
 
     <!-- Header -->
     <header class="flex flex-col md:flex-row justify-between items-center mb-6 header-glass p-5 rounded-3xl">
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-3 w-full md:w-auto">
+        <img src="logo.png" alt="Birds" class="h-[100px] w-auto">
         <div>
-          <h1 class="text-[32px] font-extrabold outfit birds-green leading-none tracking-tight">Birds Sales Hub</h1>
-          <div class="flex items-center gap-2 mt-1">
-            <span id="activeWeekBadge" class="bg-birds text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">LATEST DATA</span>
+          <h1 class="text-xl md:text-[28px] font-extrabold outfit birds-green leading-tight tracking-tight" style="color:#5B8C7A">Sales Hub</h1>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span id="activeWeekBadge" class="bg-slate-700 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">LATEST DATA</span>
             <p id="ingestStatus" class="text-slate-400 text-xs font-bold">&mdash;</p>
             <span id="missingWeeksBadge" class="text-[10px] font-black text-amber-600"></span>
             <span id="lastSyncedBadge" class="text-[10px] font-bold text-slate-400"></span>
@@ -110,7 +111,7 @@
         <div>
           <h4 class="font-bold text-sm text-slate-700 uppercase tracking-wide mb-3">Data Folder</h4>
           <p class="text-xs text-slate-400 mb-3">Select the folder containing your .xlsx/.csv data files and tracker_data.json. Works in Chrome or Edge.</p>
-          <button onclick="selectAndAnchorFolder()" class="px-4 py-2 text-sm font-bold text-white bg-birds hover:bg-emerald-700 rounded-lg transition">Select Data Folder</button>
+          <button onclick="selectAndAnchorFolder()" class="px-4 py-2 text-sm font-bold text-white bg-slate-700 hover:bg-slate-800 rounded-lg transition">Select Data Folder</button>
           <p id="folderStatusModal" class="text-[10px] font-bold text-slate-400 mt-2"></p>
         </div>
         <div class="border-t border-slate-200 pt-4">
@@ -144,27 +145,27 @@
       </div>
       <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
         <button onclick="closeSettings()" class="px-5 py-3 text-sm font-bold text-slate-600 hover:text-slate-800 rounded-lg border border-slate-300">Cancel</button>
-        <button onclick="saveSettings()" class="px-8 py-3 text-sm font-black text-white bg-birds hover:bg-emerald-700 rounded-lg transition shadow-lg">OK — Save Settings</button>
+        <button onclick="saveSettings()" class="px-8 py-3 text-sm font-black text-white bg-slate-700 hover:bg-slate-800 rounded-lg transition shadow-lg">OK — Save Settings</button>
       </div>
     </div>
   </div>
 
   <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
-  <script src="js/db.js?v=85"></script>
-  <script src="js/utils.js?v=85"></script>
-  <script src="js/sharepoint.js?v=85"></script>
-  <script src="js/graph.js?v=85"></script>
-  <script src="js/data.js?v=85"></script>
-  <script src="js/charts.js?v=85"></script>
-  <script src="js/scorecards.js?v=85"></script>
-  <script src="js/reports.js?v=85"></script>
-  <script src="js/complaints.js?v=85"></script>
-  <script src="js/documents.js?v=85"></script>
-  <script src="js/audits.js?v=85"></script>
-  <script src="js/tracker.js?v=85"></script>
-  <script src="js/awards.js?v=85"></script>
-  <script src="js/audit-perform.js?v=85"></script>
-  <script src="js/app.js?v=85"></script>
+  <script src="js/db.js?v=90"></script>
+  <script src="js/utils.js?v=90"></script>
+  <script src="js/sharepoint.js?v=90"></script>
+  <script src="js/graph.js?v=90"></script>
+  <script src="js/data.js?v=90"></script>
+  <script src="js/charts.js?v=90"></script>
+  <script src="js/scorecards.js?v=90"></script>
+  <script src="js/reports.js?v=90"></script>
+  <script src="js/complaints.js?v=90"></script>
+  <script src="js/documents.js?v=90"></script>
+  <script src="js/audits.js?v=90"></script>
+  <script src="js/tracker.js?v=90"></script>
+  <script src="js/awards.js?v=90"></script>
+  <script src="js/audit-perform.js?v=90"></script>
+  <script src="js/app.js?v=90"></script>
   <script>
     // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
     var _activeTab = 'sales';
@@ -223,7 +224,7 @@
       btn.disabled = true;
       btn.classList.add('opacity-50','cursor-not-allowed');
       try {
-        const stores = ['kpi','audits','actions','complaints','ingest_log',
+        const stores = ['kpi','audits','complaints','ingest_log',
                         'area_winners_log','area_metric_winners_log','store_winners_log'];
         for (const s of stores) { try { await idbClear(s); } catch(e) {} }
         storeMap.clear(); originalStoreNames.clear();
@@ -401,6 +402,10 @@
       c('[JSON Test] Done:', msg);
       alert(msg);
     };
+  </script>
+  <script>
+    // Preload logo for PDF exports
+    (function() { var img = new Image(); img.onload = function() { window.__pdfLogo = img; }; img.src = 'logo.png'; })();
   </script>
   <script>
     // Register fresh service worker after all scripts loaded
