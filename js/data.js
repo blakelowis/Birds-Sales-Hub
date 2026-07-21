@@ -181,19 +181,7 @@ window.syncData = async function() {
       window.__dataStatus.ts = Date.now();
       window.__dataStatus.source = 'sharepoint';
 
-      if (trackerJsonText) {
-        try {
-          var importObj = JSON.parse(trackerJsonText);
-          var stores = importObj.stores || importObj;
-          var count = 0;
-          var keys = Object.keys(stores);
-          for (var i = 0; i < keys.length; i++) {
-            var rec = stores[keys[i]];
-            if (rec && rec.StoreId) { await idbPut('eho_data', rec); count++; }
-          }
-          console.log('[Cloud] Loaded tracker data: ' + count + ' stores');
-        } catch(e) { console.warn('[Cloud] Failed to load tracker JSON:', e); }
-      }
+      // Tracker data is loaded directly by the tracker tab (reads folder + merges with IDB by newest timestamp)
       return;
     } catch (syncErr) {
       console.error('[Sync] Cloud sync failed:', syncErr);
@@ -221,34 +209,18 @@ window.syncData = async function() {
   window.__dataStatus.syncOk = true;
   window.__dataStatus.ts = Date.now();
   window.__dataStatus.source = 'folder';
-  if (trackerJson) {
-    try {
-      var text = await trackerJson.text();
-      var importObj = JSON.parse(text);
-      var stores = importObj.stores || importObj;
-      var count = 0;
-      var keys = Object.keys(stores);
-      for (var i = 0; i < keys.length; i++) {
-        var rec = stores[keys[i]];
-        if (rec && rec.StoreId) { await idbPut('eho_data', rec); count++; }
-      }
-      console.log('[Local] Loaded tracker data: ' + count + ' stores');
-    } catch(e) { console.warn('[Local] Failed to load tracker JSON:', e); }
-  }
+  // Tracker data is loaded directly by the tracker tab (reads folder + merges with IDB by newest timestamp)
+
+  // Actions are read live from Open/ and Closed/ folders by the Audit Hub — no caching
 };
 
 // ===== SHAREPOINT AUTO-SYNC =====
 // Processes raw XLSX ArrayBuffers through the same pipeline as local folder sync.
 async function processFiles(cachedFiles, sourceLabel) {
+  // Clear kpi before re-import to prevent stale data from removed/renamed files
+  try { await idbClear('kpi'); } catch(e) { console.warn('[processFiles] kpi clear failed:', e); }
   const weeksTouched = new Set(); const yearsTouched = new Set(); const seenWeeksByYear = {};
   var weeklyCount = 0; var scorecardCount = 0;
-  // Only clear actions that came from scorecard XLSX sync — preserve custom audit actions
-  var existingActions = await idbGetAll('actions');
-  for (var ai = 0; ai < existingActions.length; ai++) {
-    if (existingActions[ai]._source === 'scorecard') {
-      await (function(a) { return new Promise(function(res) { var r = db.transaction('actions','readwrite').objectStore('actions').delete(a.ActionID); r.onsuccess = function(){res(true);}; r.onerror = function(){res(false);}; }); })(existingActions[ai]);
-    }
-  }
   let filesProcessed = 0;
   for (const file of cachedFiles) {
     filesProcessed++;
@@ -370,33 +342,7 @@ async function processFiles(cachedFiles, sourceLabel) {
         } else if (window.__complaintsSourceCSV && wb.Sheets['complaints']) {
           console.log('[Complaints] Skipping XLSX complaints sheet in', file.name, '— CSV already loaded');
         }
-        if(wb.Sheets['Data']) {
-          const dataJson = XLSX.utils.sheet_to_json(wb.Sheets['Data']);
-          for(const r of dataJson) {
-            if(r.Question && r.Status) {
-              let dOpen = parseDateSafe(r.Date); let dClosed = parseDateSafe(r['Closed On']); let daysToClose = null;
-              if(dOpen && dClosed) { daysToClose = (dClosed - dOpen) / (1000 * 60 * 60 * 24); if(daysToClose < 0) daysToClose = 0; }
-              const rawStoreForAction = cleanStoreName(r['Store Name'] || r.Store || r['Data'] || '');
-              const rawQuestionForAction = normalizeAuditCell(r.Question || '');
-              const rawStatusForAction = normalizeActionStatus(r.Status || '');
-              const headerLike = ['store name','data','question','status','sector'].includes(String(rawStoreForAction).toLowerCase()) || ['question',''].includes(rawQuestionForAction.toLowerCase()) || rawStatusForAction === 'Status';
-              if(headerLike) continue;
-              await idbPut('actions', {
-                Week: sWk, Year: fileYr, Store: rawStoreForAction, StoreEmail: r['Store Email'] || '',
-                Auditor: r.Auditor || '', Manager: r.Manager || '', AuditDate: r.Date || '',
-                AreaManager: r['Area Manager'] || safeGetAM(rawStoreForAction), Sector: r.Sector || '',
-                Category: r.Category || '', QuestionID: r['Question ID'] || '', Question: r.Question || '',
-                Answer: normalizeAuditCell(r.Answer), Description: r.Description || '',
-                PersonResponsible: r['Person responsible'] || '', ActionNeeded: r['Action Needed'] || '',
-                Status: rawStatusForAction, ClosedOn: r['Closed On'] || '',
-                HowClosed: r['How action was closed'] || '', ExtraComment: r['Extra Comment'] || '',
-                Critical: normalizeYesNo(r.Critical), DaysToClose: daysToClose,
-                DaysOpen: dOpen ? Math.max(0, (new Date() - dOpen) / (1000 * 60 * 60 * 24)) : null,
-                _source: 'scorecard'
-              });
-            }
-          }
-        }
+        // Actions are read live from Open/ and Closed/ JSON files by the Audit Hub — no xlsx import needed
       }
     } catch (innerErr) { console.warn(`Skipping file ${file.name} due to an error:`, innerErr); }
   }

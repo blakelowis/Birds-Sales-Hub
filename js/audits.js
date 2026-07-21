@@ -66,29 +66,95 @@ function shortQuestionLabel(q, maxLen=96){
   return s.length > maxLen ? s.slice(0, maxLen - 1) + '…' : s;
 }
 
+// Reads Open/ and Closed/ JSON files directly from SharePoint or local folder.
+// No IndexedDB caching — two folders are the source of truth.
+// Open JSON = open actions. If a matching questionId exists in Closed/, it's closed.
 async function getAuditActionsForReport(){
-  const raw = await idbGetAll('actions');
-  return (raw || []).map(a => {
-    const obj = {
-      ...a,
-      Store: actionStoreName(a), AreaManager: actionAreaName(a), Sector: actionSectorName(a), Category: actionCategoryName(a),
-      Status: normalizeActionStatus(a.Status), Critical: normalizeYesNo(a.Critical), Question: normalizeAuditCell(a.Question || ''),
-      Description: normalizeAuditCell(a.Description || ''), ActionNeeded: normalizeAuditCell(a.ActionNeeded || a['Action Needed'] || ''),
-      PersonResponsible: normalizeAuditCell(a.PersonResponsible || a['Person responsible'] || ''),
-      AuditDate: a.AuditDate || a.Date || '', ClosedOn: a.ClosedOn || a['Closed On'] || '',
-      QuestionID: normalizeAuditCell(a.QuestionID || ''), Answer: normalizeAuditCell(a.Answer || ''),
-      HowClosed: normalizeAuditCell(a.HowClosed || ''), ExtraComment: normalizeAuditCell(a.ExtraComment || '')
-    };
+  var all = [];
+  try {
+    var rawOpen = await readJsonFolder('Open');
+    var rawClosed = await readJsonFolder('Closed');
+    // Build lookup of closed actions by questionId
+    var closedMap = {};
+    rawClosed.forEach(function(f) {
+      if (!f.actions) return;
+      f.actions.forEach(function(a) {
+        if (a.questionId) closedMap[a.questionId] = {
+          closedOn: a.closedOn || '',
+          howClosed: a.howClosed || '',
+          extraComment: a.extraComment || ''
+        };
+      });
+    });
+    // Process open files — only non-training
+    rawOpen.forEach(function(f) {
+      if (f.isTraining) return;
+      if (!f.actions) return;
+      var storeName = cleanStoreName(f.storeName || '');
+      f.actions.forEach(function(a) {
+        var closed = closedMap[a.questionId];
+        all.push({
+          ActionID: storeName + '_' + a.questionId + '_' + (f.date || ''),
+          QuestionID: a.questionId || '',
+          Store: storeName,
+          StoreEmail: f.storeEmail || '',
+          Auditor: f.auditor || '',
+          Manager: f.manager || '',
+          AreaManager: f.areaManager || '',
+          AuditDate: f.date || '',
+          Week: f.week || 0,
+          Year: f.year || 0,
+          Sector: a.sector || '',
+          Category: a.category || '',
+          Question: a.question || '',
+          Answer: a.answer || '',
+          Description: a.description || '',
+          PersonResponsible: a.personResponsible || '',
+          ActionNeeded: a.actionNeeded || '',
+          Status: closed ? 'Closed' : a.status || 'Open',
+          ClosedOn: closed ? (closed.closedOn || '') : (a.closedOn || ''),
+          HowClosed: closed ? (closed.howClosed || '') : (a.howClosed || ''),
+          ExtraComment: closed ? (closed.extraComment || '') : (a.extraComment || ''),
+          Critical: a.critical || 'No',
+          DaysToClose: null
+        });
+      });
+    });
+  } catch(e) {
+    console.warn('[Audit] Failed to read Open/Closed folders:', e.message);
+    return [];
+  }
+  // Normalize and compute derived fields
+  return all.map(function(obj) {
+    obj.Store = actionStoreName(obj);
+    obj.AreaManager = actionAreaName(obj);
+    obj.Sector = actionSectorName(obj);
+    obj.Category = actionCategoryName(obj);
+    obj.Status = normalizeActionStatus(obj.Status);
+    obj.Critical = normalizeYesNo(obj.Critical);
+    obj.Question = normalizeAuditCell(obj.Question || '');
+    obj.Description = normalizeAuditCell(obj.Description || '');
+    obj.ActionNeeded = normalizeAuditCell(obj.ActionNeeded || '');
+    obj.PersonResponsible = normalizeAuditCell(obj.PersonResponsible || '');
+    obj.QuestionID = normalizeAuditCell(obj.QuestionID || '');
+    obj.Answer = normalizeAuditCell(obj.Answer || '');
+    obj.HowClosed = normalizeAuditCell(obj.HowClosed || '');
+    obj.ExtraComment = normalizeAuditCell(obj.ExtraComment || '');
+    if (obj.ClosedOn) {
+      var dOpen = parseDateSafe(obj.AuditDate);
+      var dClosed = parseDateSafe(obj.ClosedOn);
+      if (dOpen && dClosed) obj.DaysToClose = (dClosed - dOpen) / 86400000;
+    }
     obj.IssueTheme = auditIssueTheme(obj);
     obj.SLABucket = slaBucket(obj);
     obj.ClosureQuality = closureQuality(obj);
     obj.RiskScore = riskScore(obj);
     return obj;
-  }).filter(a => {
-    const s = String(a.Store || '').toLowerCase();
-    const q = String(a.Question || '').toLowerCase();
-    if(['store name','data','question','status','sector'].includes(s)) return false;
-    if(q === 'question' || !q) return false;
+  }).filter(function(a) {
+    var s = String(a.Store || '').toLowerCase();
+    var q = String(a.Question || '').toLowerCase();
+    if (['store name','data','question','status','sector'].includes(s)) return false;
+    if (q === 'question' || !q) return false;
     return true;
   });
 }
@@ -160,8 +226,10 @@ function breakdownHtml(title, rows, clickType){
 }
 function tooltipTitle(a){ return escapeHtml(`Question: ${a.Question} Closed comment: ${a.HowClosed || '—'} Extra comment: ${a.ExtraComment || '—'}`); }
 async function renderAuditActionHub(){
+  // Read Open/ and Closed/ JSON files directly — two folders are the source of truth
+  document.getElementById('mainView').innerHTML = '<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">Loading actions from Open/ and Closed/ folders...</p></div>';
   __auditHubCache = await getAuditActionsForReport();
-  if(!__auditHubCache.length){ document.getElementById('mainView').innerHTML = `<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">No audit actions are loaded yet. Click <b>Refresh Data</b> after anchoring your master folder.</p></div>`; return; }
+  if(!__auditHubCache.length){ document.getElementById('mainView').innerHTML = `<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">No audit actions found. Check that your data folder has <b>Open/</b> and <b>Closed/</b> subfolders with JSON action files.</p></div>`; return; }
   const areas = [...new Set(__auditHubCache.map(a=>a.AreaManager))].sort();
   const sectors = [...new Set(__auditHubCache.map(a=>a.Sector))].sort();
   const categories = [...new Set(__auditHubCache.map(a=>a.Category))].sort();
@@ -175,8 +243,7 @@ async function renderAuditActionHub(){
 function toggleAuditCustomDates(){ const box = document.getElementById('auditCustomDates'); if(box) box.classList.toggle('hidden', (document.getElementById('auditPeriodFilter')?.value || 'all') !== 'custom'); }
 async function refreshAuditHubBody(){
   const filtered = sortAuditRows(applyAuditHubFilters(__auditHubCache));   __auditHubCurrentRows = filtered;
-  const trainingActions = filtered.filter(a => a.isTraining);
-  const regularActions = filtered.filter(a => !a.isTraining);
+  const regularActions = filtered;
   const total = regularActions.length, open = regularActions.filter(a=>!actionIsClosed(a)).length, closed = regularActions.filter(actionIsClosed).length, critical = regularActions.filter(actionIsCritical).length;
   const overdueCritical = regularActions.filter(a=>slaBucket(a)==='Critical > 48h').length;
   const noCloseComment = regularActions.filter(a=>closureQuality(a)==='Closed - no comment').length;
@@ -187,19 +254,16 @@ async function refreshAuditHubBody(){
   const sectorBreak = buildStatusBreakdown(regularActions, a=>a.Sector).slice(0,10);
   const storeBreak = buildStatusBreakdown(regularActions, a=>a.Store).slice(0,15);
   const slaCounts = countBy(regularActions, slaBucket);
-  function buildActionRow(a, showTrainingBadge){
-    const badge = showTrainingBadge ? '<span class="bg-amber-100 text-amber-700 border border-amber-300 text-[9px] font-black px-1.5 py-0.5 rounded ml-2">TRAINING</span>' : '';
-    const mainRow = `<tr class="border-b border-slate-100 align-top hover:bg-slate-50"><td class="p-3 font-black text-slate-700">${escapeHtml(a.Store)}${badge}</td><td class="p-3 text-slate-500 font-bold">${escapeHtml(a.AreaManager)}</td><td class="p-3 text-xs font-bold text-slate-500">${escapeHtml(a.Sector)}</td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsClosed(a)?'bg-emerald-50 text-slate-800':'bg-amber-50 text-amber-700'}">${escapeHtml(a.Status)}</span></td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsCritical(a)?'bg-red-50 text-red-700':'bg-slate-100 text-slate-500'}">${actionIsCritical(a)?'Critical':'No'}</span></td><td class="p-3"><button onclick="auditDrilldown('sla','${encodeURIComponent(a.SLABucket)}')" class="text-[10px] font-black px-2 py-1 rounded-full ${a.SLABucket.includes('Critical')?'bg-red-50 text-red-700':a.SLABucket.includes('Open >')?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}">${escapeHtml(a.SLABucket)}</button></td><td class="p-3 text-xs text-slate-700 max-w-[420px]" title="${tooltipTitle(a)}"><button class="text-left hover:underline font-black" onclick="showAuditActionDetail(${a.ActionID || 0})">${escapeHtml(a.Description || a.Question)}</button><div class="text-slate-500 mt-1">${escapeHtml(a.ActionNeeded)}</div><button onclick="auditDrilldown('theme','${encodeURIComponent(a.IssueTheme)}')" class="text-[10px] font-black text-slate-400 mt-1 hover:text-birds-green">${escapeHtml(a.IssueTheme)}</button></td><td class="p-3 text-xs text-slate-600">${escapeHtml(a.PersonResponsible || '—')}</td><td class="p-3 text-xs font-black text-slate-700">${actionIsClosed(a) ? fmtDays(a.DaysToClose) : fmtDays(daysOpenNow(a))}</td></tr>`;
+  function buildActionRow(a){
+    const mainRow = `<tr class="border-b border-slate-100 align-top hover:bg-slate-50"><td class="p-3 font-black text-slate-700">${escapeHtml(a.Store)}</td><td class="p-3 text-slate-500 font-bold">${escapeHtml(a.AreaManager)}</td><td class="p-3 text-xs font-bold text-slate-500">${escapeHtml(a.Sector)}</td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsClosed(a)?'bg-emerald-50 text-slate-800':'bg-amber-50 text-amber-700'}">${escapeHtml(a.Status)}</span></td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsCritical(a)?'bg-red-50 text-red-700':'bg-slate-100 text-slate-500'}">${actionIsCritical(a)?'Critical':'No'}</span></td><td class="p-3"><button onclick="auditDrilldown('sla','${encodeURIComponent(a.SLABucket)}')" class="text-[10px] font-black px-2 py-1 rounded-full ${a.SLABucket.includes('Critical')?'bg-red-50 text-red-700':a.SLABucket.includes('Open >')?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}">${escapeHtml(a.SLABucket)}</button></td><td class="p-3 text-xs text-slate-700 max-w-[420px]" title="${tooltipTitle(a)}"><button class="text-left hover:underline font-black" onclick="showAuditActionDetail(${a.ActionID || 0})">${escapeHtml(a.Description || a.Question)}</button><div class="text-slate-500 mt-1">${escapeHtml(a.ActionNeeded)}</div><button onclick="auditDrilldown('theme','${encodeURIComponent(a.IssueTheme)}')" class="text-[10px] font-black text-slate-400 mt-1 hover:text-birds-green">${escapeHtml(a.IssueTheme)}</button></td><td class="p-3 text-xs text-slate-600">${escapeHtml(a.PersonResponsible || '—')}</td><td class="p-3 text-xs font-black text-slate-700">${actionIsClosed(a) ? fmtDays(a.DaysToClose) : fmtDays(daysOpenNow(a))}</td></tr>`;
     if(actionIsClosed(a) && (a.HowClosed || a.ExtraComment)){
       const closureRow = `<tr class="border-b border-slate-100"><td colspan="9" class="px-3 pb-3 pt-0"><div class="bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-6"><div class="flex-1"><span class="text-[10px] font-black text-blue-800 uppercase tracking-wide">Store Manager Action:</span> <span class="text-xs font-bold text-slate-700">${escapeHtml(a.HowClosed || '—')}</span></div>${a.ExtraComment ? `<div class="flex-1"><span class="text-[10px] font-black text-blue-800 uppercase tracking-wide">Additional Notes:</span> <span class="text-xs text-slate-600">${escapeHtml(a.ExtraComment)}</span></div>` : ''}</div></td></tr>`;
       return [mainRow, closureRow];
     }
     return [mainRow];
   }
-  const trainingRowsHtml = trainingActions.map(a => buildActionRow(a, true)).join('');
-  const rows = regularActions.map(a => buildActionRow(a, false)).join('');
-  const trainingSectionHtml = trainingActions.length ? `<div class="card border-2 border-amber-200 bg-amber-50/30 mb-6"><div class="flex items-center justify-between px-5 py-3 border-b border-amber-200 bg-amber-100/50 rounded-t-lg"><h3 class="font-black text-amber-800 text-sm uppercase tracking-widest">Training Audits (${trainingActions.length})</h3><span class="text-[10px] font-bold text-amber-600">For training purposes only — not counted in KPIs</span></div><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-amber-100/60"><tr><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Store</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Area</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Sector</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Status</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Critical</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">SLA</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Action / Issue</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Responsible</th><th class="p-3 text-[10px] uppercase text-amber-700 font-black">Days</th></tr></thead><tbody>${trainingRowsHtml}</tbody></table></div></div>` : '';
-  document.getElementById('auditReportBody').innerHTML = `${trainingSectionHtml}<div class="grid grid-cols-1 md:grid-cols-6 gap-4">${hubKpi('Actions', total, 'current filter')}${hubKpi('Open', `${pct(open,total)}%`, `${open} actions`, 'amber')}${hubKpi('Closed', `${pct(closed,total)}%`, `${closed} actions`)}${hubKpi('Critical', critical, `${pct(critical,total)}%`, critical?'red':'birds-green')}${hubKpi('Critical > 48h', overdueCritical, 'needs escalation', overdueCritical?'red':'birds-green')}${hubKpi('Avg Close Time', avgClose, 'days closed')}</div><div class="grid grid-cols-1 xl:grid-cols-5 gap-6"><div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">Most common issue themes</h3>${themes.map(([n,c])=>`<button class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left hover:bg-slate-50" onclick="auditDrilldown('theme','${encodeURIComponent(n)}')"><span class="text-xs font-bold text-slate-700">${escapeHtml(n)}</span><span class="font-black birds-green">${c}</span></button>`).join('') || '<p class="text-slate-400 italic">No matching actions.</p>'}</div><div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">Question drill-down</h3>${questions.map(([n,c])=>`<button class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left hover:bg-slate-50" onclick="auditDrilldown('question','${encodeURIComponent(n)}')"><span class="text-xs font-bold text-slate-700 line-clamp-2" title="${escapeHtml(n)}">${escapeHtml(shortQuestionLabel(n))}</span><span class="font-black birds-green">${c}</span></button>`).join('') || '<p class="text-slate-400 italic">No questions.</p>'}</div>${breakdownHtml('SLA / overdue flags', slaCounts.map(([name,total])=>({name,total,open:filtered.filter(a=>slaBucket(a)===name && !actionIsClosed(a)).length,closed:filtered.filter(a=>slaBucket(a)===name && actionIsClosed(a)).length})), 'sla')}${breakdownHtml('Sector open vs closed', sectorBreak, 'sector')}${breakdownHtml('Store open vs closed', storeBreak, 'store')}</div><div class="grid grid-cols-1 lg:grid-cols-2 gap-6">${breakdownHtml('Area open vs closed', areaBreak, 'area')}<div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">Closure quality</h3>${countBy(filtered, closureQuality).map(([n,c])=>`<button class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left hover:bg-slate-50" onclick="auditDrilldown('closure','${encodeURIComponent(n)}')"><span class="text-xs font-bold text-slate-700">${escapeHtml(n)}</span><span class="font-black birds-green">${c}</span></button>`).join('')}</div></div><div class="card overflow-hidden"><div class="p-5 flex flex-wrap gap-3 justify-between items-center border-b border-slate-100"><h3 class="font-black outfit text-xl birds-green">Action Detail</h3><div class="flex flex-wrap gap-2 audit-export-controls"><button onclick="setAuditSort('risk')" class="export-btn">Sort Risk</button><button onclick="setAuditSort('days')" class="export-btn">Sort Days</button><button onclick="setAuditSort('Store')" class="export-btn">Sort Store</button><span class="text-xs font-black text-slate-400 px-2 py-1">${total} rows • missing closure comments: ${noCloseComment}</span></div></div><div class="overflow-x-auto max-h-[760px] overflow-y-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 sticky top-0 z-10"><tr><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Store</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Area</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Sector</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Status</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Critical</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">SLA</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Action / Issue</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Responsible</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Days</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="p-8 text-center text-slate-400 font-bold">No matching actions.</td></tr>'}</tbody></table></div></div>`;
+  const rows = regularActions.map(a => buildActionRow(a)).join('');
+  document.getElementById('auditReportBody').innerHTML = `<div class="grid grid-cols-1 md:grid-cols-6 gap-4">${hubKpi('Actions', total, 'current filter')}${hubKpi('Open', `${pct(open,total)}%`, `${open} actions`, 'amber')}${hubKpi('Closed', `${pct(closed,total)}%`, `${closed} actions`)}${hubKpi('Critical', critical, `${pct(critical,total)}%`, critical?'red':'birds-green')}${hubKpi('Critical > 48h', overdueCritical, 'needs escalation', overdueCritical?'red':'birds-green')}${hubKpi('Avg Close Time', avgClose, 'days closed')}</div><div class="grid grid-cols-1 xl:grid-cols-5 gap-6"><div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">Most common issue themes</h3>${themes.map(([n,c])=>`<button class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left hover:bg-slate-50" onclick="auditDrilldown('theme','${encodeURIComponent(n)}')"><span class="text-xs font-bold text-slate-700">${escapeHtml(n)}</span><span class="font-black birds-green">${c}</span></button>`).join('') || '<p class="text-slate-400 italic">No matching actions.</p>'}</div><div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">Question drill-down</h3>${questions.map(([n,c])=>`<button class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left hover:bg-slate-50" onclick="auditDrilldown('question','${encodeURIComponent(n)}')"><span class="text-xs font-bold text-slate-700 line-clamp-2" title="${escapeHtml(n)}">${escapeHtml(shortQuestionLabel(n))}</span><span class="font-black birds-green">${c}</span></button>`).join('') || '<p class="text-slate-400 italic">No questions.</p>'}</div>${breakdownHtml('SLA / overdue flags', slaCounts.map(([name,total])=>({name,total,open:filtered.filter(a=>slaBucket(a)===name && !actionIsClosed(a)).length,closed:filtered.filter(a=>slaBucket(a)===name && actionIsClosed(a)).length})), 'sla')}${breakdownHtml('Sector open vs closed', sectorBreak, 'sector')}${breakdownHtml('Store open vs closed', storeBreak, 'store')}</div><div class="grid grid-cols-1 lg:grid-cols-2 gap-6">${breakdownHtml('Area open vs closed', areaBreak, 'area')}<div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">Closure quality</h3>${countBy(filtered, closureQuality).map(([n,c])=>`<button class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0 w-full text-left hover:bg-slate-50" onclick="auditDrilldown('closure','${encodeURIComponent(n)}')"><span class="text-xs font-bold text-slate-700">${escapeHtml(n)}</span><span class="font-black birds-green">${c}</span></button>`).join('')}</div></div><div class="card overflow-hidden"><div class="p-5 flex flex-wrap gap-3 justify-between items-center border-b border-slate-100"><h3 class="font-black outfit text-xl birds-green">Action Detail</h3><div class="flex flex-wrap gap-2 audit-export-controls"><button onclick="setAuditSort('risk')" class="export-btn">Sort Risk</button><button onclick="setAuditSort('days')" class="export-btn">Sort Days</button><button onclick="setAuditSort('Store')" class="export-btn">Sort Store</button><span class="text-xs font-black text-slate-400 px-2 py-1">${total} rows • missing closure comments: ${noCloseComment}</span></div></div><div class="overflow-x-auto max-h-[760px] overflow-y-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 sticky top-0 z-10"><tr><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Store</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Area</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Sector</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Status</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Critical</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">SLA</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Action / Issue</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Responsible</th><th class="p-3 text-[10px] uppercase text-slate-500 font-black">Days</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="p-8 text-center text-slate-400 font-bold">No matching actions.</td></tr>'}</tbody></table></div></div>`;
 }
 function auditDrilldown(type, encodedValue){
   const val = decodeURIComponent(encodedValue || '');
@@ -226,7 +290,7 @@ async function exportAuditActions(mode='filtered'){
   const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Audit Actions'); const stamp = new Date().toISOString().slice(0,10); XLSX.writeFile(wb, `Birds_Audit_Actions_${mode}_${stamp}.xlsx`);
 }
 function pdfClean(s){ return String(s ?? '').replace(/\s+/g,' ').trim(); }
-function drawPdfHeader(pdf, title, subtitle){ pdf.setFillColor(0,168,142); pdf.rect(0,0,297,18,'F'); pdf.setTextColor(255,255,255); pdf.setFontSize(16); pdf.setFont(undefined,'bold'); pdf.text(title, 10, 11); pdf.setFontSize(8); pdf.setFont(undefined,'normal'); pdf.text(subtitle, 10, 16); pdf.setTextColor(15,23,42); }
+function drawPdfHeader(pdf, title, subtitle){ pdf.setFillColor(0,168,142); pdf.rect(0,0,297,18,'F'); pdf.setTextColor(255,255,255); pdf.setFontSize(16); pdf.setFont(undefined,'bold'); pdf.text(title, 10, 11); pdf.setFontSize(8); pdf.setFont(undefined,'normal'); pdf.text(subtitle, 10, 16); pdf.setTextColor(15,23,42); if (window.__pdfLogo) { try { pdf.addImage(window.__pdfLogo, 'PNG', 258, 1, 28, 28); } catch(e){} } }
 function pdfLine(pdf, text, x, y, maxW, size=8, style='normal'){ pdf.setFontSize(size); pdf.setFont(undefined, style); const lines = pdf.splitTextToSize(pdfClean(text), maxW); pdf.text(lines, x, y); return y + (lines.length * (size*0.38)) + 1.5; }
 function pdfEnsure(pdf, y, needed=20){ if(y+needed > 200){ pdf.addPage(); drawPdfHeader(pdf,'Audit Action Hub','continued'); return 26; } return y; }
 async function exportAuditPDF(){

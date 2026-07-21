@@ -42,7 +42,7 @@ if(currentView === 'banding') return renderBandingView();
 
   
 
-  const rawKpis = await idbGetAll('kpi'); const allAudits = await idbGetAll('audits'); const allActions = await idbGetAll('actions');
+  const rawKpis = await idbGetAll('kpi'); const allAudits = await idbGetAll('audits'); var allActions = []; if (typeof getAuditActionsForReport === 'function') { try { allActions = await getAuditActionsForReport(); allActions.forEach(function(a) { if (a.Status === 'Closed' && a.ClosedOn && a.AuditDate) { var cd = new Date(a.ClosedOn); var ad = new Date(a.AuditDate); if (!isNaN(cd.getTime()) && !isNaN(ad.getTime())) a.DaysToClose = Math.round((cd - ad) / 86400000); } }); } catch(e) { console.warn('[Dash] Failed to load actions from JSON folders:', e); } }
   const combinedData = [...rawKpis, ...allAudits]; if(!combinedData.length && currentView !== 'control') return;
   const effectiveYear = combinedData.length ? Math.max(...combinedData.map(k => (k.Year || currentAwardsYear || new Date().getFullYear()))) : new Date().getFullYear();
   latestWkGlobal = combinedData.length ? Math.max(...combinedData.filter(k => (k.Year || effectiveYear) === effectiveYear).map(k => k.Week)) : 0;

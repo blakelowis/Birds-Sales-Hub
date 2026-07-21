@@ -609,7 +609,7 @@ window.exportCurrentViewPNG = async function(){
 
     exportWrap.innerHTML = `
         <div style="
-            border-bottom:4px solid #00A88E;
+            border-bottom:4px solid #5B8C7A;
             margin-bottom:20px;
             padding-bottom:15px;
             font-family:Arial,sans-serif;
@@ -617,7 +617,7 @@ window.exportCurrentViewPNG = async function(){
             <div style="
                 font-size:42px;
                 font-weight:900;
-                color:#00A88E;
+                color:#5B8C7A;
             ">
                 AUDIT ACTION HUB
             </div>
@@ -900,7 +900,7 @@ function rpSparkline(data, inverse=false, width=120, height=32){
     const y = pad + (1 - (v - min) / range) * h;
     return `${x},${y}`;
   });
-  const colour = inverse ? '#F59E0B' : '#00A88E';
+  const colour = inverse ? '#F59E0B' : '#5B8C7A';
   return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" class="inline-block align-middle"><polyline points="${pts.join(' ')}" fill="none" stroke="${colour}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 function rpBreakdown(title, pairs){ return `<div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">${title}</h3>${pairs.length?pairs.map(([n,c])=>`<div class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0"><span class="text-xs font-bold text-slate-700">${escapeHtml(n)}</span><span class="font-black birds-green">${c}</span></div>`).join(''):'<p class="text-slate-400 italic">No data.</p>'}</div>`; }

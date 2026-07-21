@@ -15,7 +15,7 @@ function canonicalStoreId(name){
     "Melton Road": ["meltonroad","meltonrd"],
     "Teal Park": ["tealpark"],
     "Lansdowne Drive": ["lansdownedrive","lansdowne","lansdowndrive","lansdowndr"],
-    "Branston": ["branstonretailpark"],
+    "Branston": ["branstonretailpark", "branston"],
     "Burton": ["burtonstationstreet","burtonexpresso"],
     "Sutton": ["sutton"],
     "Stretton": ["stretton"],
@@ -278,7 +278,7 @@ function updateActiveWeekBadge(effectiveWeek) {
         badge.className = "bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider";
         badge.innerText = "ARCHIVE: WK " + archiveWeekOverride;
     } else if (currentTimeFilter === 'latest') {
-        badge.className = "bg-birds text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider";
+        badge.className = "bg-slate-700 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider";
         badge.innerText = "LATEST: WK " + (latestWkGlobal || effectiveWeek || '?');
     } else if (currentTimeFilter === 'last4') {
         badge.className = "bg-indigo-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider";
@@ -322,11 +322,12 @@ async function loadStoreMap() {
             }
         }
     } else {
-        for (const s of stores) {
-            if (s.AM === 'Tom Henson') {
-                s.AM = 'Thomas Henson';
-                await idbPut('stores', s);
-            }
+        var canonical = {};
+        for (var i = 0; i < stores.length; i++) {
+            var s = stores[i];
+            var cid = canonicalStoreId(s.BranchId || '');
+            if (!cid) continue;
+            if (s.AM === 'Tom Henson') { s.AM = 'Thomas Henson'; }
             if (s.AM === 'Unassigned' || !s.AM) {
                 for (const [am, branches] of Object.entries(DEFAULT_AREA_MAPPING)) {
                     if (branches.some(b => {
@@ -334,14 +335,20 @@ async function loadStoreMap() {
                         const sLower = (s.BranchId || '').toLowerCase();
                         return sLower === bId || sLower.startsWith(bId) || bId.startsWith(sLower);
                     })) {
-                        s.AM = am;
-                        await idbPut('stores', s);
-                        break;
+                        s.AM = am; break;
                     }
                 }
             }
-            storeMap.set(s.BranchId, s.AM || 'Unassigned');
-            originalStoreNames.set(s.BranchId, s.originalName);
+            if (!canonical[cid] || (canonical[cid].AM === 'Unassigned' && s.AM !== 'Unassigned')) {
+                canonical[cid] = { BranchId: cid, originalName: canonicalStoreId(s.BranchId || ''), AM: s.AM || 'Unassigned' };
+            }
+        }
+        // Flush deduplicated entries to IndexedDB and runtime map
+        for (var cid in canonical) {
+            var entry = canonical[cid];
+            await idbPut('stores', entry);
+            storeMap.set(cid, entry.AM);
+            originalStoreNames.set(cid, entry.originalName);
         }
     }
 }
@@ -754,7 +761,7 @@ function getTrendStr(currVal, prevVal, isInverse=false, format='percent') {
  return good ? `<div class="trend-wrap"><span class="trend-up">${arrow} ${fmt}</span><div class="spark spark-up"></div></div>` : `<div class="trend-wrap"><span class="trend-down">${arrow} ${fmt}</span><div class="spark spark-down"></div></div>`;
 }
 
-function ringSVG(pct, stroke='#00A88E'){
+function ringSVG(pct, stroke='#5B8C7A'){
  const p = Math.max(0, Math.min(100, Number(pct) || 0)); const dash = p.toFixed(1);
  return `<div class="relative w-20 h-20 mx-auto mt-1"><svg viewBox="0 0 36 36" class="w-full h-full"><path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0-31.831" fill="none" stroke="rgba(15,23,42,.10)" stroke-width="3"/><path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831" fill="none" stroke="${stroke}" stroke-linecap="round" stroke-width="3" stroke-dasharray="${dash}, 100"/></svg><div class="absolute inset-0 flex items-center justify-center font-black text-lg text-slate-800">${p.toFixed(1)}%</div></div>`;
 }

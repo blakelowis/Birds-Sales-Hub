@@ -107,13 +107,19 @@ async function renderDocuments(useCache = false) {
                 ${folder === 'Open' ? `<button onclick="archiveDocument('${doc.id}', '${folder}')" class="bg-purple-50 text-purple-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-purple-100">Archive</button>` : ''}
                 ${folder === 'Archive' ? `<button onclick="relaunchDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Archive' ? `<button onclick="permanentDeleteDocument('${doc.id}')" class="bg-red-100 text-red-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-red-200">Delete</button>` : ''}
+                ${folder === 'Resolved' ? `<button onclick="relaunchResolvedDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Resolved' ? `<button onclick="deleteDocument('${doc.id}', '${folder}')" class="bg-red-50 text-red-600 rounded-none text-sm flex-1 py-2 font-bold hover:bg-red-100">Delete</button>` : ''}
             </div>
         </div>`;
     };
 
+    const activeAttention = fAttention;
     document.getElementById("mainView").innerHTML = `
         <h2 class="text-[36px] font-black outfit birds-green mb-6">Document Hub</h2>
+        <div class="flex flex-wrap gap-2 mb-4">
+            <button class="px-4 py-2 text-xs font-black uppercase tracking-wider rounded-none transition-all ${fAttention === 'All' ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" onclick="document.getElementById('filter-attention').value='All';renderDocuments(true)">All</button>
+            ${attentionOptions.map(a => `<button class="px-4 py-2 text-xs font-black uppercase tracking-wider rounded-none transition-all ${fAttention === a ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" onclick="document.getElementById('filter-attention').value='${escapeHtml(a)}';renderDocuments(true)">${escapeHtml(a)}</button>`).join('')}
+        </div>
         <div class="flex flex-wrap gap-3 mb-6">
             <select id="filter-status" class="input-chip rounded-none" onchange="renderDocuments(true)">
                 <option value="All" ${fStatus === 'All' ? 'selected' : ''}>All Statuses</option>
@@ -124,7 +130,7 @@ async function renderDocuments(useCache = false) {
                 <option value="All">All Departments</option>
                 ${deptOptions.map(a => `<option value="${escapeHtml(a)}" ${fDept === a ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
             </select>
-            <select id="filter-attention" class="input-chip rounded-none" onchange="renderDocuments(true)">
+            <select id="filter-attention" class="hidden" onchange="renderDocuments(true)">
                 <option value="All">All — Attention Of</option>
                 ${attentionOptions.map(a => `<option value="${escapeHtml(a)}" ${fAttention === a ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
             </select>
@@ -349,6 +355,7 @@ function renderLinearViewer(doc, evidenceUrl, folder) {
                 ${folder === 'Open' ? `<button onclick="archiveDocument('${doc.id}','${folder}')" class="bg-purple-50 text-purple-700 rounded-none font-bold px-4 py-2 hover:bg-purple-100">Archive</button>` : ''}
                 ${folder === 'Archive' ? `<button onclick="relaunchDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none font-bold px-4 py-2 hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Archive' ? `<button onclick="permanentDeleteDocument('${doc.id}')" class="bg-red-100 text-red-700 rounded-none font-bold px-4 py-2 hover:bg-red-200">Delete</button>` : ''}
+                ${folder === 'Resolved' ? `<button onclick="relaunchResolvedDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none font-bold px-4 py-2 hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Resolved' ? `<button onclick="deleteDocument('${doc.id}','${folder}')" class="bg-red-50 text-red-600 rounded-none font-bold px-4 py-2 hover:bg-red-100">Delete</button>` : ''}
             </div>
         </div>`;
@@ -536,6 +543,28 @@ async function permanentDeleteDocument(id) {
     const archiveFolder = await docsRoot.getDirectoryHandle("Archive");
     await archiveFolder.removeEntry(id + ".json");
     alert("Document deleted.");
+    renderDocuments();
+}
+
+async function relaunchResolvedDocument(id) {
+    if (!confirm("Relaunch this resolved document back to Open?")) return;
+    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
+    const resolvedFolder = await docsRoot.getDirectoryHandle("Resolved");
+    const openFolder = await docsRoot.getDirectoryHandle("Open", { create: true });
+
+    const fileHandle = await resolvedFolder.getFileHandle(id + ".json");
+    const file = await fileHandle.getFile();
+    const doc = JSON.parse(await file.text());
+
+    doc.status = "Open";
+
+    const newHandle = await openFolder.getFileHandle(id + ".json", { create: true });
+    const writable = await newHandle.createWritable();
+    await writable.write(JSON.stringify(doc, null, 2));
+    await writable.close();
+
+    await resolvedFolder.removeEntry(id + ".json");
+    alert("Document relaunched to Open.");
     renderDocuments();
 }
 

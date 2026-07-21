@@ -157,7 +157,7 @@ window.drawTrendChart = async function(storeFilterTriggered = false, exportMode 
     canvas.removeAttribute('height');
     canvas.removeAttribute('style');
   }
-  const isInverse = ['Waste','Labour','Energy'].includes(metric); const lineColor = isInverse ? '#F59E0B' : '#00A88E'; const bgColor = isInverse ? 'rgba(245, 158, 11, 0.10)' : 'rgba(0, 168, 142, 0.10)';
+  const isInverse = ['Waste','Labour','Energy'].includes(metric); const lineColor = isInverse ? '#F59E0B' : '#5B8C7A'; const bgColor = isInverse ? 'rgba(245, 158, 11, 0.10)' : 'rgba(91, 140, 122, 0.10)';
   const labelScope = storeFilterRaw ? storeFilterRaw : scope;
   let datasets = [{ label: labelScope, data: selectedSeries, borderColor: lineColor, backgroundColor: bgColor, borderWidth: 4, pointBackgroundColor: '#ffffff', pointBorderColor: lineColor, pointBorderWidth: 2, pointRadius: 6, pointHoverRadius: 7, fill: true, tension: 0.3, spanGaps: true }];
   if(showCompany){

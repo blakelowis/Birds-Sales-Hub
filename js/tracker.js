@@ -6,6 +6,7 @@
 var _trackerSaveTimer = null;
 var _trackerLoading = false;
 var _trackerSort = { col: 'name', dir: 'asc' };
+var _trackerDataCache = {};
 
 // === RAG Helpers ===
 function trackerEhoRag(rating) {
@@ -65,32 +66,58 @@ var _trackerColDef = [
     { key: 'auditDate',  label: 'Audit Date',     cls: 'text-blue-600' }
 ];
 
+function buildStoresFromMap() {
+    var s = [];
+    var seen = {};
+    storeMap.forEach(function(am, branchId) {
+        if (am === 'Unassigned' || am === 'Training') return;
+        var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(branchId)) || branchId;
+        var cid = canonicalStoreId(displayName);
+        if (!seen[cid]) {
+            seen[cid] = true;
+            s.push({ id: branchId, name: displayName, am: am });
+        }
+    });
+    s.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    return s;
+}
+
+function buildStoresFromEhoData(saved) {
+    var s = [];
+    var seen = {};
+    Object.keys(saved).forEach(function(storeId) {
+        var d = saved[storeId];
+        var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(storeId)) || storeId;
+        var am = (typeof storeMap !== 'undefined' && storeMap.get(storeId)) || 'Unassigned';
+        if (am === 'Training') return;
+        var cid = canonicalStoreId(displayName);
+        if (!seen[cid]) {
+            seen[cid] = true;
+            s.push({ id: storeId, name: displayName, am: am });
+        }
+    });
+    s.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    return s;
+}
+
+function mergeStoreLists(mapStores, dataStores) {
+    var seen = {};
+    var merged = [];
+    mapStores.forEach(function(s) {
+        var cid = canonicalStoreId(s.name);
+        if (!seen[cid]) { seen[cid] = true; merged.push(s); }
+    });
+    dataStores.forEach(function(s) {
+        var cid = canonicalStoreId(s.name);
+        if (!seen[cid]) { seen[cid] = true; merged.push(s); }
+    });
+    merged.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    return merged;
+}
+
 window.renderTracker = function() {
     var mainView = document.getElementById('mainView');
     if (!mainView) return;
-
-    function buildStoresFromMap() {
-        var s = [];
-        storeMap.forEach(function(am, branchId) {
-            if (am === 'Unassigned') return;
-            var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(branchId)) || branchId;
-            s.push({ id: branchId, name: displayName, am: am });
-        });
-        s.sort(function(a, b) { return a.name.localeCompare(b.name); });
-        return s;
-    }
-
-    function buildStoresFromEhoData(saved) {
-        var s = [];
-        Object.keys(saved).forEach(function(storeId) {
-            var d = saved[storeId];
-            var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(storeId)) || storeId;
-            var am = (typeof storeMap !== 'undefined' && storeMap.get(storeId)) || 'Unassigned';
-            s.push({ id: storeId, name: displayName, am: am });
-        });
-        s.sort(function(a, b) { return a.name.localeCompare(b.name); });
-        return s;
-    }
 
     var stores = buildStoresFromMap();
     var ams = AM_LIST.filter(function(a) { return a !== 'Unassigned'; });
@@ -98,22 +125,23 @@ window.renderTracker = function() {
     var headerCells = _trackerColDef.map(function(col) {
         var arrow = '';
         if (_trackerSort.col === col.key) arrow = _trackerSort.dir === 'asc' ? ' ▲' : ' ▼';
-        return '<th class="tracker-th p-3 text-[10px] font-black ' + col.cls + ' uppercase tracking-wider cursor-pointer select-none hover:bg-slate-100 transition-colors" data-col="' + col.key + '" onclick="trackerHeaderSort(\'' + col.key + '\')">' + col.label + arrow + '</th>';
+        return '<th class="tracker-th p-3 text-[10px] font-black ' + col.cls + ' uppercase tracking-wider cursor-pointer select-none hover:bg-slate-100 transition-colors sticky top-0 z-20 bg-slate-100" data-col="' + col.key + '" onclick="trackerHeaderSort(\'' + col.key + '\')">' + col.label + arrow + '</th>';
     }).join('');
 
     function renderTable(saved, overrideStores) {
+        _trackerDataCache = saved;
         var activeStores = overrideStores || stores;
         mainView.innerHTML = `
-    <div id="tracker-view">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+    <div id="tracker-view" class="flex flex-col" style="height:calc(100vh - 120px)">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
             <h2 class="text-2xl font-black outfit birds-green uppercase tracking-tight">EHO & Audit Tracker</h2>
             <div class="flex flex-wrap gap-2">
                 <button onclick="trackerRefreshFromFolder()" class="btn-primary text-xs">Refresh from Folder</button>
             </div>
         </div>
-        <div id="trackerSyncStatus" class="text-xs font-bold text-slate-400 mb-2"></div>
+        <div id="trackerSyncStatus" class="text-xs font-bold text-slate-400 mb-2 shrink-0"></div>
 
-        <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm shrink-0">
             <div class="flex flex-wrap gap-3 items-end">
                 <div class="filter-group">
                     <label>Area Manager</label>
@@ -131,10 +159,10 @@ window.renderTracker = function() {
             </div>
         </div>
 
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
-            <div class="overflow-x-auto max-h-[70vh] overflow-y-auto">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm min-h-0 flex-1">
+            <div class="overflow-auto h-full relative">
                 <table class="w-full text-left border-collapse" id="trackerTable">
-                    <thead class="bg-slate-100 border-b-2 border-slate-200 sticky top-0 z-20">
+                    <thead class="bg-slate-100 border-b-2 border-slate-200">
                         <tr>
                             ${headerCells}
                         </tr>
@@ -149,7 +177,7 @@ window.renderTracker = function() {
             </div>
         </div>
 
-        <div id="trackerKpis" class="grid grid-cols-2 md:grid-cols-7 gap-4 mt-4"></div>
+        <div id="trackerKpis" class="grid grid-cols-2 md:grid-cols-7 gap-4 mt-4 shrink-0"></div>
     </div>`;
         window._trackerStores = activeStores;
         trackerRenderKpis(activeStores, saved);
@@ -159,34 +187,55 @@ window.renderTracker = function() {
     // Always render immediately with empty data
     renderTable({});
 
-    // Load data: folder → IndexedDB → defaults
+    // Load data: always read from folder first, merge with IDB by newest timestamp, fall back to defaults
     if (typeof idbGetAll === 'function' && typeof db !== 'undefined' && db) {
         trackerLoadFromFolder().then(function(folderData) {
             if (folderData && Object.keys(folderData).length > 0) {
-                var keys = Object.keys(folderData);
-                var promises = keys.map(function(k) { return idbPut('eho_data', folderData[k]); });
-                return Promise.all(promises).then(function() { return folderData; });
+                // Merge folder data with IDB — keep newer version of each record
+                return idbGetAll('eho_data').then(function(idbRows) {
+                    var idbMap = {};
+                    idbRows.forEach(function(r) { idbMap[r.StoreId] = r; });
+                    var merged = {};
+                    Object.keys(folderData).forEach(function(k) {
+                        var folderRec = folderData[k];
+                        var idbRec = idbMap[k];
+                        if (idbRec && idbRec.updatedAt && folderRec.updatedAt && new Date(idbRec.updatedAt) > new Date(folderRec.updatedAt)) {
+                            merged[k] = idbRec;
+                        } else {
+                            merged[k] = folderRec;
+                        }
+                        delete idbMap[k];
+                    });
+                    // Any records only in IDB (from unsaved edits) keep them
+                    Object.keys(idbMap).forEach(function(k) { merged[k] = idbMap[k]; });
+                    return Promise.all(Object.keys(merged).map(function(k) { return idbPut('eho_data', merged[k]); })).then(function() {
+                        var withData = mergeStoreLists(stores, buildStoresFromEhoData(merged));
+                        return { data: merged, stores: withData };
+                    });
+                });
             }
+            // No folder data — try IndexedDB
             return idbGetAll('eho_data').then(function(rows) {
                 var saved = {};
                 rows.forEach(function(r) { saved[r.StoreId] = r; });
-                if (Object.keys(saved).length > 0) return saved;
+                if (Object.keys(saved).length > 0) {
+                    var withData = mergeStoreLists(stores, buildStoresFromEhoData(saved));
+                    return { data: saved, stores: withData };
+                }
+                // Nothing anywhere — load defaults
                 return fetch('./tracker_defaults.json').then(function(r) { return r.json(); }).then(function(defaults) {
                     var storesData = defaults.stores || {};
-                    var dkeys = Object.keys(storesData);
-                    return Promise.all(dkeys.map(function(k) { return idbPut('eho_data', storesData[k]); })).then(function() {
+                    return Promise.all(Object.keys(storesData).map(function(k) { return idbPut('eho_data', storesData[k]); })).then(function() {
                         console.log('[Tracker] Loaded defaults from tracker_defaults.json');
-                        return storesData;
+                        var withData = mergeStoreLists(stores, buildStoresFromEhoData(storesData));
+                        return { data: storesData, stores: withData };
                     });
                 });
             });
-        }).then(function(data) {
-            if (data && Object.keys(data).length > 0 && currentView === 'tracker') {
-                // If storeMap is empty, build store list from eho_data
-                if (stores.length === 0) {
-                    stores = buildStoresFromEhoData(data);
-                }
-                renderTable(data, stores);
+        }).then(function(result) {
+            if (result && result.data && Object.keys(result.data).length > 0 && currentView === 'tracker') {
+                stores = result.stores;
+                renderTable(result.data, stores);
             }
         }).catch(function(e) { console.warn('[Tracker] Load failed:', e); });
     }
@@ -207,13 +256,13 @@ function trackerRowHTML(id, name, am, d) {
     var rating = d.ehoRating || (ehoCsv ? String(ehoCsv.rating) : '');
     var visit = d.ehoVisit || '';
     var inspectionDate = d.inspectionDate || (ehoCsv ? ehoCsv.inspectionDate : '') || '';
-    var food = d.food || '';
-    var fire = d.fire || '';
-    var hs = d.hs || '';
-    var journey = d.journey || '';
-    var coffee = d.coffee || '';
-    var focus = d.focus || '';
-    var total = d.total || '';
+    var food = d.food !== undefined && d.food !== null ? d.food : '';
+    var fire = d.fire !== undefined && d.fire !== null ? d.fire : '';
+    var hs = d.hs !== undefined && d.hs !== null ? d.hs : '';
+    var journey = d.journey !== undefined && d.journey !== null ? d.journey : '';
+    var coffee = d.coffee !== undefined && d.coffee !== null ? d.coffee : '';
+    var focus = d.focus !== undefined && d.focus !== null ? d.focus : '';
+    var total = d.total !== undefined && d.total !== null ? d.total : '';
     var auditDate = d.auditDate || '';
 
     var ratingOpts = '<option value=""></option>';
@@ -270,7 +319,7 @@ function trackerRowHTML(id, name, am, d) {
     }
 
         var baseScoreCls = 'w-14 text-xs border rounded px-1 py-1 text-center focus:ring-2 focus:ring-emerald-500 outline-none';
-        return '<tr class="tracker-row border-b border-slate-100 hover:bg-slate-50 transition-colors" data-am="' + escapeHtml(am) + '" data-rating="' + escapeHtml(rating) + '" data-total="' + escapeHtml(total) + '" data-name="' + escapeHtml(name.toLowerCase()) + '" data-nextdue="' + escapeHtml(nextDueVal) + '">' +
+        return '<tr class="tracker-row border-b border-slate-100 hover:bg-slate-50 transition-colors" data-storeid="' + escapeHtml(id) + '" data-am="' + escapeHtml(am) + '" data-rating="' + escapeHtml(rating) + '" data-total="' + escapeHtml(total) + '" data-name="' + escapeHtml(name.toLowerCase()) + '" data-nextdue="' + escapeHtml(nextDueVal) + '">' +
         '<td class="p-2 border-b border-slate-100 sticky left-0 bg-white hover:bg-slate-50 z-10"><span class="text-xs font-black text-slate-800">' + escapeHtml(name) + '</span></td>' +
         '<td class="p-2 border-b border-slate-100"><select class="w-24 text-[10px] border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'am\',this.value)">' + AM_LIST.filter(function(a){return a!=='Unassigned'}).map(function(a){return '<option value="'+escapeHtml(a)+'"'+(a===am?' selected':'')+'>'+escapeHtml(a)+'</option>'}).join('') + '</select></td>' +
         '<td class="p-2 border-b border-slate-100"><div class="flex items-center gap-1"><select class="w-20 text-xs border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'ehoRating\',this.value)">' + ratingOpts + '</select>' + starHtml + '</div></td>' +
@@ -289,42 +338,48 @@ function trackerRowHTML(id, name, am, d) {
 
 // === Field Change Handler ===
 window.trackerField = function(storeId, field, value) {
-    idbGet('eho_data', storeId).then(function(existing) {
-        var rec = existing || { StoreId: storeId };
-        rec[field] = value;
-        rec.updatedAt = new Date().toISOString();
-        idbPut('eho_data', rec);
-    });
+    var rec = _trackerDataCache[storeId] || { StoreId: storeId };
+    rec[field] = value;
+    rec.updatedAt = new Date().toISOString();
+    _trackerDataCache[storeId] = rec;
+    idbPut('eho_data', rec);
     trackerScheduleSave();
     // Update row data attributes for sort without full re-render
-    var rows = document.querySelectorAll('.tracker-row');
-    rows.forEach(function(row) {
-        var nameAttr = row.getAttribute('data-name');
-        // Find the row by checking store name match in first cell
-        var firstCell = row.querySelector('td');
-        if (firstCell && firstCell.textContent.trim().toLowerCase() === storeId.toLowerCase() ||
-            canonicalStoreId(firstCell ? firstCell.textContent.trim() : '') === canonicalStoreId(storeId)) {
-            if (field === 'ehoRating') row.setAttribute('data-rating', value);
-            if (field === 'total') row.setAttribute('data-total', value);
-            if (field === 'am') row.setAttribute('data-am', value);
-            if (field === 'nextDue') row.setAttribute('data-nextdue', value);
-            if (field === 'ehoVisit') {
-                var nd = '';
-                if (value) {
-                    var vd = parseUKDate(value);
-                    if (vd && !isNaN(vd.getTime())) {
-                        var ndt = new Date(vd);
-                        ndt.setFullYear(ndt.getFullYear() + 1);
-                        nd = ndt.toISOString().slice(0, 10);
-                    }
-                }
-                row.setAttribute('data-nextdue', nd);
-                // Update the Next Due badge cell (index 4, after Inspection Date)
-                var cells = row.querySelectorAll('td');
-                if (cells[4]) cells[4].innerHTML = trackerNextDueBadge(value);
+    var row = document.querySelector('.tracker-row[data-storeid="' + storeId.replace(/"/g, '') + '"]');
+    if (!row) return;
+    if (field === 'ehoRating') row.setAttribute('data-rating', value);
+    if (field === 'total') row.setAttribute('data-total', value);
+    if (field === 'am') row.setAttribute('data-am', value);
+    if (field === 'nextDue') row.setAttribute('data-nextdue', value);
+    if (field === 'inspectionDate') {
+        // Recalculate next due from inspection date
+        var nd = '';
+        if (value) {
+            var vd = parseUKDate(value);
+            if (vd && !isNaN(vd.getTime())) {
+                var ndt = new Date(vd);
+                ndt.setFullYear(ndt.getFullYear() + 1);
+                nd = ndt.toISOString().slice(0, 10);
             }
         }
-    });
+        row.setAttribute('data-nextdue', nd);
+        var cells = row.querySelectorAll('td');
+        if (cells[4]) cells[4].innerHTML = trackerNextDueBadge(nd);
+    }
+    if (field === 'ehoVisit') {
+        var nd = '';
+        if (value) {
+            var vd = parseUKDate(value);
+            if (vd && !isNaN(vd.getTime())) {
+                var ndt = new Date(vd);
+                ndt.setFullYear(ndt.getFullYear() + 1);
+                nd = ndt.toISOString().slice(0, 10);
+            }
+        }
+        row.setAttribute('data-nextdue', nd);
+        var cells = row.querySelectorAll('td');
+        if (cells[4]) cells[4].innerHTML = trackerNextDueBadge(value);
+    }
 };
 
 function trackerScheduleSave() {
@@ -340,9 +395,24 @@ async function trackerSaveToFolder() {
         var rows = await idbGetAll('eho_data');
         var data = {};
         rows.forEach(function(r) { data[r.StoreId] = r; });
+        // Update in-memory cache from IndexedDB (catches any records created outside trackerField)
+        _trackerDataCache = data;
         var exportObj = { version: 1, exportedAt: new Date().toISOString(), stores: data };
         var json = JSON.stringify(exportObj, null, 2);
 
+        // Cloud path: upload to SharePoint root via GraphAPI
+        if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
+            try {
+                await GraphAPI.uploadFile('tracker_data.json', json, 'application/json');
+                if (statusEl) statusEl.textContent = 'Saved to SharePoint';
+                trackerRefreshKpis();
+                return;
+            } catch(cloudErr) {
+                console.warn('[Tracker] Cloud save failed:', cloudErr);
+            }
+        }
+
+        // FSA path: save to local anchored folder
         if (typeof directoryHandle !== 'undefined' && directoryHandle) {
             var hasPerm = typeof verifyPermission === 'function' ? await verifyPermission(directoryHandle, true) : false;
             if (hasPerm) {
@@ -351,13 +421,22 @@ async function trackerSaveToFolder() {
                 await writable.write(json);
                 await writable.close();
                 if (statusEl) statusEl.textContent = 'Saved to shared folder';
+                trackerRefreshKpis();
                 return;
             }
         }
         if (statusEl) statusEl.textContent = 'Saved locally (no folder anchored)';
+        trackerRefreshKpis();
     } catch(e) {
         console.warn('[Tracker] Folder save failed:', e);
         if (statusEl) statusEl.textContent = 'Save failed — data kept locally';
+    }
+}
+
+function trackerRefreshKpis() {
+    var activeStores = window._trackerStores;
+    if (activeStores && activeStores.length > 0) {
+        trackerRenderKpis(activeStores, _trackerDataCache);
     }
 }
 
@@ -396,23 +475,55 @@ window.trackerHeaderSort = function(colKey) {
     trackerApplyFilter();
 };
 
-// === Refresh from shared folder ===
+// === Refresh from shared folder (gentle in-place update) ===
 window.trackerRefreshFromFolder = async function() {
     var statusEl = document.getElementById('trackerSyncStatus');
     if (statusEl) statusEl.textContent = 'Refreshing from folder...';
     try {
         var folderData = await trackerLoadFromFolder();
         if (folderData && Object.keys(folderData).length > 0) {
-            var keys = Object.keys(folderData);
+            // Merge folder data with IDB — keep newer version of each record
+            var idbRows = await idbGetAll('eho_data');
+            var idbMap = {};
+            idbRows.forEach(function(r) { idbMap[r.StoreId] = r; });
+            var mergedData = {};
+            Object.keys(folderData).forEach(function(k) {
+                var folderRec = folderData[k];
+                var idbRec = idbMap[k];
+                if (idbRec && idbRec.updatedAt && folderRec.updatedAt && new Date(idbRec.updatedAt) > new Date(folderRec.updatedAt)) {
+                    mergedData[k] = idbRec;
+                } else {
+                    mergedData[k] = folderRec;
+                }
+                delete idbMap[k];
+            });
+            Object.keys(idbMap).forEach(function(k) { mergedData[k] = idbMap[k]; });
+            _trackerDataCache = mergedData;
+            var keys = Object.keys(mergedData);
             for (var i = 0; i < keys.length; i++) {
-                await idbPut('eho_data', folderData[keys[i]]);
+                await idbPut('eho_data', mergedData[keys[i]]);
             }
             if (statusEl) statusEl.textContent = 'Refreshed ' + keys.length + ' stores from folder';
-            renderTracker();
+            // Merge store list — include any stores in tracker data not in storeMap
+            var merged = mergeStoreLists(buildStoresFromMap(), buildStoresFromEhoData(mergedData));
+            window._trackerStores = merged;
+            // Re-render only the table body and KPIs, preserving scroll position
+            var tbody = document.getElementById('trackerTableBody');
+            if (tbody) {
+                tbody.innerHTML = merged.map(function(s) {
+                    var d = mergedData[s.id] || {};
+                    return trackerRowHTML(s.id, s.name, s.am, d);
+                }).join('');
+                trackerRenderKpis(merged, mergedData);
+                trackerApplyFilter();
+            } else {
+                renderTracker();
+            }
         } else {
             if (statusEl) statusEl.textContent = 'No data in folder yet';
         }
     } catch(e) {
+        console.warn('[Tracker] Refresh failed:', e);
         if (statusEl) statusEl.textContent = 'Refresh failed';
     }
 };

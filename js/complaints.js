@@ -33,18 +33,52 @@ function normaliseComplaintStatus(raw){
 }
 
 function CSVToArray(strData) {
-    let objPattern = new RegExp(("(\\,|\\r?\ |\\r|^)(?:\"([^\"]*(?:\"\"[^\"]*)*)\"|([^\"\\,\\r\ ]*))"), "gi");
-    let arrData = [[]];
-    let arrMatches = null;
-    while (arrMatches = objPattern.exec(strData)) {
-        let strMatchedDelimiter = arrMatches[1];
-        if (strMatchedDelimiter.length && strMatchedDelimiter !== ",") arrData.push([]);
-        let strMatchedValue;
-        if (arrMatches[2]) strMatchedValue = arrMatches[2].replace(new RegExp("\"\"", "g"), "\"");
-        else strMatchedValue = arrMatches[3];
-        arrData[arrData.length - 1].push(strMatchedValue);
+    if (typeof Papa !== 'undefined') {
+        var result = Papa.parse(strData, { skipEmptyLines: true });
+        if (result.data && result.data.length > 0) return result.data;
     }
-    return arrData.filter(row => row.length > 1 || (row.length === 1 && row[0] !== ""));
+    var lines = strData.split(/\r?\n/).filter(function(l){ return l.trim(); });
+    if (lines.length === 0) return [];
+    var headers = lines[0].split(',').map(function(h){ return h.trim(); });
+    var colCount = headers.length;
+    var rows = [];
+    var currentRow = [];
+    var inQuotes = false;
+    var fieldBuffer = '';
+    for (var li = 0; li < lines.length; li++) {
+        var line = lines[li];
+        for (var ci = 0; ci < line.length; ci++) {
+            var ch = line[ci];
+            if (ch === '"') {
+                if (inQuotes && ci + 1 < line.length && line[ci + 1] === '"') {
+                    fieldBuffer += '"';
+                    ci++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (ch === ',' && !inQuotes) {
+                currentRow.push(fieldBuffer.trim());
+                fieldBuffer = '';
+            } else {
+                fieldBuffer += ch;
+            }
+        }
+        if (!inQuotes) {
+            currentRow.push(fieldBuffer.trim());
+            if (currentRow.length >= colCount) {
+                rows.push(currentRow.slice(0, colCount));
+            }
+            currentRow = [];
+            fieldBuffer = '';
+        } else {
+            fieldBuffer += '\n';
+        }
+    }
+    if (currentRow.length > 0 || fieldBuffer) {
+        currentRow.push(fieldBuffer.trim());
+        if (currentRow.length >= colCount) rows.push(currentRow.slice(0, colCount));
+    }
+    return rows;
 }
 
 function parseUKDate(dateStr){

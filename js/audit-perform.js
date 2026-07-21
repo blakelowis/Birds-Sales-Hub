@@ -164,7 +164,7 @@ function auditGetActions() {
     sec.categories.forEach(function(cat) {
       cat.questions.forEach(function(q) {
         if (q.action && q.action.enabled) {
-          items.push({ sector: sec.title, category: cat.name, questionId: q.id, question: q.text, answer: q.answer, weight: q.weight, action: q.action, photos: [q.photoThumb, q.extraPhotoThumb, q.extraPhoto2Thumb] });
+          items.push({ sector: sec.title, category: cat.name, questionId: q.id, question: q.text, answer: q.answer, weight: q.weight, action: q.action, photos: [q.photo, q.extraPhoto, q.extraPhoto2] });
         }
       });
     });
@@ -181,7 +181,7 @@ function auditCollectComments() {
       cat.questions.forEach(function(q) {
         if (!q.comment || !q.comment.trim()) return;
         if (q.action && q.action.enabled) return;
-        items.push({ sector: sec.title, category: cat.name, question: q.text, answer: q.answer, comment: q.comment, photoThumb: q.photoThumb, extraPhotoThumb: q.extraPhotoThumb, extraPhoto2Thumb: q.extraPhoto2Thumb });
+        items.push({ sector: sec.title, category: cat.name, question: q.text, answer: q.answer, comment: q.comment, photoThumb: q.photo, extraPhotoThumb: q.extraPhoto, extraPhoto2Thumb: q.extraPhoto2 });
       });
     });
   });
@@ -195,12 +195,14 @@ function auditCollectAllComments() {
     var sec = auditState.sectors[sid];
     sec.categories.forEach(function(cat) {
       cat.questions.forEach(function(q) {
-        if (!q.comment && !q.photoThumb && !q.extraPhotoThumb && !q.extraPhoto2Thumb) return;
+        if (!q.comment && !q.photo && !q.extraPhoto && !q.extraPhoto2) return;
+        if (q.answer !== 'Pass' && q.answer !== 'Fail') return;
+        if (q.action && q.action.enabled) return;
         var item = {
           sector: sec.title, category: cat.name,
           question: q.text, answer: q.answer,
           comment: q.comment || '',
-          photoThumb: q.photoThumb, extraPhotoThumb: q.extraPhotoThumb, extraPhoto2Thumb: q.extraPhoto2Thumb
+          photoThumb: q.photo, extraPhotoThumb: q.extraPhoto, extraPhoto2Thumb: q.extraPhoto2
         };
         var hasPhotos = item.photoThumb || item.extraPhotoThumb || item.extraPhoto2Thumb;
         if (hasPhotos) withPhotos.push(item);
@@ -217,10 +219,10 @@ function auditCollectEvidence() {
     var sec = auditState.sectors[sid];
     sec.categories.forEach(function(cat) {
       cat.questions.forEach(function(q) {
-        var has2 = q.extraPhotoThumb;
-        var has3 = q.extraPhoto2Thumb;
+        var has2 = q.extraPhoto;
+        var has3 = q.extraPhoto2;
         if (has2 || has3) {
-          items.push({ sector: sec.title, category: cat.name, question: q.text, answer: q.answer, photo2: q.extraPhotoThumb, photo3: q.extraPhoto2Thumb });
+          items.push({ sector: sec.title, category: cat.name, question: q.text, answer: q.answer, photo2: q.extraPhoto, photo3: q.extraPhoto2 });
         }
       });
     });
@@ -293,10 +295,21 @@ function renderAuditMetaView() {
   }).join('');
   branchOpts += '<option value="__training"' + (auditState && auditState.branchId === '__training' ? ' selected' : '') + '>🔧 Training / Temp Store</option>';
 
+  // Load email/manager from existing data
+  if (auditState && auditState.sectors && Object.keys(auditState.sectors).length > 0) {
+    setTimeout(function() {
+      var em = document.getElementById('auditEmail');
+      var mg = document.getElementById('auditManager');
+      if (em && auditState.email) em.value = auditState.email;
+      if (mg && auditState.manager) mg.value = auditState.manager;
+    }, 0);
+  }
+
   var meta = auditState || {};
   mainView.innerHTML = `
     <div class="max-w-3xl mx-auto">
       <div class="flex items-center gap-4 mb-6">
+        ${auditState && auditState.sectors && Object.keys(auditState.sectors).length ? '<button onclick="auditGoSectors()" class="text-emerald-500 hover:text-emerald-600 text-sm font-bold">← Back to Sectors</button>' : ''}
         <button onclick="cancelAudit()" class="text-slate-400 hover:text-slate-600 text-sm font-bold">← Back to Hub</button>
         <h2 class="text-2xl font-black outfit birds-green uppercase tracking-tight">New Audit</h2>
         ${auditState && auditState.isTraining ? '<span class="bg-amber-100 text-amber-700 border border-amber-300 px-3 py-1 rounded-full text-xs font-black uppercase">Training Mode — Not Saved to SharePoint</span>' : ''}
@@ -450,10 +463,18 @@ function renderAuditSectorView() {
       <h3 class="font-black text-slate-800 mb-4">Sectors</h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">${sectorCards}</div>
 
-      <div class="text-center">
-        <button onclick="auditCompleteAllInOne()" class="bg-emerald-500 hover:bg-emerald-600 text-white font-black px-10 py-4 rounded-full text-lg shadow-lg transition-colors">
-          Complete Audit →
+      <div class="flex flex-col gap-3 items-center mb-6">
+        <button onclick="auditCompleteAllInOne()" class="w-full max-w-md bg-emerald-500 hover:bg-emerald-600 text-white font-black px-10 py-4 rounded-full text-lg shadow-lg transition-colors">
+          Complete Audit
         </button>
+        <div class="flex gap-3 w-full max-w-md">
+          <button onclick="auditExportPDFOnly()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-3 rounded-full transition-colors text-sm">
+            Export PDF Only
+          </button>
+          <button onclick="auditSaveOnly()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-3 rounded-full transition-colors text-sm">
+            Save Only
+          </button>
+        </div>
       </div>
     </div>`;
 }
@@ -599,9 +620,12 @@ function renderAuditCompleteView() {
         ${window._lastXlsxResult && !auditState.isTraining ? '<div class="bg-slate-50 border border-slate-200 rounded-xl px-6 py-3 text-sm inline-block mb-4">' + (window._lastXlsxResult.method === 'folder' ? '<span class="text-emerald-600 font-bold">✓ ' + window._lastXlsxResult.count + ' actions queued for Power Automate — pending-actions.json saved</span>' : window._lastXlsxResult.method === 'no_folder' ? '<span class="text-amber-600 font-bold">⚠ Actions saved locally — anchor Data folder for auto-sync</span>' : '<span class="text-amber-600 font-bold">⚠ XLSX write failed — ' + escapeHtml(window._lastXlsxResult.error || 'check folder permissions') + '</span>') + '</div>' : ''}
       </div>
 
-      <div class="flex gap-4 justify-center">
+      <div class="flex gap-4 justify-center flex-wrap">
         <button onclick="auditCompleteAndDownload()" class="bg-emerald-500 hover:bg-emerald-600 text-white font-black px-8 py-4 rounded-full text-lg shadow-lg transition-colors">
           Save & Download PDF
+        </button>
+        <button onclick="auditExportPDFOnly()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 py-4 rounded-full transition-colors">
+          Download PDF Only
         </button>
         <button onclick="auditCompleteAndSave()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 py-4 rounded-full transition-colors">
           Save Only
@@ -622,29 +646,39 @@ window.cancelAudit = function() { auditState = null; setView('auditexport'); };
 window.onAuditStoreSelect = function(branchId) {
   if (!branchId) return;
   var customWrap = document.getElementById('auditCustomStoreWrap');
+  var hasExistingData = auditState && auditState.sectors && Object.keys(auditState.sectors).length > 0;
   if (branchId === '__training') {
-    auditInit('__training', 'Training / Temp Store', 'Training');
+    if (!hasExistingData) auditInit('__training', 'Training / Temp Store', 'Training');
+    auditState.branchId = '__training';
+    auditState.storeName = 'Training / Temp Store';
+    auditState.areaManager = 'Training';
+    auditState.isTraining = true;
+    auditState.email = 'blake.lowis@birdsofderby.co.uk';
     var em = document.getElementById('auditEmail');
     var mg = document.getElementById('auditManager');
-    if (em) em.value = '';
-    if (mg) mg.value = '';
-    if (em) em.placeholder = 'Enter auditor/trainee email...';
-    if (mg) mg.placeholder = 'e.g. Trainee Name';
+    if (em) { em.value = auditState.email; em.placeholder = 'Enter auditor/trainee email...'; }
+    if (mg) { mg.value = ''; mg.placeholder = 'e.g. Trainee Name'; }
     if (customWrap) customWrap.classList.remove('hidden');
     var cs = document.getElementById('auditCustomStore');
     if (cs) { cs.value = ''; cs.focus(); }
   } else {
     var name = originalStoreNames.get(branchId) || branchId;
     var am = storeMap.get(branchId) || 'Unassigned';
-    auditInit(branchId, name, am);
+    if (hasExistingData) {
+      auditState.branchId = branchId;
+      auditState.storeName = name;
+      auditState.areaManager = am;
+      auditState.isTraining = false;
+      if (!auditState.email) auditState.email = auditEmailForStore(name);
+    } else {
+      auditInit(branchId, name, am);
+    }
     var em = document.getElementById('auditEmail');
-    if (em && !em.value) em.value = auditEmailForStore(name);
-    if (em) em.placeholder = 'auto-generated from store name';
+    if (em) { em.value = auditState.email || auditEmailForStore(name); em.placeholder = 'auto-generated from store name'; }
     var mg = document.getElementById('auditManager');
     if (mg) mg.placeholder = 'e.g. John Smith';
     if (customWrap) customWrap.classList.add('hidden');
   }
-  // Enable Start button now that store is selected
   var btn = document.getElementById('auditStartBtn');
   if (btn) btn.disabled = !_auditQB;
   var hint = document.getElementById('auditStartHint');
@@ -686,7 +720,8 @@ window.startAuditExecution = function() {
       auditState.branchId = 'custom_' + customName.toLowerCase().replace(/[^a-z0-9]/g, '_');
     }
   }
-  auditInitSectors();
+  var hasExistingData = Object.keys(auditState.sectors || {}).length > 0;
+  if (!hasExistingData) auditInitSectors();
   auditState.view = 'sectors';
   renderAuditPerform();
 };
@@ -705,11 +740,13 @@ window.auditSetComment = function(sid, cid, qid, val) {
 window.auditPhoto = async function(sid, cid, qid, slot, e) {
   var file = e.target.files[0];
   if (!file) return;
-  var data = await new Promise(function(resolve) {
+  var raw = await new Promise(function(resolve) {
     var reader = new FileReader();
     reader.onload = function() { resolve(reader.result); };
     reader.readAsDataURL(file);
   });
+  var data = await auditOrientPhoto(raw);
+  if (!data) data = raw;
   var thumb = await auditMakeThumb(data, 1200, 'image/jpeg', 0.7);
   var q = findAuditQ(sid, cid, qid);
   if (!q) return;
@@ -719,6 +756,22 @@ window.auditPhoto = async function(sid, cid, qid, slot, e) {
   renderAuditPerform();
   e.target.value = '';
 };
+
+function auditOrientPhoto(dataUrl) {
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth || img.width;
+      c.height = img.naturalHeight || img.height;
+      var ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve(c.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = function() { resolve(null); };
+    img.src = dataUrl;
+  });
+}
 
 window.auditTriggerPhoto = function(sid, cid, qid, slot) {
   var input = document.getElementById('auditPhotoInput_' + qid + '_' + slot);
@@ -753,6 +806,29 @@ function findAuditQ(sid, cid, qid) {
 }
 
 // === COMPLETE AUDIT ===
+
+window.auditSaveOnly = async function() {
+  if (!auditState) return;
+  try {
+    await writeAuditResults(auditState);
+  } catch (e) {
+    console.warn('[Audit] writeAuditResults error:', e.message);
+  }
+  var result = window._lastXlsxResult;
+  var msg = 'Audit saved';
+  if (result && result.method === 'folder') msg += ' — ' + result.count + ' actions queued for Power Automate';
+  alert(msg);
+};
+
+window.auditExportPDFOnly = async function() {
+  if (!auditState) return;
+  try {
+    await auditGeneratePDF();
+  } catch (e) {
+    console.warn('[Audit] PDF error:', e.message);
+    alert('PDF generation failed: ' + e.message);
+  }
+};
 
 window.auditCompleteAndSave = async function() {
   if (!auditState) return;
@@ -799,7 +875,7 @@ window.auditCompleteAllInOne = async function() {
   
   console.log('[Audit] Result:', msg);
   
-  // 4. Show visible notification (alert fallback if U.toast doesn't exist)
+  // 4. Show visible notification
   alert(msg);
   
   // 5. Clear state and return to hub
@@ -874,7 +950,7 @@ function buildActionRows(state) {
         var hasAction = q.action && q.action.enabled;
         rows.push({
           'Store Name': state.storeName,
-          'Store Email': state.email || '',
+          'Store Email': auditEmailForStore(state.storeName) || state.email || '',
           'Auditor': state.auditor || '',
           'Manager': state.manager || '',
           'Date': state.date || '',
@@ -933,8 +1009,9 @@ async function writeAuditActionsToXlsx(state) {
         metrics.sectorData.forEach(function(s) { sectorScores[s.id] = s.metrics ? s.metrics.penalisedPct : 0; });
       }
 
+      var storeEmail = auditEmailForStore(state.storeName);
       var payload = {
-        storeName: state.storeName, storeEmail: state.email || '',
+        storeName: state.storeName, storeEmail: storeEmail,
         auditor: state.auditor, manager: state.manager, areaManager: state.areaManager || '',
         date: state.date, isTraining: state.isTraining || false, week: week, year: year,
         scores: {
@@ -993,9 +1070,10 @@ async function writeAuditActionsToXlsx(state) {
       metrics.sectorData.forEach(function(s) { sectorScores[s.id] = s.metrics ? s.metrics.penalisedPct : 0; });
     }
 
+    var storeEmail = auditEmailForStore(state.storeName);
     var payload = {
       storeName: state.storeName,
-      storeEmail: state.email || '',
+      storeEmail: storeEmail,
       auditor: state.auditor,
       manager: state.manager,
       areaManager: state.areaManager || '',
@@ -1109,92 +1187,6 @@ async function readJsonFolder(folderName) {
   }
 }
 
-async function readAllActions() {
-  console.log('[Audit Actions] Reading Open/ and Closed/ folders...');
-  var openFiles = await readJsonFolder('Open');
-  var closedFiles = await readJsonFolder('Closed');
-  console.log('[Audit Actions] Open files:', openFiles.length, 'Closed files:', closedFiles.length);
-
-  var closedQuestionIds = {};
-  closedFiles.forEach(function(f) {
-    if (f.actions) {
-      f.actions.forEach(function(a) {
-        if (a.questionId) closedQuestionIds[a.questionId] = {
-          closedOn: a.closedOn || '',
-          howClosed: a.howClosed || ''
-        };
-      });
-    }
-  });
-
-  var allOpen = [];
-  openFiles.forEach(function(f) {
-    if (!f.actions) return;
-    f.actions.forEach(function(a) {
-      if (a.status !== 'Closed' && !closedQuestionIds[a.questionId]) {
-        allOpen.push({
-          storeName: f.storeName,
-          storeEmail: f.storeEmail,
-          auditor: f.auditor,
-          manager: f.manager,
-          areaManager: f.areaManager || '',
-          date: f.date,
-          scores: f.scores || {},
-          questionId: a.questionId,
-          sector: a.sector,
-          category: a.category,
-          question: a.question,
-          answer: a.answer,
-          description: a.description,
-          personResponsible: a.personResponsible,
-          actionNeeded: a.actionNeeded,
-          status: 'Open',
-          critical: a.critical || 'No',
-          isTraining: f.isTraining || false,
-          _fileName: f._fileName
-        });
-      }
-    });
-  });
-
-  console.log('[Audit Actions] Total open actions:', allOpen.length);
-  return { open: allOpen, openFiles: openFiles, closedFiles: closedFiles, closedQuestionIds: closedQuestionIds };
-}
-
-window.loadSharedActions = async function() {
-  var data = await readAllActions();
-  if (data.open.length > 0) {
-    console.log('[Audit Actions] Loading', data.open.length, 'open actions into IndexedDB...');
-    for (var i = 0; i < data.open.length; i++) {
-      var a = data.open[i];
-      var existing = await idbGet('actions', a.questionId);
-      if (!existing) {
-        await idbAdd('actions', {
-          QuestionID: a.questionId,
-          Store: a.storeName,
-          StoreEmail: a.storeEmail,
-          Auditor: a.auditor,
-          Manager: a.manager,
-          AreaManager: a.areaManager,
-          AuditDate: a.date,
-          Sector: a.sector,
-          Category: a.category,
-          Question: a.question,
-          Answer: a.answer,
-          Description: a.description,
-          PersonResponsible: a.personResponsible,
-          ActionNeeded: a.actionNeeded,
-          Status: 'Open',
-          Critical: a.critical,
-          isTraining: a.isTraining || false,
-          _source: 'json_files'
-        });
-      }
-    }
-  }
-  return data;
-};
-
 window.writeAuditResults = async function(state) {
   if (!state) { console.warn('[Audit] writeAuditResults called with null state'); return; }
   console.log('[Audit] writeAuditResults START — store:', state.storeName, 'isTraining:', state.isTraining, 'branchId:', state.branchId);
@@ -1236,7 +1228,9 @@ window.writeAuditResults = async function(state) {
     var actionItems = auditGetActions();
     for (var i = 0; i < actionItems.length; i++) {
       var a = actionItems[i];
-      await idbAdd('actions', {
+      var actionKey = state.storeName + '_' + (a.questionId || 'q_' + i) + '_' + isoDate;
+      await idbPut('actions', {
+        ActionID: actionKey,
         Week: week, Year: year,
         Store: state.storeName,
         StoreEmail: state.email || '',
@@ -1263,15 +1257,8 @@ window.writeAuditResults = async function(state) {
     }
     console.log('[Audit] Saved', actionItems.length, 'training action items to IndexedDB');
 
-    console.log('[Audit] Calling writeAuditActionsToXlsx for training...');
-    try {
-      var xlsxResult = await writeAuditActionsToXlsx(state);
-      window._lastXlsxResult = xlsxResult;
-      console.log('[Audit] XLSX result:', JSON.stringify(xlsxResult));
-    } catch (xlsxErr) {
-      console.error('[Audit] XLSX append FAILED:', xlsxErr.message, xlsxErr);
-      window._lastXlsxResult = { method: 'error', count: 0, error: xlsxErr.message };
-    }
+    console.log('[Audit] Skipping xlsx write for training audit');
+    window._lastXlsxResult = { method: 'training', count: actionItems.length };
     console.log('[Audit] writeAuditResults COMPLETE (training mode)');
     return;
   }
@@ -1284,7 +1271,9 @@ window.writeAuditResults = async function(state) {
 
   for (var i = 0; i < actionItems.length; i++) {
     var a = actionItems[i];
-    await idbAdd('actions', {
+    var actionKey = state.storeName + '_' + (a.questionId || 'q_' + i) + '_' + isoDate;
+    await idbPut('actions', {
+      ActionID: actionKey,
       Week: week, Year: year,
       Store: state.storeName,
       StoreEmail: state.email || '',
@@ -1344,290 +1333,326 @@ async function auditGeneratePDF() {
   var { jsPDF } = window.jspdf;
   var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   var W = 210, H = 297, M = 15, CW = W - 2 * M;
+  var x0 = M, x1 = M + CW;
   var y = M;
+  var FONT = 'helvetica';
 
-  function checkPage(needed) { if (y + needed > H - M) { doc.addPage(); y = M; } }
+  function checkPage(h) { if (y + h > H - M) { doc.addPage(); y = M; } }
 
-  // ── SECTION 1: Header & Scores ──────────────────────────────
-  doc.setFillColor(0, 168, 142);
-  doc.rect(0, 0, W, 32, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(20);
-  doc.setFont(undefined, 'bold');
-  doc.text('Retail Audit Report', M, 14);
-  doc.setFontSize(10);
-  doc.setFont(undefined, 'normal');
-  doc.text(auditState.storeName + ' — ' + auditState.date, M, 22);
-  y = 40;
+  function bold() { doc.setFont(FONT, 'bold'); }
+  function normal() { doc.setFont(FONT, 'normal'); }
+  function size(s) { doc.setFontSize(s); }
+  function color(r, g, b) { doc.setTextColor(r, g, b); }
+  function fill(r, g, b) { doc.setFillColor(r, g, b); }
+  function text(s, x, y_, opts) { doc.text(s, x, y_, opts || {}); }
+  function wrap(s, w) { return doc.splitTextToSize(s, w); }
+  function textW(s) { return doc.getTextWidth(s); }
 
-  // Info Grid
-  doc.setTextColor(60, 60, 60);
-  doc.setFontSize(9);
-  var infoLabels = ['Store', 'Area Manager', 'Manager', 'Auditor'];
-  var infoValues = [auditState.storeName, auditState.areaManager, auditState.manager, auditState.auditor];
-  for (var i = 0; i < 4; i++) {
-    var col = i % 2, row = Math.floor(i / 2);
-    var ix = M + col * (CW / 2), iy = y + row * 12;
-    doc.setFont(undefined, 'bold'); doc.text(infoLabels[i] + ':', ix, iy);
-    doc.setFont(undefined, 'normal'); doc.text(infoValues[i] || '—', ix + 25, iy);
+  // ============================
+  // PAGE 1 — Scorecard
+  // ============================
+  fill(0, 168, 142); doc.rect(0, 0, W, 32, 'F');
+  color(255, 255, 255); size(20); bold();
+  text('Retail Audit Report', x0, 14);
+  size(10); normal();
+  text(auditState.storeName + ' — ' + auditState.date, x0, 22);
+  y = 42;
+
+  // Metadata grid
+  color(60, 60, 60); size(9);
+  var mLabels = ['Store', 'Area Manager', 'Manager', 'Auditor'];
+  var mValues = [auditState.storeName, auditState.areaManager, auditState.manager, auditState.auditor];
+  for (var mi = 0; mi < 4; mi++) {
+    var mc = mi % 2, mr = Math.floor(mi / 2);
+    var mxx = x0 + mc * (CW / 2);
+    bold(); text(mLabels[mi] + ':', mxx, y + mr * 11);
+    normal();
+    var mv = (mValues[mi] || '—') + '';
+    text(mv, mxx + 28, y + mr * 11);
   }
-  y += 30;
+  y += 28;
 
   // Summary
   if (auditState.summary) {
-    checkPage(15);
-    doc.setFont(undefined, 'italic'); doc.setFontSize(9);
-    doc.text('Summary: ' + auditState.summary, M, y); y += 10;
+    checkPage(12);
+    color(60, 60, 60); size(8); normal();
+    var sumW = wrap('Summary: ' + auditState.summary, CW);
+    text(sumW, x0, y); y += sumW.length * 3.5 + 2;
   }
 
-  // Overall Score
+  // Overall score card
   var overall = auditOverallMetrics();
-  checkPage(35);
-  doc.setFillColor(240, 253, 250);
-  doc.roundedRect(M, y, CW, 25, 3, 3, 'F');
-  doc.setFontSize(28); doc.setFont(undefined, 'bold');
-  doc.setTextColor(0, 168, 142);
-  doc.text(overall.pct + '%', M + 5, y + 17);
-  doc.setFontSize(9); doc.setTextColor(100, 100, 100);
-  doc.text('Overall Score (' + overall.totalMax + ' max points)', M + 50, y + 10);
+  checkPage(32);
+  fill(240, 253, 250); doc.roundedRect(x0, y, CW, 26, 3, 3, 'F');
+  size(28); bold(); color(0, 168, 142);
+  text(overall.pct + '%', x0 + 6, y + 18);
+  size(10); color(100, 100, 100); normal();
+  text('Overall Score (' + overall.totalMax + ' max pts)', x0 + 52, y + 11);
   if (overall.totalCritical > 0) {
-    doc.setTextColor(200, 50, 50);
-    doc.text(overall.totalCritical + ' critical items — penalty: -' + overall.totalPenalty + '%', M + 50, y + 18);
+    color(200, 50, 50); bold(); size(9);
+    var cl = overall.totalCritical + ' critical items, penalty -' + overall.totalPenalty + '%';
+    text(cl, x0 + 52, y + 19);
   }
   y += 32;
 
-  // Sector Scores
+  // Sector scores
   checkPage(20);
-  var secW = CW / 6 - 2;
-  overall.sectorData.forEach(function(s, idx) {
-    var sx = M + idx * (secW + 2);
-    var rag = s.metrics.failed ? [255, 200, 200] : s.metrics.penalisedPct >= 95 ? [209, 250, 229] : s.metrics.penalisedPct >= 90 ? [220, 252, 231] : s.metrics.penalisedPct >= 80 ? [254, 243, 199] : [254, 226, 226];
-    doc.setFillColor(rag[0], rag[1], rag[2]);
-    doc.roundedRect(sx, y, secW, 18, 2, 2, 'F');
-    doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(60, 60, 60);
-    doc.text(s.metrics.penalisedPct + '%', sx + secW / 2, y + 8, { align: 'center' });
-    doc.setFontSize(6); doc.setFont(undefined, 'normal');
-    doc.text(s.title, sx + secW / 2, y + 14, { align: 'center' });
+  size(11); bold(); color(40, 40, 40);
+  text('Sector Scores', x0, y); y += 7;
+  var ansSectors = overall.sectorData.filter(function(s) { return s.metrics.totalQuestions > 0 && s.metrics.answered > 0; });
+  if (ansSectors.length === 0) ansSectors = overall.sectorData;
+  var sw = CW / Math.min(ansSectors.length, 6) - 2;
+  ansSectors.forEach(function(s, si) {
+    var sx = x0 + si * (sw + 2);
+    var rgb = s.metrics.failed ? [255, 200, 200] : s.metrics.penalisedPct >= 95 ? [209, 250, 229] : s.metrics.penalisedPct >= 90 ? [220, 252, 231] : s.metrics.penalisedPct >= 80 ? [254, 243, 199] : [254, 226, 226];
+    fill(rgb[0], rgb[1], rgb[2]); doc.roundedRect(sx, y, sw, 18, 2, 2, 'F');
+    size(11); bold(); color(60, 60, 60);
+    text(s.metrics.penalisedPct + '%', sx + sw / 2, y + 8, { align: 'center' });
+    size(6); normal();
+    var st = s.title.length > 10 ? s.title.substring(0, 9) + '..' : s.title;
+    text(st, sx + sw / 2, y + 14, { align: 'center' });
   });
   y += 25;
 
-  // ── SECTION 2: Critical Actions ─────────────────────────────
+  // ============================
+  // PAGE 2+ — Action Plan
+  // ============================
   var allActions = auditGetActions();
-  var criticalActions = allActions.filter(function(a) { return a.action.critical; });
-  var nonCriticalActions = allActions.filter(function(a) { return !a.action.critical; });
+  var critActs = allActions.filter(function(a) { return a.action.critical; });
+  var nonCritActs = allActions.filter(function(a) { return !a.action.critical; });
 
-  if (criticalActions.length > 0) {
-    checkPage(15);
-    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(200, 50, 50);
-    doc.text('Critical Actions (' + criticalActions.length + ')', M, y); y += 6;
+  // Critical actions
+  if (critActs.length > 0) {
+    checkPage(12);
+    doc.addPage(); y = M;
+    fill(200, 50, 50); doc.rect(0, 0, W, 14, 'F');
+    color(255, 255, 255); size(12); bold();
+    text('Critical Actions (' + critActs.length + ')', x0, 10);
+    y = 22;
 
-    for (var ci = 0; ci < criticalActions.length; ci++) {
-      var item = criticalActions[ci];
-      var cardH = 24;
-      // Estimate photo height
-      var hasAnyPhoto = item.photos[0] || item.photos[1] || item.photos[2];
-      if (hasAnyPhoto) cardH = 70;
+    for (var ci = 0; ci < critActs.length; ci++) {
+      var item = critActs[ci];
+      var photos = [item.photos[0], item.photos[1], item.photos[2]].filter(Boolean);
+      var descW = wrap(item.action.description || item.question, CW - 14);
+      var infoH = descW.length * 3 + 4 + 4 + 3 + 3;
+      var photoH = photos.length > 0 ? 52 : 0;
+      var cardH = infoH + photoH + 10;
+      checkPage(cardH + 4);
 
-      checkPage(cardH + 5);
+      fill(254, 226, 226); doc.roundedRect(x0, y, CW, cardH, 2, 2, 'F');
+      fill(220, 38, 38); doc.roundedRect(x0, y, 4, cardH, 1, 1, 'F');
+      var cy = y + 4;
+      size(8); bold(); color(60, 60, 60);
+      var hd = item.sector + ' > ' + item.category;
+      text(hd + ' [CRITICAL]', x0 + 6, cy);
+      cy += 4;
+      size(7); normal(); color(80, 80, 80);
+      text(descW, x0 + 6, cy);
+      cy += descW.length * 3 + 1;
+      size(6); color(100, 100, 100);
+      text('Resp: ' + (item.action.person || '—'), x0 + 6, cy); cy += 3;
+      text('Status: ' + (item.action.status || 'Open'), x0 + 6, cy); cy += 3;
+      text('Action: ' + (item.action.actionNeeded || '—'), x0 + 50, cy - 3);
+      text('Closed: ' + (item.action.closedOn || '—'), x0 + 50, cy);
 
-      // Card background with red left border
-      doc.setFillColor(254, 226, 226);
-      doc.roundedRect(M, y, CW, cardH, 2, 2, 'F');
-      doc.setFillColor(220, 38, 38);
-      doc.roundedRect(M, y, 4, cardH, 1, 1, 'F');
-
-      // Text content
-      doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(60, 60, 60);
-      doc.text(item.sector + ' > ' + item.category + ' [CRITICAL]', M + 8, y + 5);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(7);
-      doc.text(item.action.description || item.question, M + 8, y + 11);
-      doc.text('Responsible: ' + (item.action.person || '—') + '  |  Status: ' + (item.action.status || 'Open'), M + 8, y + 16);
-
-      // Photos — large, side by side
-      if (hasAnyPhoto) {
-        var photoY = y + 20;
-        var photoX = M + 8;
-        var photoW = 55, photoH = 45;
-        for (var pi = 0; pi < item.photos.length; pi++) {
-          if (!item.photos[pi]) continue;
-          try {
-            var ph = await addPhotoToDoc(doc, item.photos[pi], photoX, photoY, photoW, photoH);
-            photoX += photoW + 3;
-            if (photoX + photoW > M + CW) break;
-          } catch(e) {}
+      if (photos.length > 0) {
+        var px = x0 + 6;
+        var py = cy + 2;
+        for (var pi = 0; pi < photos.length; pi++) {
+          if (px + 72 > x1) break;
+          try { await addPhotoToDoc(doc, photos[pi], px, py, 72, 48); } catch(e) {}
+          px += 75;
         }
       }
-
       y += cardH + 4;
     }
   }
 
-  // ── SECTION 3: Non-Critical Actions ─────────────────────────
-  if (nonCriticalActions.length > 0) {
-    checkPage(15);
-    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
-    doc.text('Action Items (' + nonCriticalActions.length + ')', M, y); y += 6;
+  // Non-critical actions
+  if (nonCritActs.length > 0) {
+    doc.addPage(); y = M;
+    fill(245, 158, 11); doc.rect(0, 0, W, 14, 'F');
+    color(255, 255, 255); size(12); bold();
+    text('Action Items (' + nonCritActs.length + ')', x0, 10);
+    y = 22;
 
-    for (var ni = 0; ni < nonCriticalActions.length; ni++) {
-      var nitem = nonCriticalActions[ni];
-      var ncardH = 22;
-      if (nitem.photos[0]) ncardH = 54;
-
+    for (var ni = 0; ni < nonCritActs.length; ni++) {
+      var nitem = nonCritActs[ni];
+      var nphotos = [nitem.photos[0], nitem.photos[1], nitem.photos[2]].filter(Boolean);
+      var ndescW = wrap(nitem.action.description || nitem.question, CW - 14);
+      var ninfoH = ndescW.length * 3 + 4 + 4 + 3 + 3;
+      var nphotoH = nphotos.length > 0 ? 52 : 0;
+      var ncardH = ninfoH + nphotoH + 10;
       checkPage(ncardH + 4);
 
-      doc.setFillColor(255, 251, 235);
-      doc.roundedRect(M, y, CW, ncardH, 2, 2, 'F');
-      doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(60, 60, 60);
-      doc.text(nitem.sector + ' > ' + nitem.category, M + 3, y + 5);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(7);
-      doc.text(nitem.action.description || nitem.question, M + 3, y + 11);
-      doc.text('Responsible: ' + (nitem.action.person || '—') + '  |  Status: ' + (nitem.action.status || 'Open'), M + 3, y + 16);
-      y += 20;
+      fill(255, 251, 235); doc.roundedRect(x0, y, CW, ncardH, 2, 2, 'F');
+      var ncy = y + 4;
+      size(8); bold(); color(60, 60, 60);
+      var nhd = nitem.sector + ' > ' + nitem.category;
+      text(nhd, x0 + 6, ncy);
+      ncy += 4;
+      size(7); normal(); color(80, 80, 80);
+      text(ndescW, x0 + 6, ncy);
+      ncy += ndescW.length * 3 + 1;
+      size(6); color(100, 100, 100);
+      text('Resp: ' + (nitem.action.person || '—'), x0 + 6, ncy); ncy += 3;
+      text('Status: ' + (nitem.action.status || 'Open'), x0 + 6, ncy); ncy += 3;
+      text('Action: ' + (nitem.action.actionNeeded || '—'), x0 + 50, ncy - 3);
+      text('Closed: ' + (nitem.action.closedOn || '—'), x0 + 50, ncy);
 
-      if (nitem.photos[0]) {
-        try {
-          var nph = await addPhotoToDoc(doc, nitem.photos[0], M + 3, y, 40, 30);
-          if (nph) y += nph + 2;
-        } catch(e) {}
+      if (nphotos.length > 0) {
+        var npx = x0 + 6;
+        var npy = ncy + 2;
+        for (var npi = 0; npi < nphotos.length; npi++) {
+          if (npx + 72 > x1) break;
+          try { await addPhotoToDoc(doc, nphotos[npi], npx, npy, 72, 48); } catch(e) {}
+          npx += 75;
+        }
       }
-      y += 2;
+      y += ncardH + 4;
     }
   }
 
-  // ── SECTION 4: Comments & Evidence ──────────────────────────
+  // ============================
+  // PAGE — Comments & Evidence
+  // ============================
   var comments = auditCollectAllComments();
 
-  // 4a: Comments WITH photos
   if (comments.withPhotos.length > 0) {
-    checkPage(15);
-    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
-    doc.text('Comments & Evidence (' + comments.withPhotos.length + ')', M, y); y += 6;
+    doc.addPage(); y = M;
+    fill(0, 140, 120); doc.rect(0, 0, W, 14, 'F');
+    color(255, 255, 255); size(12); bold();
+    text('Comments & Evidence (' + comments.withPhotos.length + ')', x0, 10);
+    y = 22;
 
-    for (var ci2 = 0; ci2 < comments.withPhotos.length; ci2++) {
-      var cv = comments.withPhotos[ci2];
-      var allP = [cv.photoThumb, cv.extraPhotoThumb, cv.extraPhoto2Thumb].filter(Boolean);
-      var cCardH = cv.comment ? 55 : 45;
-
+    for (var cwi = 0; cwi < comments.withPhotos.length; cwi++) {
+      var cv = comments.withPhotos[cwi];
+      var cPhotos = [cv.photoThumb, cv.extraPhotoThumb, cv.extraPhoto2Thumb].filter(Boolean);
+      var cLines = cv.comment ? wrap(cv.comment, CW - 12) : [];
+      var ctextH = 4 + 4 + 4 + cLines.length * 3;
+      var cphotoH = cPhotos.length > 0 ? 52 : 0;
+      var cCardH = ctextH + cphotoH + 8;
       checkPage(cCardH + 4);
 
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(M, y, CW, cCardH, 2, 2, 'F');
-      doc.setFontSize(7); doc.setFont(undefined, 'bold'); doc.setTextColor(0, 140, 120);
-      doc.text(cv.sector + ' > ' + cv.category, M + 3, y + 5);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(6); doc.setTextColor(80, 80, 80);
-      doc.text(cv.question.substring(0, 90), M + 3, y + 10);
-
-      var commentY = y + 15;
+      fill(248, 250, 252); doc.roundedRect(x0, y, CW, cCardH, 2, 2, 'F');
+      var ccy = y + 4;
+      size(7); bold(); color(0, 140, 120);
+      text(cv.sector + ' > ' + cv.category, x0 + 6, ccy); ccy += 4;
+      size(6); normal(); color(80, 80, 80);
+      text(cv.question.substring(0, 100), x0 + 6, ccy); ccy += 4;
       if (cv.comment) {
-        doc.setFontSize(7); doc.setTextColor(60, 60, 60);
-        var commentLines = doc.splitTextToSize(cv.comment, CW - 6);
-        doc.text(commentLines, M + 3, commentY);
-        commentY += commentLines.length * 3 + 2;
+        size(7); color(60, 60, 60);
+        text(cLines, x0 + 6, ccy);
+        ccy += cLines.length * 3 + 1;
       }
-
-      // Photos — large and prominent
-      var photoStartY = Math.max(commentY, y + 16);
-      var pX = M + 3;
-      for (var pi2 = 0; pi2 < allP.length; pi2++) {
-        try {
-          var cph = await addPhotoToDoc(doc, allP[pi2], pX, photoStartY, 55, 38);
-          pX += 58;
-          if (pX + 55 > M + CW) break;
-        } catch(e) {}
+      if (cPhotos.length > 0) {
+        var cpx = x0 + 6;
+        var cpy = ccy + 2;
+        for (var cpi = 0; cpi < cPhotos.length; cpi++) {
+          if (cpx + 72 > x1) break;
+          try { await addPhotoToDoc(doc, cPhotos[cpi], cpx, cpy, 72, 48); } catch(e) {}
+          cpx += 75;
+        }
       }
       y += cCardH + 4;
     }
   }
 
-  // 4b: Comments WITHOUT photos
+  // Notes without photos
   if (comments.withoutPhotos.length > 0) {
-    checkPage(15);
-    doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
-    doc.text('Notes (' + comments.withoutPhotos.length + ')', M, y); y += 6;
+    doc.addPage(); y = M;
+    fill(100, 100, 100); doc.rect(0, 0, W, 14, 'F');
+    color(255, 255, 255); size(12); bold();
+    text('Notes (' + comments.withoutPhotos.length + ')', x0, 10);
+    y = 22;
 
-    for (var ci3 = 0; ci3 < comments.withoutPhotos.length; ci3++) {
-      var cv2 = comments.withoutPhotos[ci3];
-      var nLines = cv2.comment ? doc.splitTextToSize(cv2.comment, CW - 6) : [];
-      var nCardH = 12 + nLines.length * 3;
-
-      checkPage(nCardH + 3);
-
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(M, y, CW, nCardH, 2, 2, 'F');
-      doc.setFontSize(7); doc.setFont(undefined, 'bold'); doc.setTextColor(0, 140, 120);
-      doc.text(cv2.sector + ' > ' + cv2.category, M + 3, y + 5);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(6); doc.setTextColor(80, 80, 80);
-      doc.text(cv2.question.substring(0, 90), M + 3, y + 10);
-      if (cv2.comment) {
-        doc.setFontSize(7); doc.setTextColor(60, 60, 60);
-        doc.text(nLines, M + 3, y + 15);
+    for (var nti = 0; nti < comments.withoutPhotos.length; nti++) {
+      var nt = comments.withoutPhotos[nti];
+      var ntLines = nt.comment ? wrap(nt.comment, CW - 12) : [];
+      var ntcH = 12 + ntLines.length * 3;
+      checkPage(ntcH + 3);
+      fill(248, 250, 252); doc.roundedRect(x0, y, CW, ntcH, 2, 2, 'F');
+      size(7); bold(); color(0, 140, 120);
+      text(nt.sector + ' > ' + nt.category, x0 + 6, y + 4);
+      size(6); normal(); color(80, 80, 80);
+      text(nt.question.substring(0, 80), x0 + 6, y + 8);
+      if (nt.comment) {
+        size(7); color(60, 60, 60);
+        text(ntLines, x0 + 6, y + 12);
       }
-      y += nCardH + 3;
+      y += ntcH + 3;
     }
   }
 
-  // ── SECTION 5: All Answered Questions ───────────────────────
-  checkPage(15);
-  doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.setTextColor(40, 40, 40);
-  doc.text('All Questions', M, y); y += 4;
+  // ============================
+  // PAGE — All Questions
+  // ============================
+  doc.addPage(); y = M;
+  fill(0, 168, 142); doc.rect(0, 0, W, 14, 'F');
+  color(255, 255, 255); size(12); bold();
+  text('All Questions', x0, 10);
+  y = 22;
 
-  var tableRows = [];
+  var tRows = [];
   auditSectorKeys().forEach(function(sid) {
     var sec = auditState.sectors[sid];
     sec.categories.forEach(function(cat) {
       cat.questions.forEach(function(q) {
-        if (q.answer) {
-          var icon = q.answer === 'Pass' ? '✓' : q.answer === 'Fail' ? '✗' : '—';
-          tableRows.push([sec.title, cat.name, q.text.substring(0, 60), icon, q.weight + '']);
+        if (q.answer && q.answer !== 'N/A') {
+          tRows.push([sec.title, cat.name, q.text.substring(0, 60), q.answer === 'Pass' ? 'P' : 'F', q.weight + '']);
         }
       });
     });
   });
-
-  if (tableRows.length > 0) {
+  if (tRows.length > 0) {
     doc.autoTable({
       startY: y,
-      head: [['Sector', 'Category', 'Question', 'Answer', 'Wt']],
-      body: tableRows,
+      head: [['Sector', 'Category', 'Question', 'Ans', 'Wt']],
+      body: tRows,
       styles: { fontSize: 7, cellPadding: 1.5 },
       headStyles: { fillColor: [0, 168, 142], fontSize: 7, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: M, right: M },
-      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 30 }, 2: { cellWidth: 75 }, 3: { cellWidth: 12, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' } }
+      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 30 }, 2: { cellWidth: 75 }, 3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' } }
     });
   }
 
-  // Footer
-  var pageCount = doc.internal.getNumberOfPages();
-  for (var p = 1; p <= pageCount; p++) {
-    doc.setPage(p);
-    doc.setFontSize(7); doc.setTextColor(150, 150, 150);
-    doc.text('Birds Bakery — Retail Audit Report — Generated ' + new Date().toLocaleString('en-GB'), M, H - 8);
-    doc.text('Page ' + p + ' of ' + pageCount, W - M, H - 8, { align: 'right' });
+  // Footer on all pages
+  var pgCount = doc.internal.getNumberOfPages();
+  for (var pg = 1; pg <= pgCount; pg++) {
+    doc.setPage(pg);
+    size(7); color(150, 150, 150); normal();
+    text('Birds Bakery — Retail Audit — ' + new Date().toLocaleString('en-GB'), x0, H - 8);
+    text('Page ' + pg + ' of ' + pgCount, x1, H - 8, { align: 'right' });
   }
 
-  var filename = 'audit_' + auditState.storeName.replace(/\s+/g, '_') + '_' + auditState.date + '.pdf';
-  doc.save(filename);
+  doc.save('audit_' + auditState.storeName.replace(/\s+/g, '_') + '_' + auditState.date + '.pdf');
 }
 
-async function addPhotoToDoc(doc, dataUrl, x, y, maxW, maxH) {
+async function addPhotoToDoc(doc, dataUrl, x, y, maxWmm, maxHmm) {
   if (!dataUrl) return 0;
+  var targetWmm = maxWmm, targetHmm = maxHmm;
   return new Promise(function(resolve) {
     var img = new Image();
     img.onload = function() {
-      var w = img.width, h = img.height;
-      if (w > maxW) { h = h * (maxW / w); w = maxW; }
-      if (h > maxH) { w = w * (maxH / h); h = maxH; }
+      var aspect = img.width / img.height;
+      if (aspect > targetWmm / targetHmm) { targetHmm = targetWmm / aspect; }
+      else { targetWmm = targetHmm * aspect; }
+      var PX = 4;
+      var canvasW = Math.round(targetWmm * PX);
+      var canvasH = Math.round(targetHmm * PX);
       var c = document.createElement('canvas');
-      c.width = Math.round(w); c.height = Math.round(h);
+      c.width = canvasW; c.height = canvasH;
       var ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0, Math.round(w), Math.round(h));
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, canvasW, canvasH);
       try {
-        doc.addImage(c.toDataURL('image/jpeg', 0.75), 'JPEG', x, y, w, h);
-        resolve(h);
-      } catch(e) { resolve(0); }
+        var resized = c.toDataURL('image/jpeg', 0.95);
+        doc.addImage(resized, 'JPEG', x, y, targetWmm, targetHmm);
+        resolve(targetHmm);
+      } catch(e) { console.warn('[PDF] addImage failed:', e.message); resolve(0); }
     };
-    img.onerror = function() { resolve(0); };
+    img.onerror = function() { console.warn('[PDF] Image load failed'); resolve(0); };
     img.src = dataUrl;
   });
 }
@@ -1674,6 +1699,10 @@ window.importMobileAuditZIP = async function(event) {
     auditState.isTraining = meta.isTraining || false;
 
     // 3. Init empty sector structure from question bank
+    if (!_auditQB) {
+      alert('Question bank not loaded yet — please wait for AuditQuestions.json to load, then try again.');
+      return;
+    }
     auditInitSectors();
 
     // 4. Populate answers + comments from session questions
@@ -1727,7 +1756,7 @@ window.importMobileAuditZIP = async function(event) {
       photosFolder.forEach(function(relativePath, entry) {
         if (entry.dir) return;
         // Filename format: {sectorId}_{catId}_{qId}.jpg or {sectorId}_{catId}_{qId}_extra.jpg
-        var match = relativePath.match(/^([^_]+)_(.+)_(F?\d+[a-z]?)(?:_(extra|extra2))?\.\w+$/i);
+        var match = relativePath.match(/^([^_]+)_(.+)_([^_]+)(?:_(extra|extra2))?\.\w+$/i);
         if (!match) return;
         var sectorId = match[1];
         // catId may contain underscores, qId is the last segment before _extra
@@ -1736,7 +1765,7 @@ window.importMobileAuditZIP = async function(event) {
         // Find the question ID pattern (starts with F or is a number)
         var qIdIdx = -1;
         for (var pi = parts.length - 1; pi >= 1; pi--) {
-          if (/^(F?\d+[a-z]?|extra|extra2)$/i.test(parts[pi])) { qIdIdx = pi; break; }
+          if (/^[a-zA-Z0-9]+$|^extra$|^extra2$/i.test(parts[pi])) { qIdIdx = pi; break; }
         }
         if (qIdIdx < 2) return;
         sectorId = parts[0];
