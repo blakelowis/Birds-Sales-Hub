@@ -415,6 +415,105 @@ function auditDonutSVG(pct) {
     '</svg>';
 }
 
+window.auditJumpToQuestion = function(qid) {
+  var found = null;
+  auditSectorKeys().forEach(function(sid) {
+    auditState.sectors[sid].categories.forEach(function(cat) {
+      cat.questions.forEach(function(q) {
+        if (q.id === qid) found = { sid: sid, cid: cat.id };
+      });
+    });
+  });
+  if (!found) return;
+  auditState.view = 'questions';
+  auditState.sectorId = found.sid;
+  auditState.categoryId = found.cid;
+  renderAuditPerform();
+};
+
+function auditSectorActionReviewHTML() {
+  var actions = auditGetActions();
+  if (!actions.length) return '';
+  var rows = actions.map(function(a) {
+    var statusCls = (a.action.status || 'Open') === 'Open' ? 'bg-amber-100 text-amber-700' : 'text-birds-green bg-birds-light';
+    var critBadge = a.action.critical ? '<span class="bg-red-100 text-red-700 text-[9px] font-black px-1.5 py-0.5 rounded-full mr-1">CRITICAL</span>' : '';
+    var photoCount = [a.photos[0], a.photos[1], a.photos[2]].filter(Boolean).length;
+    return '<tr onclick="auditJumpToQuestion(\'' + a.questionId + '\')" class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer">' +
+      '<td class="py-2.5 px-2 text-[11px] font-bold text-slate-600 max-w-[80px] truncate">' + escapeHtml(a.sector) + '</td>' +
+      '<td class="py-2.5 px-2 text-[11px] text-slate-800 max-w-[120px] truncate">' + escapeHtml(a.question.substring(0, 40)) + '</td>' +
+      '<td class="py-2.5 px-2 text-[10px] font-bold">' + critBadge + '<span class="' + statusCls + ' px-2 py-0.5 rounded-full">' + (a.action.status || 'Open') + '</span></td>' +
+      '<td class="py-2.5 px-2 text-center text-[11px] text-slate-400">' + (photoCount ? photoCount : '') + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-4 overflow-hidden">' +
+    '<button onclick="auditToggleSectorActions()" class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">' +
+      '<div class="flex items-center gap-2">' +
+        '<h3 class="font-black text-slate-800 text-sm">Action Review</h3>' +
+        '<span class="bg-amber-100 text-amber-700 text-[10px] font-black px-2 py-0.5 rounded-full">' + actions.length + ' items</span>' +
+      '</div>' +
+      '<svg class="w-5 h-5 text-slate-400 transition-transform ' + (_auditSectorActionsOpen ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>' +
+    '</button>' +
+    '<div class="' + (_auditSectorActionsOpen ? '' : 'hidden') + '">' +
+      '<div class="overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead><tr class="border-b border-slate-200 bg-slate-50">' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase">Sector</th>' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase">Question</th>' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase">Status</th>' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase text-center">📷</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div class="px-5 py-3 border-t border-slate-100">' +
+        '<p class="text-[10px] text-slate-400 font-bold">Tap a row to jump to that question</p>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function auditSectorCommentReviewHTML() {
+  var all = auditCollectAllComments();
+  var items = all.withPhotos.concat(all.withoutPhotos);
+  if (!items.length) return '';
+  var rows = items.map(function(c) {
+    var photos = '';
+    if (c.photoThumb || c.extraPhotoThumb || c.extraPhoto2Thumb) {
+      [c.photoThumb, c.extraPhotoThumb, c.extraPhoto2Thumb].filter(Boolean).forEach(function(ph) {
+        photos += '<img src="' + ph + '" class="w-8 h-8 rounded object-cover border border-slate-200 inline-block mr-1">';
+      });
+    }
+    return '<tr class="border-b border-slate-100">' +
+      '<td class="py-2 px-2 text-[10px] font-bold text-slate-600 max-w-[60px] truncate">' + escapeHtml(c.sector) + '</td>' +
+      '<td class="py-2 px-2 text-[11px] text-slate-800 max-w-[120px] truncate">' + escapeHtml(c.question.substring(0, 40)) + '</td>' +
+      '<td class="py-2 px-2 text-[10px] text-slate-500 max-w-[80px] truncate">' + escapeHtml(c.comment.substring(0, 30)) + '</td>' +
+      '<td class="py-2 px-2 text-center whitespace-nowrap">' + photos + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-4 overflow-hidden">' +
+    '<button onclick="auditToggleSectorComments()" class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">' +
+      '<div class="flex items-center gap-2">' +
+        '<h3 class="font-black text-slate-800 text-sm">Comment Review</h3>' +
+        '<span class="bg-slate-100 text-slate-600 text-[10px] font-black px-2 py-0.5 rounded-full">' + items.length + ' items</span>' +
+      '</div>' +
+      '<svg class="w-5 h-5 text-slate-400 transition-transform ' + (_auditSectorCommentsOpen ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>' +
+    '</button>' +
+    '<div class="' + (_auditSectorCommentsOpen ? '' : 'hidden') + '">' +
+      '<div class="overflow-x-auto">' +
+        '<table class="w-full text-left">' +
+          '<thead><tr class="border-b border-slate-200 bg-slate-50">' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase">Sector</th>' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase">Question</th>' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase">Comment</th>' +
+            '<th class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase text-center">📷</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
 function renderAuditSectorView() {
   var mainView = document.getElementById('mainView');
   var overall = auditOverallMetrics();
@@ -459,6 +558,9 @@ function renderAuditSectorView() {
           </div>
         </div>
       </div>
+
+      ${auditSectorActionReviewHTML()}
+      ${auditSectorCommentReviewHTML()}
 
       <h3 class="font-black text-slate-800 mb-4">Sectors</h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">${sectorCards}</div>
@@ -642,6 +744,18 @@ window.auditGoSector = function(sid) { auditState.view = 'categories'; auditStat
 window.auditGoCategory = function(cid) { auditState.view = 'questions'; auditState.categoryId = cid; renderAuditPerform(); };
 window.auditGoCategory_back = function() { auditState.view = 'categories'; renderAuditPerform(); };
 window.cancelAudit = function() { auditState = null; setView('auditexport'); };
+
+var _auditSectorActionsOpen = false;
+var _auditSectorCommentsOpen = false;
+
+window.auditToggleSectorActions = function() {
+  _auditSectorActionsOpen = !_auditSectorActionsOpen;
+  renderAuditPerform();
+};
+window.auditToggleSectorComments = function() {
+  _auditSectorCommentsOpen = !_auditSectorCommentsOpen;
+  renderAuditPerform();
+};
 
 window.onAuditStoreSelect = function(branchId) {
   if (!branchId) return;
