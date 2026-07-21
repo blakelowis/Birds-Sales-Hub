@@ -42,7 +42,7 @@ if(currentView === 'banding') return renderBandingView();
 
   
 
-  const rawKpis = await idbGetAll('kpi'); const allAudits = await idbGetAll('audits'); var allActions = []; if (typeof getAuditActionsForReport === 'function') { try { allActions = await getAuditActionsForReport(); allActions.forEach(function(a) { if (a.Status === 'Closed' && a.ClosedOn && a.AuditDate) { var cd = new Date(a.ClosedOn); var ad = new Date(a.AuditDate); if (!isNaN(cd.getTime()) && !isNaN(ad.getTime())) a.DaysToClose = Math.round((cd - ad) / 86400000); } }); } catch(e) { console.warn('[Dash] Failed to load actions from JSON folders:', e); } }
+  const rawKpis = await idbGetAll('kpi'); const allAudits = await idbGetAll('audits'); var allActions = []; if (typeof getAuditActionsForReport === 'function') { try { allActions = await getAuditActionsForReport(); allActions.forEach(function(a) { if (a.Status === 'Closed' && a.ClosedOn && a.AuditDate) { var cd = new Date(a.ClosedOn); var ad = new Date(a.AuditDate); if (!isNaN(cd.getTime()) && !isNaN(ad.getTime())) a.DaysToClose = Math.round((cd - ad) / 86400000); } }); } catch(e) { console.warn('[Dash] Failed to load actions from JSON folders:', e); } } var ehoData = []; try { ehoData = await idbGetAll('eho_data'); } catch(e) {}
   const combinedData = [...rawKpis, ...allAudits]; if(!combinedData.length && currentView !== 'control') return;
   const effectiveYear = combinedData.length ? Math.max(...combinedData.map(k => (k.Year || currentAwardsYear || new Date().getFullYear()))) : new Date().getFullYear();
   latestWkGlobal = combinedData.length ? Math.max(...combinedData.filter(k => (k.Year || effectiveYear) === effectiveYear).map(k => k.Week)) : 0;
@@ -80,7 +80,7 @@ if(currentView === 'banding') return renderBandingView();
           );
       }
       currAudits = allAudits.filter(a => a.Week === effectiveWeek); prevAudits = allAudits.filter(a => a.Week === effectiveWeek - 1);
-      currActions = allActions.filter(a => a.Week === effectiveWeek); prevActions = allActions.filter(a => a.Week === effectiveWeek - 1);
+      currActions = allActions.filter(a => a.Week >= 1 && a.Week <= effectiveWeek); prevActions = allActions.filter(a => a.Week >= 1 && a.Week <= effectiveWeek - 1);
   } else if (currentTimeFilter === 'last4') {
       curr = aggregateData(rawKpis.filter(k => k.Week <= effectiveWeek && k.Week > effectiveWeek - 4)); prev = aggregateData(rawKpis.filter(k => k.Week <= effectiveWeek - 4 && k.Week > effectiveWeek - 8));
       currAudits = allAudits.filter(a => a.Week <= effectiveWeek && a.Week > effectiveWeek - 4); prevAudits = allAudits.filter(a => a.Week <= effectiveWeek - 4 && a.Week > effectiveWeek - 8);
@@ -105,14 +105,6 @@ if(currentView === 'banding') return renderBandingView();
   const bAvgHotBev = curr.reduce((a,b)=>a+(b.HotBev||0),0) / (curr.length || 1); const pbAvgHotBev = prev.reduce((a,b)=>a+(b.HotBev||0),0) / (prev.length || 1);
   const bAvgAudit = Array.from(auditMap.values()).reduce((a,b)=>a+(b.Score||0),0) / (auditMap.size || 1);
 
-  const calcCriticals = (auditList) => { let critCount = 0; auditList.forEach(a => { if (a.Food < 90 || a.Fire < 90 || a.HandS < 90 || a.Journey < 90 || a.Coffee < 90 || a.Focus < 90) critCount++; }); return critCount; };
-  const currCrits = calcCriticals(currAudits); const prevCrits = calcCriticals(prevAudits);
-
-  const calcCloseRate = (actionsList) => { let closedCount = 0; let totalDays = 0; actionsList.forEach(a => { if(a.Status.includes('close') && a.DaysToClose !== null) { closedCount++; totalDays += a.DaysToClose; } }); return closedCount > 0 ? (totalDays / closedCount) : 0; };
-  const currCloseAvg = calcCloseRate(currActions); const prevCloseAvg = calcCloseRate(prevActions);
-
-  const qMap = new Map(); currActions.forEach(a => { const q = a.Question.trim(); qMap.set(q, (qMap.get(q) || 0) + 1); });
-  const topFailures = Array.from(qMap.entries()).sort((a,b) => b[1] - a[1]).slice(0, 3);
   const validAMs = Array.from(new Set(Array.from(storeMap.values()))).filter(am => am !== 'Unassigned');
 
   const amStatsGlobal = validAMs.map(am => {
@@ -130,9 +122,6 @@ if(currentView === 'banding') return renderBandingView();
   
 if(currentView === 'overview'){
 
-    const monthlyChampions =
-        buildMonthlyChampions(rawKpis,effectiveWeek);
-
     const filterLabel = currentTimeFilter === 'latest' ? `Wk ${effectiveWeek}${archiveWeekOverride? ' (Archive)' : ''}` : currentTimeFilter === 'last4' ? 'Rolling 4 Weeks' : 'Year to Date';
     const areaRows = amStatsGlobal.map((am, i) => `
       <div class="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
@@ -144,7 +133,6 @@ if(currentView === 'overview'){
         </div>
       </div>`).join('');
     const progColor = (val) => val >= 95 ? 'progress-fill' : val >= 90 ? 'progress-fill-warn' : 'progress-fill-crit';
-    let actionsHtml = topFailures.length > 0 ? topFailures.map((f, idx) => `<div class="text-[10px] border-b border-indigo-100 pb-1 mb-1 last:border-0 last:mb-0 last:pb-0"><span class="font-bold text-indigo-800">${idx+1}.</span> ${f[0]} <span class="font-bold text-indigo-500 float-right">(${f[1]}x)</span></div>`).join('') : '<p class="text-xs text-slate-500 italic">No action data found for this period.</p>';
 
     document.getElementById('mainView').innerHTML = `
       <div id="overview-card" class="bg-transparent p-1">
@@ -168,18 +156,14 @@ if(currentView === 'overview'){
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div class="lg:col-span-1 card p-6 border-t-4 border-t-indigo-400">
-             <h3 class="font-black outfit text-indigo-600 mb-4 text-sm uppercase">Proactive Coaching Tracker</h3>
+             <h3 class="font-black outfit text-indigo-600 mb-4 text-sm uppercase">Critical Actions & Common Failures</h3>
              <div class="bg-indigo-50 rounded-xl p-4 mb-4 border border-indigo-100">
-                 <div class="text-[10px] font-bold text-indigo-800 uppercase mb-1"> Focus Sectors (Sub-90%)</div>
-                 <div class="flex items-end justify-between"><div><span class="text-[36px] font-black text-indigo-600">${currCrits}</span><span class="text-xs text-slate-800 ml-1">Incidents logged</span></div><div class="pb-1">${getTrendStr(currCrits, prevCrits, true, 'whole')}</div></div>
-                 <p class="text-[10px] text-indigo-600 mt-2 leading-tight">Total count of individual audit sectors dropping below 90% across the entire network.</p>
+                 <div class="text-[10px] font-bold text-indigo-800 uppercase mb-1">Critical Action Rate</div>
+                 <div class="flex items-end justify-between"><div><span class="text-[36px] font-black text-indigo-600">${allActions.length > 0 ? ((allActions.filter(function(a){return a.Critical === 'Yes';}).length / allActions.length) * 100).toFixed(1) : '0.0'}<span class="text-xs text-slate-800 ml-1">%</span></span><span class="text-xs text-slate-800 ml-2">${allActions.filter(function(a){return a.Critical === 'Yes';}).length} of ${allActions.length} actions</span></div></div>
+                 <p class="text-[10px] text-indigo-600 mt-2 leading-tight">Percentage of all audit actions (open & closed) flagged as critical across the entire network.</p>
              </div>
-             <div class="bg-indigo-50 rounded-xl p-4 mb-4 border border-indigo-100">
-                 <div class="text-[10px] font-bold text-indigo-800 uppercase mb-1">⏱️ Avg Action Close Rate</div>
-                 <div class="flex items-end justify-between"><div><span class="text-[36px] font-black text-indigo-600">${currCloseAvg.toFixed(1)}</span><span class="text-xs text-slate-800 ml-1">Days to clear</span></div><div class="pb-1">${getTrendStr(currCloseAvg, prevCloseAvg, true, 'decimal')}</div></div>
-                 <p class="text-[10px] text-indigo-600 mt-2 leading-tight">Measures how quickly store management reacts to and resolves audit failures.</p>
+             <div class="bg-white rounded-xl p-3 border border-indigo-100 shadow-sm"><div class="text-[10px] font-bold text-slate-800 uppercase mb-2"> Top 5 Common Audit Failures</div>${allActions.length > 0 ? function(){ var qMap = new Map(); allActions.forEach(function(a){ var q = (a.Question || '').trim(); if(q) qMap.set(q, (qMap.get(q)||0) + 1); }); return Array.from(qMap.entries()).sort(function(a,b){ return b[1] - a[1]; }).slice(0,5).map(function(f, idx){ return '<div class="text-[10px] border-b border-indigo-100 pb-1 mb-1 last:border-0 last:mb-0 last:pb-0"><span class="font-bold text-indigo-800">' + (idx+1) + '.</span> ' + f[0] + ' <span class="font-bold text-indigo-500 float-right">(' + f[1] + 'x)</span></div>'; }).join(''); }() : '<p class="text-xs text-slate-500 italic">No action data found.</p>'}
              </div>
-             <div class="bg-white rounded-xl p-3 border border-indigo-100 shadow-sm"><div class="text-[10px] font-bold text-slate-800 uppercase mb-2"> Top 3 Common Audit Failures</div>${actionsHtml}</div>
           </div>
           <div class="lg:col-span-1 card p-6">
             <h3 class="font-black outfit birds-green mb-4 text-sm uppercase">Sector Compliance Profile</h3>
@@ -193,9 +177,9 @@ if(currentView === 'overview'){
           </div>
           <div class="lg:col-span-1 card p-6"><h3 class="font-black outfit birds-green mb-4 text-sm uppercase">Network Area Standings</h3><div class="flex flex-col">${areaRows}</div></div>
         </div>
-        <div class="mt-6 card p-6 border-t-4 border-t-emerald-500  flex flex-col md:flex-row items-center justify-between">
-           <div><h3 class="font-black outfit text-emerald-800 text-lg uppercase mb-1">Network Audit Score</h3><p class="text-xs text-emerald-600 font-bold">Overall network compliance & standards</p></div>
-           <div class="flex items-center gap-4">${ringSVG(bAvgAudit)}</div>
+        <div class="mt-6 card p-6 border-t-4 border-t-red-500">
+           <h3 class="font-black outfit text-red-800 text-lg uppercase mb-3">EHO Overdue Stores</h3>
+           <div class="max-h-48 overflow-y-auto space-y-2">${function(){ var now = new Date(); var rows = []; ehoData.forEach(function(d){ if(!storeMap.get(d.StoreId)) return; var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(d.StoreId)) || d.StoreId; var dueDate = null; if (d.ehoVisit) { var dd = parseUKDate(d.ehoVisit); if (dd && !isNaN(dd.getTime())) { var nd = new Date(dd); nd.setFullYear(nd.getFullYear() + 1); dueDate = nd; } } if (!dueDate && typeof window._ehoRatings !== 'undefined') { var ehoCsv = window._ehoRatings.get(displayName.toLowerCase()) || window._ehoRatings.get(d.StoreId.toLowerCase()); if (ehoCsv && ehoCsv.nextDue) dueDate = parseUKDate(ehoCsv.nextDue); } if (dueDate && !isNaN(dueDate.getTime()) && dueDate < now) { var rating = d.ehoRating || (window._ehoRatings ? (window._ehoRatings.get(displayName.toLowerCase()) || window._ehoRatings.get(d.StoreId.toLowerCase()) || {}).rating : '') || '—'; rows.push({store: displayName, rating: rating, due: dueDate.toISOString().slice(0,10)}); } }); rows.sort(function(a,b){ return a.due.localeCompare(b.due); }); if (rows.length === 0) return '<p class="text-sm text-slate-500 italic">No stores currently overdue for EHO inspection.</p>'; return rows.map(function(r){ var stars = ''; var n = parseInt(r.rating); if (n > 0) for (var i=0;i<n;i++) stars += '★'; else stars = r.rating; return '<div class="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-4 py-2"><span class="text-sm font-bold text-slate-800">' + r.store + '</span><span class="text-xs text-slate-500"><span class="text-amber-500">' + stars + '</span> <span class="text-red-600 font-bold ml-2">Due: ' + r.due + '</span></span></div>'; }).join(''); }()}</div>
         </div>
 </div>`;
   }
