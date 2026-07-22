@@ -4,18 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Birds Executive Hub</title>
-  <link rel="stylesheet" href="tailwind.min.css?v=90">
-  <link rel="stylesheet" href="css/app.css?v=90">
+  <link rel="stylesheet" href="tailwind.min.css?v=100">
+  <link rel="stylesheet" href="css/app.css?v=100">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#5B8C7A">
-  <script src="xlsx.full.min.js?v=90"></script>
-  <script src="chart.js?v=90"></script>
-  <script src="jspdf.umd.min.js?v=90"></script>
-  <script src="jspdf.plugin.autotable.min.js?v=90"></script>
-  <script src="html2canvas.min.js?v=90"></script>
-  <script src="jszip.min.js?v=90"></script>
-  <script src="papaparse.min.js?v=90"></script>
+  <script src="xlsx.full.min.js?v=100"></script>
+  <script src="chart.js?v=100"></script>
+  <script src="jspdf.umd.min.js?v=100"></script>
+  <script src="jspdf.plugin.autotable.min.js?v=100"></script>
+  <script src="html2canvas.min.js?v=100"></script>
+  <script src="jszip.min.js?v=100"></script>
+  <script src="papaparse.min.js?v=100"></script>
   <style>
     .nav-tab-bar{display:flex;gap:6px;margin-bottom:0;}
     .nav-tab{flex:1;padding:14px 16px;border-radius:16px 16px 0 0;font-weight:900;font-size:14px;letter-spacing:.06em;text-transform:uppercase;text-align:center;cursor:pointer;border:2px solid transparent;border-bottom:none;transition:all .2s;opacity:.55;}
@@ -29,6 +29,12 @@
     .nav-panel[data-panel="sales"]{--tab-color:#059669;--panel-bg:#f0fdf4;}
     .nav-panel[data-panel="audits"]{--tab-color:#d97706;--panel-bg:#fefce8;}
     .nav-panel[data-panel="docs"]{--tab-color:#2563eb;--panel-bg:#f0f9ff;}
+    @media print {
+      body * { visibility: hidden; }
+      #print-doc-area, #print-doc-area * { visibility: visible; }
+      #print-doc-area { position: absolute; left: 0; top: 0; width: 100%; }
+      .nav-tab, .seg-btn, .filter-group, #syncBtn, #signOutBtn, #userBadge, .export-btn { display: none !important; }
+    }
   </style>
 </head>
 <body class="bg-slate-50 font-sans antialiased">
@@ -95,6 +101,9 @@
         <button onclick="setView('documents')" id="btn-documents" class="seg-btn flex-1 whitespace-nowrap">Document Hub</button>
         <button onclick="setView('documentarchive')" id="btn-documentarchive" class="seg-btn flex-1 whitespace-nowrap">Archive</button>
         <button onclick="setView('documentcreate')" id="btn-documentcreate" class="seg-btn flex-1 whitespace-nowrap">Create Document</button>
+        <span class="nav-divider"></span>
+        <button onclick="setView('templatelibrary')" id="btn-templatelibrary" class="seg-btn flex-1 whitespace-nowrap">Templates</button>
+        <button onclick="setView('templatebuilder')" id="btn-templatebuilder" class="seg-btn flex-1 whitespace-nowrap">Create Template</button>
       </div>
     </nav>
 
@@ -102,8 +111,8 @@
     <main id="mainView" class="space-y-6"></main>
   </div>
 
-  <!-- Sign-In Overlay (TEST MODE - auto-hidden) -->
-  <div id="signInOverlay" class="fixed inset-0 z-50 hidden items-center justify-center" style="background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);">
+  <!-- Sign-In Overlay -->
+  <div id="signInOverlay" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);">
     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 p-8 text-center">
       <img src="logo.png" alt="Birds" class="h-16 w-auto mx-auto mb-4">
       <h2 class="text-xl font-black outfit birds-green mb-2">Sales Hub</h2>
@@ -137,21 +146,22 @@
   </div>
 
   <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
-  <script src="js/db.js?v=90"></script>
-  <script src="js/utils.js?v=90"></script>
-  <script src="js/sharepoint.js?v=90"></script>
-  <script src="js/graph.js?v=90"></script>
-  <script src="js/data.js?v=90"></script>
-  <script src="js/charts.js?v=90"></script>
-  <script src="js/scorecards.js?v=90"></script>
-  <script src="js/reports.js?v=91"></script>
-  <script src="js/complaints.js?v=91"></script>
-  <script src="js/documents.js?v=90"></script>
-  <script src="js/audits.js?v=90"></script>
-  <script src="js/tracker.js?v=91"></script>
-  <script src="js/awards.js?v=90"></script>
-  <script src="js/audit-perform.js?v=90"></script>
-  <script src="js/app.js?v=91"></script>
+  <script src="js/db.js?v=100"></script>
+  <script src="js/utils.js?v=100"></script>
+  <script src="js/sharepoint.js?v=100"></script>
+  <script src="js/graph.js?v=100"></script>
+  <script src="js/data.js?v=100"></script>
+  <script src="js/charts.js?v=100"></script>
+  <script src="js/scorecards.js?v=100"></script>
+  <script src="js/reports.js?v=100"></script>
+  <script src="js/complaints.js?v=100"></script>
+  <script src="js/documents.js?v=100"></script>
+  <script src="js/template-builder.js?v=100"></script>
+  <script src="js/audits.js?v=100"></script>
+  <script src="js/tracker.js?v=100"></script>
+  <script src="js/awards.js?v=100"></script>
+  <script src="js/audit-perform.js?v=100"></script>
+  <script src="js/app.js?v=100"></script>
   <script>
     // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
     var _activeTab = 'sales';
@@ -279,16 +289,8 @@
       document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">Data Cleared</h2><p class="text-slate-500 mb-6">Refresh to reload data from SharePoint.</p></div>';
     }
 
-    // Boot: TEST MODE — skip Entra, auto-admin
+    // Boot: auto-sync from local folder on load
     (function() {
-      // Auto-enable admin mode (no login required)
-      window.__tempAdmin = true;
-      window.isAdmin = function() { return true; };
-      document.getElementById('signInOverlay').classList.add('hidden');
-      document.getElementById('userBadge').textContent = 'Admin (Test Mode)';
-      document.getElementById('userBadge').classList.remove('hidden');
-      document.getElementById('folderStatus').textContent = 'Status: Test Mode — No Auth';
-
       // Load EHO ratings
       if (typeof window.loadEHORatings === 'function') {
         window.loadEHORatings();
@@ -305,16 +307,16 @@
     (function() { var img = new Image(); img.onload = function() { window.__pdfLogo = img; }; img.src = 'logo.png'; })();
   </script>
   <script>
-    // TEST MODE — service worker disabled
-    // window.addEventListener('load', function() {
-    //   if ('serviceWorker' in navigator) {
-    //     navigator.serviceWorker.register('./sw.js').then(function(reg) {
-    //       console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? reg.active.scriptURL : 'unknown'), 'scope:', reg.scope);
-    //     }).catch(function(err) {
-    //       console.warn('[SW] Registration failed:', err);
-    //     });
-    //   }
-    // });
+    // Register fresh service worker after all scripts loaded
+    window.addEventListener('load', function() {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').then(function(reg) {
+          console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? reg.active.scriptURL : 'unknown'), 'scope:', reg.scope);
+        }).catch(function(err) {
+          console.warn('[SW] Registration failed:', err);
+        });
+      }
+    });
   </script>
 </body>
 </html>
