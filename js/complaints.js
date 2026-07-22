@@ -755,32 +755,388 @@ async function generateComplaintsDetailedPDF() {
 async function generateComplaintsPDF() {
     if (typeof window.jspdf === 'undefined') { alert("PDF library missing."); return; }
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF('l', 'mm', 'a4');
     const data = window._compDataCache || window.ComplaintsData || [];
     if (data.length === 0) { alert("No complaints data to export!"); return; }
-    doc.setFont("helvetica", "bold"); doc.setFontSize(18);
-    doc.text("Complaints Summary Report", 14, 20);
-    doc.setFontSize(10); doc.setFont("helvetica", "normal");
-    doc.text("Generated on: " + new Date().toLocaleString(), 14, 26);
-    let typeCount = {}, statusCount = {}, storeCount = {};
-    data.forEach(c => {
-        let type = (c['Type of complaint'] || 'Unknown').replace(/[^a-zA-Z\s]/g, '').trim();
-        let status = (c['Status'] || 'Unknown').trim();
-        let store = (c['Shop bought from'] || 'Unknown').trim();
-        typeCount[type] = (typeCount[type] || 0) + 1;
-        statusCount[status] = (statusCount[status] || 0) + 1;
-        storeCount[store] = (storeCount[store] || 0) + 1;
+
+    const MINT = [0, 168, 142];
+    const CHARCOAL = [55, 55, 55];
+    const LIGHT_GREY = [120, 120, 120];
+    const PW = 297, PH = 210, MG = 14;
+
+    function wrapText(text, maxWidth) {
+        var words = String(text || '').split(/\s+/);
+        var lines = [];
+        var line = '';
+        words.forEach(function(w) {
+            var test = line ? line + ' ' + w : w;
+            if (doc.getTextWidth(test) > maxWidth && line) {
+                lines.push(line);
+                line = w;
+            } else {
+                line = test;
+            }
+        });
+        if (line) lines.push(line);
+        return lines;
+    }
+
+    function drawPageHeader(pageNum, totalPages) {
+        doc.setFillColor(...MINT);
+        doc.rect(0, 0, PW, 2, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.setTextColor(...CHARCOAL);
+        doc.text('Complaints Summary Report', MG, 15);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(...LIGHT_GREY);
+        doc.text('Generated: ' + new Date().toLocaleString('en-GB') + '  |  ' + data.length + ' complaints', MG, 21);
+        doc.setDrawColor(220, 220, 220);
+        doc.setLineWidth(0.3);
+        doc.line(MG, 24, PW - MG, 24);
+        return 28;
+    }
+
+    function drawFooter(p, totalP) {
+        doc.setDrawColor(220, 220, 220);
+        doc.setLineWidth(0.3);
+        doc.line(MG, PH - 10, PW - MG, PH - 10);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(160, 160, 160);
+        doc.text('Birds Bakery \u2014 Complaints Summary', MG, PH - 6);
+        doc.text('Page ' + p + (totalP ? ' of ' + totalP : ''), PW - MG, PH - 6, { align: 'right' });
+    }
+
+    function ensurePageSpace(neededY) {
+        if (neededY > PH - 14) {
+            doc.addPage('l');
+            return drawPageHeader(pageNum++, null);
+        }
+        return neededY;
+    }
+
+    let pageNum = 1;
+
+    // ── KPI Boxes ──
+    let openCount = data.filter(c => normaliseComplaintStatus(c['Status']) === 'Unresolved').length;
+    let resolvedCount = data.filter(c => normaliseComplaintStatus(c['Status']) === 'Resolved').length;
+    let awaitingCount = data.filter(c => normaliseComplaintStatus(c['Status']) === 'Awaiting Response').length;
+    let resolutionRate = data.length ? (resolvedCount / data.length * 100).toFixed(1) : "0.0";
+    let totalVoucherCost = data.reduce((sum, c) => sum + parseVoucherAmount(c['Voucher amount']), 0);
+    let avgClose = avgDaysCloseTime(data);
+    let avgCloseText = avgClose !== null ? avgClose.toFixed(1) + ' days' : 'N/A';
+
+    let y = drawPageHeader(pageNum);
+    drawFooter(pageNum);
+
+    const bw = 38, bh = 14;
+    const boxes = [
+        { label: 'TOTAL', value: String(data.length), bg: [241,245,249], fg: [51,65,85] },
+        { label: 'UNRESOLVED', value: String(openCount), bg: [254,242,242], fg: [190,18,60] },
+        { label: 'AWAITING', value: String(awaitingCount), bg: [255,251,235], fg: [180,83,9] },
+        { label: 'RESOLVED', value: String(resolvedCount), bg: [236,253,245], fg: [5,150,105] },
+        { label: 'RESOLUTION %', value: resolutionRate + '%', bg: [238,242,255], fg: [55,53,147] },
+        { label: 'VOUCHER TOTAL', value: formatVoucherTotal(totalVoucherCost), bg: [245,243,255], fg: [124,58,237] },
+        { label: 'AVG RESOLVE', value: avgCloseText, bg: [236,254,255], fg: [14,116,144] }
+    ];
+    let bx = MG;
+    boxes.forEach(b => {
+        doc.setFillColor(...b.bg);
+        doc.roundedRect(bx, y, bw, bh, 2, 2, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6);
+        doc.setTextColor(...b.fg);
+        doc.text(b.label, bx + 3, y + 5);
+        doc.setFontSize(13);
+        doc.text(b.value, bx + 3, y + 11);
+        bx += bw + 3;
     });
-    try {
-        doc.text("1. Breakdown by Complaint Type", 14, 35);
-        doc.autoTable({ startY: 40, head: [['Type', 'Total']], body: Object.entries(typeCount).sort((a,b) => b[1] - a[1]) });
-        let nextY = doc.lastAutoTable.finalY + 10;
-        doc.text("2. Status Breakdown", 14, nextY);
-        doc.autoTable({ startY: nextY + 5, head: [['Status', 'Total']], body: Object.entries(statusCount).sort((a,b) => b[1] - a[1]) });
-        nextY = doc.lastAutoTable.finalY + 10;
-        doc.text("3. Store Breakdown", 14, nextY);
-        doc.autoTable({ startY: nextY + 5, head: [['Store', 'Total']], body: Object.entries(storeCount).sort((a,b) => b[1] - a[1]) });
-        const stamp=new Date().toISOString().slice(0,10);
-        doc.save('Complaints_Summary_'+stamp+'.pdf');
-    } catch (err) { console.error("PDF Export Error:", err); alert("Export failed: " + err.message); }
+    y += bh + 8;
+
+    // ── 1. Week Breakdown ──
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('1. Week Breakdown', MG, y);
+    y += 4;
+
+    const weekMap = {};
+    data.forEach(c => {
+        const d = parseUKDate(c['Date of complaint']);
+        if (!d || isNaN(d.getTime())) {
+            if (!weekMap['Unknown']) weekMap['Unknown'] = [];
+            weekMap['Unknown'].push(c);
+            return;
+        }
+        const jan1 = new Date(d.getFullYear(), 0, 1);
+        const weekNum = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+        const key = 'Wk ' + weekNum;
+        if (!weekMap[key]) weekMap[key] = [];
+        weekMap[key].push(c);
+    });
+
+    const sortedWeeks = Object.keys(weekMap).sort((a, b) => {
+        const na = parseInt(a.replace(/\D/g, '')) || 0;
+        const nb = parseInt(b.replace(/\D/g, '')) || 0;
+        return na - nb;
+    });
+
+    const weekBody = sortedWeeks.map(w => {
+        const complaints = weekMap[w];
+        const resolved = complaints.filter(c => normaliseComplaintStatus(c['Status']) === 'Resolved').length;
+        const unresolved = complaints.filter(c => normaliseComplaintStatus(c['Status']) === 'Unresolved').length;
+        const awaiting = complaints.filter(c => normaliseComplaintStatus(c['Status']) === 'Awaiting Response').length;
+        const vouchers = complaints.reduce((s, c) => s + parseVoucherAmount(c['Voucher amount']), 0);
+        const resolveTimes = complaints.filter(c => normaliseComplaintStatus(c['Status']) === 'Resolved' && c['Resolved Date']).map(c => {
+            const created = parseUKDate(c['Date of complaint']);
+            const closed = parseUKDate(c['Resolved Date']);
+            return (closed - created) / 86400000;
+        }).filter(d => d >= 0);
+        const avgDays = resolveTimes.length ? (resolveTimes.reduce((a, b) => a + b, 0) / resolveTimes.length).toFixed(1) + 'd' : '-';
+        return [w, complaints.length, resolved, unresolved, awaiting, formatVoucherTotal(vouchers), avgDays];
+    });
+
+    doc.autoTable({
+        startY: y,
+        head: [['Week', 'Total', 'Resolved', 'Unresolved', 'Awaiting', 'Voucher Cost', 'Avg Resolve']],
+        body: weekBody,
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: MG, right: MG }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── 2. Breakdown by Complaint Type ──
+    y = ensurePageSpace(y + 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('2. Breakdown by Complaint Type', MG, y);
+    y += 4;
+
+    let typeCount = {};
+    data.forEach(c => {
+        let type = cleanBrackets(c['Type of complaint']) || 'Unknown';
+        typeCount[type] = (typeCount[type] || 0) + 1;
+    });
+    doc.autoTable({
+        startY: y,
+        head: [['Type', 'Count', '% of Total']],
+        body: Object.entries(typeCount)
+            .sort((a, b) => b[1] - a[1])
+            .map(([t, n]) => [t, n, ((n / data.length) * 100).toFixed(1) + '%']),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: MG, right: MG }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── 3. Status Breakdown ──
+    y = ensurePageSpace(y + 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('3. Status Breakdown', MG, y);
+    y += 4;
+
+    let statusCount = {};
+    data.forEach(c => {
+        let status = normaliseComplaintStatus(c['Status']);
+        statusCount[status] = (statusCount[status] || 0) + 1;
+    });
+    doc.autoTable({
+        startY: y,
+        head: [['Status', 'Count', '% of Total']],
+        body: Object.entries(statusCount)
+            .sort((a, b) => b[1] - a[1])
+            .map(([s, n]) => [s, n, ((n / data.length) * 100).toFixed(1) + '%']),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: MG, right: MG }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── 4. Store Breakdown ──
+    y = ensurePageSpace(y + 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('4. Store Breakdown', MG, y);
+    y += 4;
+
+    let storeCount = {};
+    let storeVouchers = {};
+    let storeResolved = {};
+    data.forEach(c => {
+        let store = (c['Shop bought from'] || 'Unknown').trim();
+        storeCount[store] = (storeCount[store] || 0) + 1;
+        storeVouchers[store] = (storeVouchers[store] || 0) + parseVoucherAmount(c['Voucher amount']);
+        if (normaliseComplaintStatus(c['Status']) === 'Resolved') {
+            storeResolved[store] = (storeResolved[store] || 0) + 1;
+        }
+    });
+    doc.autoTable({
+        startY: y,
+        head: [['Store', 'Total', 'Resolved', 'Voucher Cost']],
+        body: Object.entries(storeCount)
+            .sort((a, b) => b[1] - a[1])
+            .map(([s, n]) => [s, n, storeResolved[s] || 0, formatVoucherTotal(storeVouchers[s] || 0)]),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: MG, right: MG }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── 5. Complaint Detail Table (week, resolve time, voucher per complaint) ──
+    y = ensurePageSpace(y + 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('5. Complaint Details', MG, y);
+    y += 4;
+
+    const detailBody = data.map(c => {
+        const status = normaliseComplaintStatus(c['Status']);
+        const created = parseUKDate(c['Date of complaint']);
+        const resolved = c['Resolved Date'] ? parseUKDate(c['Resolved Date']) : null;
+        const voucher = parseVoucherAmount(c['Voucher amount']);
+        let resolveDays = '-';
+        if (status === 'Resolved' && resolved && created && !isNaN(created.getTime()) && !isNaN(resolved.getTime())) {
+            const diff = (resolved - created) / 86400000;
+            resolveDays = diff >= 0 ? diff.toFixed(1) + 'd' : '-';
+        }
+        let week = '-';
+        if (created && !isNaN(created.getTime())) {
+            const jan1 = new Date(created.getFullYear(), 0, 1);
+            week = 'Wk ' + Math.ceil(((created - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+        }
+        return [
+            formatComplaintDate(c['Date of complaint']),
+            week,
+            (c['Shop bought from'] || 'Unknown').substring(0, 20),
+            cleanBrackets(c['Type of complaint']) || '-',
+            (c['Customer full name'] || 'Anon').substring(0, 15),
+            status,
+            resolveDays,
+            voucher > 0 ? formatVoucherTotal(voucher) : '-'
+        ];
+    });
+
+    doc.autoTable({
+        startY: y,
+        head: [['Date', 'Week', 'Store', 'Type', 'Customer', 'Status', 'Resolve Time', 'Voucher']],
+        body: detailBody,
+        styles: { fontSize: 6.5, cellPadding: 1.5 },
+        headStyles: { fillColor: MINT, fontSize: 7, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+            0: { cellWidth: 20 },
+            1: { cellWidth: 14 },
+            2: { cellWidth: 35 },
+            3: { cellWidth: 35 },
+            4: { cellWidth: 30 },
+            5: { cellWidth: 28 },
+            6: { cellWidth: 22 },
+            7: { cellWidth: 22 }
+        },
+        margin: { left: MG, right: MG },
+        didParseCell: function(hookData) {
+            if (hookData.section === 'body' && hookData.column.index === 5) {
+                const val = String(hookData.cell.raw);
+                if (val === 'Resolved') { hookData.cell.styles.textColor = [5, 150, 105]; hookData.cell.styles.fontStyle = 'bold'; }
+                else if (val === 'Unresolved') { hookData.cell.styles.textColor = [190, 18, 60]; hookData.cell.styles.fontStyle = 'bold'; }
+                else if (val === 'Awaiting Response') { hookData.cell.styles.textColor = [180, 83, 9]; hookData.cell.styles.fontStyle = 'bold'; }
+            }
+        }
+    });
+
+    // ── Summary Footer Section ──
+    let summaryY = doc.lastAutoTable.finalY + 12;
+    summaryY = ensurePageSpace(summaryY + 50);
+
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(MG, summaryY, PW - MG * 2, 42, 3, 3, 'F');
+    doc.setDrawColor(...MINT);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(MG, summaryY, PW - MG * 2, 42, 3, 3);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('Summary', MG + 6, summaryY + 8);
+
+    let sx = MG + 6;
+    const sy = summaryY + 16;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('TOTAL COMPLAINTS', sx, sy);
+    doc.setFontSize(16);
+    doc.setTextColor(...CHARCOAL);
+    doc.text(String(data.length), sx, sy + 9);
+
+    sx += 42;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('AVG RESOLVE TIME', sx, sy);
+    doc.setFontSize(16);
+    doc.setTextColor([14, 116, 144]);
+    doc.text(avgCloseText, sx, sy + 9);
+
+    sx += 48;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('TOTAL VOUCHER COST', sx, sy);
+    doc.setFontSize(16);
+    doc.setTextColor([124, 58, 237]);
+    doc.text(formatVoucherTotal(totalVoucherCost), sx, sy + 9);
+
+    sx += 52;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('RESOLUTION RATE', sx, sy);
+    doc.setFontSize(16);
+    doc.setTextColor([5, 150, 105]);
+    doc.text(resolutionRate + '%', sx, sy + 9);
+
+    sx += 48;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('UNRESOLVED', sx, sy);
+    doc.setFontSize(16);
+    doc.setTextColor([190, 18, 60]);
+    doc.text(String(openCount), sx, sy + 9);
+
+    // Complaint type breakdown in summary
+    const typeEntries = Object.entries(typeCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (typeEntries.length > 0) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        let tx = MG + 6;
+        doc.text('TOP TYPES:', tx, summaryY + 34);
+        tx += 22;
+        doc.setFont('helvetica', 'normal');
+        typeEntries.forEach(([t, n]) => {
+            doc.text(t + ': ' + n, tx, summaryY + 34);
+            tx += doc.getTextWidth(t + ': ' + n) + 8;
+        });
+    }
+
+    // Final footer
+    drawFooter(pageNum, pageNum);
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    doc.save('Complaints_Summary_' + stamp + '.pdf');
 }

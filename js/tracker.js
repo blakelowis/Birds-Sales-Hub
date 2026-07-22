@@ -252,15 +252,7 @@ window.renderTracker = function() {
     }
 };
 
-function trackerScoreRag(val) {
-    var n = parseFloat(val);
-    if (isNaN(n) || val === '') return '';
-    if (n === 0) return 'bg-red-100 border-red-300 text-red-800 font-black';
-    if (n < 80) return 'bg-orange-50 border-orange-300 text-orange-700 font-bold';
-    if (n < 90) return 'bg-amber-50 border-amber-300 text-amber-700 font-bold';
-    if (n < 95) return 'bg-teal-50 border-teal-300 text-teal-700 font-bold';
-    return 'bg-emerald-50 border-emerald-300 text-emerald-700 font-black';
-}
+
 
 function trackerRowHTML(id, name, am, d) {
     var ehoCsv = (typeof window._ehoRatings !== 'undefined' && window._ehoRatings.get(name.toLowerCase())) || window._ehoRatings.get(id.toLowerCase()) || null;
@@ -407,40 +399,19 @@ async function trackerSaveToFolder() {
         var rows = await idbGetAll('eho_data');
         var data = {};
         rows.forEach(function(r) { data[r.StoreId] = r; });
-        // Update in-memory cache from IndexedDB (catches any records created outside trackerField)
         _trackerDataCache = data;
         var exportObj = { version: 1, exportedAt: new Date().toISOString(), stores: data };
         var json = JSON.stringify(exportObj, null, 2);
 
-        // Cloud path: upload to SharePoint root via GraphAPI
         if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
-            try {
-                await GraphAPI.uploadFile('tracker_data.json', json, 'application/json');
-                if (statusEl) statusEl.textContent = 'Saved to SharePoint';
-                trackerRefreshKpis();
-                return;
-            } catch(cloudErr) {
-                console.warn('[Tracker] Cloud save failed:', cloudErr);
-            }
+            await GraphAPI.uploadFile('tracker_data.json', json, 'application/json');
+            if (statusEl) statusEl.textContent = 'Saved to SharePoint';
+        } else {
+            if (statusEl) statusEl.textContent = 'Not signed in — data kept locally';
         }
-
-        // FSA path: save to local anchored folder
-        if (typeof directoryHandle !== 'undefined' && directoryHandle) {
-            var hasPerm = typeof verifyPermission === 'function' ? await verifyPermission(directoryHandle, true) : false;
-            if (hasPerm) {
-                var fileHandle = await directoryHandle.getFileHandle('tracker_data.json', { create: true });
-                var writable = await fileHandle.createWritable();
-                await writable.write(json);
-                await writable.close();
-                if (statusEl) statusEl.textContent = 'Saved to shared folder';
-                trackerRefreshKpis();
-                return;
-            }
-        }
-        if (statusEl) statusEl.textContent = 'Saved locally (no folder anchored)';
         trackerRefreshKpis();
     } catch(e) {
-        console.warn('[Tracker] Folder save failed:', e);
+        console.warn('[Tracker] Save failed:', e);
         if (statusEl) statusEl.textContent = 'Save failed — data kept locally';
     }
 }
@@ -453,18 +424,17 @@ function trackerRefreshKpis() {
 }
 
 async function trackerLoadFromFolder() {
-    if (typeof directoryHandle === 'undefined' || !directoryHandle) return null;
-    try {
-        var hasPerm = typeof verifyPermission === 'function' ? await verifyPermission(directoryHandle, false) : false;
-        if (!hasPerm) return null;
-        var fileHandle = await directoryHandle.getFileHandle('tracker_data.json');
-        var file = await fileHandle.getFile();
-        var text = await file.text();
-        var importObj = JSON.parse(text);
-        return importObj.stores || importObj;
-    } catch(e) {
-        return null;
+    if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
+        try {
+            var cloudText = await GraphAPI.downloadFileAsText('tracker_data.json');
+            var importObj = JSON.parse(cloudText);
+            return importObj.stores || importObj;
+        } catch(e) {
+            console.log('[Tracker] Cloud load unavailable:', e.message);
+            return null;
+        }
     }
+    return null;
 }
 
 // === Sortable Column Headers ===
@@ -710,14 +680,35 @@ window.trackerPrintPDF = function() {
     var { jsPDF } = window.jspdf;
     var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-    doc.setFontSize(16);
-    doc.setFont(undefined, 'bold');
-    doc.text('EHO & Audit Tracker', 14, 15);
+    var MINT = [0, 168, 142];
+    var CHARCOAL = [55, 55, 55];
+    var LIGHT_GREY = [120, 120, 120];
+    var PW = 297, PH = 210, MG = 14;
+
+    doc.setFillColor(...MINT);
+    doc.rect(0, 0, PW, 2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('EHO & Audit Tracker', MG, 15);
+
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.setFont(undefined, 'normal');
-    doc.text('Generated: ' + new Date().toLocaleDateString('en-GB'), 14, 21);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('Generated: ' + new Date().toLocaleDateString('en-GB'), MG, 21);
+
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.3);
+    doc.line(MG, 24, PW - MG, 24);
 
     var rows = [];
+    var totalScore = 0, scoreCount = 0, eho5 = 0, eho4 = 0, ehoBelow = 0, overdue = 0;
+    var sectorTotals = { food: 0, fire: 0, hs: 0, journey: 0, coffee: 0, focus: 0 };
+    var sectorCounts = { food: 0, fire: 0, hs: 0, journey: 0, coffee: 0, focus: 0 };
+    var now = new Date();
+    var sectorKeys = ['food', 'fire', 'hs', 'journey', 'coffee', 'focus'];
+
     document.querySelectorAll('.tracker-row').forEach(function(tr) {
         if (tr.style.display === 'none') return;
         var cells = tr.querySelectorAll('td');
@@ -725,7 +716,7 @@ window.trackerPrintPDF = function() {
             var input = el.querySelector('input, select');
             return input ? (input.value || '') : (el.textContent || '').trim();
         };
-        rows.push([
+        var r = [
             cells[0] ? getText(cells[0]) : '',
             cells[1] ? getText(cells[1]) : '',
             cells[2] ? getText(cells[2]) : '',
@@ -739,25 +730,126 @@ window.trackerPrintPDF = function() {
             cells[10] ? getText(cells[10]) : '',
             cells[11] ? getText(cells[11]) : '',
             cells[12] ? getText(cells[12]) : ''
-        ]);
+        ];
+        rows.push(r);
+
+        // KPI aggregation
+        var t = parseFloat(r[11]);
+        if (!isNaN(t) && t > 0) { totalScore += t; scoreCount++; }
+        var eho = parseInt(r[2]);
+        if (eho === 5) eho5++;
+        else if (eho === 4) eho4++;
+        else if (eho > 0 && eho <= 3) ehoBelow++;
+
+        sectorKeys.forEach(function(sk, idx) {
+            var v = parseFloat(r[5 + idx]);
+            if (!isNaN(v) && v > 0) { sectorTotals[sk] += v; sectorCounts[sk]++; }
+        });
+
+        if (r[4]) {
+            var nd = parseUKDate(r[4]);
+            if (nd && !isNaN(nd.getTime()) && nd < now) overdue++;
+        }
     });
 
+    var avgTotal = scoreCount > 0 ? (totalScore / scoreCount).toFixed(1) : 'N/A';
+    var y = 30;
+
+    // KPI boxes
+    var bw = 36, bh = 14;
+    var kpis = [
+        { label: 'STORES', value: String(rows.length), bg: [241,245,249], fg: [51,65,85] },
+        { label: '5 STAR', value: String(eho5), bg: [236,253,245], fg: [5,150,105] },
+        { label: '4 STAR', value: String(eho4), bg: [250,252,255], fg: [34,119,247] },
+        { label: '3 & BELOW', value: String(ehoBelow), bg: [255,251,235], fg: [180,83,9] },
+        { label: 'EHO OVERDUE', value: String(overdue), bg: [254,242,242], fg: [190,18,60] },
+        { label: 'AVG TOTAL', value: avgTotal + '%', bg: [236,254,255], fg: [14,116,144] }
+    ];
+    var bx = MG;
+    kpis.forEach(function(k) {
+        doc.setFillColor(...k.bg);
+        doc.roundedRect(bx, y, bw, bh, 2, 2, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6);
+        doc.setTextColor(...k.fg);
+        doc.text(k.label, bx + 3, y + 5);
+        doc.setFontSize(13);
+        doc.text(k.value, bx + 3, y + 11);
+        bx += bw + 3;
+    });
+    y += bh + 6;
+
+    // Sector averages
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('Sector Averages:', MG, y);
+    var sx = MG + 30;
+    var sectorLabels = ['Food', 'Fire', 'H&S', 'Journey', 'Coffee', 'Focus'];
+    sectorKeys.forEach(function(sk, idx) {
+        var avg = sectorCounts[sk] > 0 ? (sectorTotals[sk] / sectorCounts[sk]).toFixed(1) : 'N/A';
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(sectorLabels[idx] + ': ' + avg + '%', sx, y);
+        sx += 30;
+    });
+    y += 6;
+
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.3);
+    doc.line(MG, y, PW - MG, y);
+    y += 3;
+
+    // Table
     doc.autoTable({
-        startY: 25,
+        startY: y,
         head: [['Store', 'Area', 'EHO', 'Insp. Date', 'Next Due', 'Food', 'Fire', 'H&S', 'Journey', 'Coffee', 'Focus', 'Total', 'Audit Date']],
         body: rows,
         styles: { fontSize: 7, cellPadding: 1.5 },
-        headStyles: { fillColor: [0, 168, 142], fontSize: 7, fontStyle: 'bold' },
+        headStyles: { fillColor: MINT, fontSize: 7, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: {
-            0: { cellWidth: 30, fontStyle: 'bold' },
+            0: { cellWidth: 28, fontStyle: 'bold' },
             1: { cellWidth: 22 },
-            2: { cellWidth: 15 },
+            2: { cellWidth: 14 },
             3: { cellWidth: 18 },
             4: { cellWidth: 18 },
-            11: { cellWidth: 15, fontStyle: 'bold' }
+            11: { cellWidth: 15, fontStyle: 'bold' },
+            12: { cellWidth: 18 }
         },
-        margin: { left: 14, right: 14 }
+        margin: { left: MG, right: MG },
+        didParseCell: function(hookData) {
+            if (hookData.section === 'body' && hookData.column.index === 11) {
+                var val = parseFloat(hookData.cell.raw);
+                if (!isNaN(val)) {
+                    if (val >= 95) hookData.cell.styles.textColor = [5, 150, 105];
+                    else if (val >= 90) hookData.cell.styles.textColor = [180, 83, 9];
+                    else if (val >= 80) hookData.cell.styles.textColor = [234, 88, 12];
+                    else hookData.cell.styles.textColor = [190, 18, 60];
+                }
+            }
+            if (hookData.section === 'body' && hookData.column.index >= 5 && hookData.column.index <= 10) {
+                var val = parseFloat(hookData.cell.raw);
+                if (!isNaN(val)) {
+                    if (val >= 95) hookData.cell.styles.textColor = [5, 150, 105];
+                    else if (val >= 90) hookData.cell.styles.textColor = [14, 116, 144];
+                    else if (val >= 80) hookData.cell.styles.textColor = [180, 83, 9];
+                    else if (val > 0) hookData.cell.styles.textColor = [190, 18, 60];
+                }
+            }
+        },
+        didDrawPage: function(hookData) {
+            // Footer on each page
+            doc.setDrawColor(220, 220, 220);
+            doc.setLineWidth(0.3);
+            doc.line(MG, PH - 10, PW - MG, PH - 10);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(160, 160, 160);
+            doc.text('Birds Bakery \u2014 EHO & Audit Tracker', MG, PH - 6);
+            doc.text('Page ' + hookData.pageNumber, PW - MG, PH - 6, { align: 'right' });
+        }
     });
 
     doc.save('tracker_' + new Date().toISOString().slice(0, 10) + '.pdf');
@@ -768,22 +860,27 @@ window.trackerExportPNG = function() {
     if (!el) return;
     var originalOverflow = el.style.overflow;
     var originalHeight = el.style.height;
+    var tableWrapper = el.querySelector('.overflow-auto');
+    var table = document.getElementById('trackerTable');
+    var origWrapOverflow, origWrapHeight, origTableWidth;
     el.style.overflow = 'visible';
     el.style.height = 'auto';
-    var tableWrapper = el.querySelector('.overflow-auto');
-    if (tableWrapper) { tableWrapper.style.overflow = 'visible'; tableWrapper.style.height = 'auto'; }
+    if (tableWrapper) { origWrapOverflow = tableWrapper.style.overflow; origWrapHeight = tableWrapper.style.height; tableWrapper.style.overflow = 'visible'; tableWrapper.style.height = 'auto'; tableWrapper.style.maxHeight = 'none'; }
+    if (table) { origTableWidth = table.style.width; table.style.width = 'max-content'; }
     if (typeof html2canvas === 'undefined') { alert('html2canvas not loaded'); return; }
-    html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false }).then(function(canvas) {
+    html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, width: table ? table.scrollWidth : undefined }).then(function(canvas) {
         canvas.toBlob(function(blob) {
             safeDownload(blob, 'tracker_' + new Date().toISOString().slice(0, 10) + '.png');
         });
         el.style.overflow = originalOverflow;
         el.style.height = originalHeight;
-        if (tableWrapper) { tableWrapper.style.overflow = 'auto'; tableWrapper.style.height = ''; }
+        if (tableWrapper) { tableWrapper.style.overflow = origWrapOverflow; tableWrapper.style.height = origWrapHeight; tableWrapper.style.maxHeight = ''; }
+        if (table) { table.style.width = origTableWidth; }
     }).catch(function(e) {
         console.warn('[Tracker] PNG export failed:', e);
         el.style.overflow = originalOverflow;
         el.style.height = originalHeight;
-        if (tableWrapper) { tableWrapper.style.overflow = 'auto'; tableWrapper.style.height = ''; }
+        if (tableWrapper) { tableWrapper.style.overflow = origWrapOverflow; tableWrapper.style.height = origWrapHeight; tableWrapper.style.maxHeight = ''; }
+        if (table) { table.style.width = origTableWidth; }
     });
 };

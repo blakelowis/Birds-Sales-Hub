@@ -462,96 +462,97 @@ if (!storeName) {
 
     let sortedWeeks = Object.keys(groupedByWeek).sort((a, b) => b - a);
 
-    // Build the dynamic HTML element to be rendered (using 850px width for spacious layout)
-    let medalHtml = `<div id="temp-medal-table" style="padding: 30px; background: white; width: 850px; font-family: 'Inter', sans-serif; box-sizing: border-box;">
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 40px;">
-            <thead>
-                <tr style="background: #f8fafc; text-align: left;">
-                    <th style="padding: 16px 20px; border-bottom: 2px solid #e2e8f0; font-size: 16px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; width: 130px;">Week</th>
-                    <th style="padding: 16px 20px; border-bottom: 2px solid #e2e8f0; font-size: 16px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Medals Awarded</th>
-                </tr>
-            </thead>
-            <tbody>`;
-            
-    if (sortedWeeks.length === 0) {
-        medalHtml += `<tr><td colspan="2" style="padding: 30px; text-align: center; color: #94a3b8; font-style: italic; font-weight: bold;">No medals accrued in the available data.</td></tr>`;
-    } else {
-        sortedWeeks.forEach(week => {
-            // Use flexbox for perfect alignment of badges within the table cell
-            let medalsListHtml = `<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">` + groupedByWeek[week].map(m => {
-                let isImp = m.includes('(Improvement)');
-                let metricName = m.replace(' (Improvement)', '').trim();
-                let icon = isImp ? '' : '';
-                
-                let badgeStyle = isImp 
-                    ? 'color:#065f46; background:#ecfdf5; border: 1px solid #6ee7b7;' 
-                    : 'color:#92400e; background:#fffbeb; border: 1px solid #fcd34d;';
-                    
-                let impTag = isImp ? `<span style="background: #a7f3d0; color: #064e3b; font-size: 11px; padding: 3px 8px; border-radius: 6px; margin-left: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 0.05em;">Improved</span>` : '';
-                
-                return `<div style="display: flex; align-items: center; padding: 8px 16px; border-radius: 8px; font-size: 15px; font-weight: 800; box-shadow: 0 1px 2px rgba(0,0,0,0.05); ${badgeStyle}">
-                            <span style="font-size: 18px; margin-right: 10px;">${icon}</span>
-                            <span>${metricName}</span>
-                            ${impTag}
-                        </div>`;
-            }).join('') + `</div>`;
+    // Render each week as its own small canvas to avoid page overflow
+    const medalPngWidth = 170;
+    const medalPngX = (PAGE_WIDTH - medalPngWidth) / 2;
+    let medalY = 30;
+    const PAGE_MEDAL_LIMIT = PH - 25;
 
-            medalHtml += `<tr>
-                <td style="padding: 20px; border-bottom: 1px solid #f1f5f9; color: #334155; font-weight: 900; font-size: 18px; vertical-align: top;">Wk ${week}</td>
-                <td style="padding: 20px; border-bottom: 1px solid #f1f5f9; vertical-align: top;">${medalsListHtml}</td>
-            </tr>`;
-        });
+    async function renderMedalChunk(html, label) {
+        let chunkDiv = document.createElement('div');
+        chunkDiv.style.position = 'absolute';
+        chunkDiv.style.left = '-9999px';
+        chunkDiv.style.top = '0';
+        chunkDiv.innerHTML = html;
+        document.body.appendChild(chunkDiv);
+        await new Promise(r => setTimeout(r, 50));
+        let chunkCanvas = await html2canvas(chunkDiv.firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
+        chunkDiv.remove();
+        const png = safeCanvasPNG(chunkCanvas, label);
+        if (!png) return;
+        const chunkH = medalPngWidth * (chunkCanvas.height / chunkCanvas.width);
+        if (medalY + chunkH > PAGE_MEDAL_LIMIT) {
+            pdf.addPage('p');
+            medalY = 20;
+        }
+        pdf.addImage(png, 'PNG', medalPngX, medalY, medalPngWidth, chunkH);
+        medalY += chunkH + 6;
     }
-    
-    medalHtml += `</tbody></table>
-        <h3 style="color: #0f172a; font-size: 20px; font-weight: 900; margin-bottom: 24px; text-transform: uppercase; padding-left: 4px;">Medal Totals</h3>
-        <div style="display: flex; flex-wrap: wrap; gap: 16px;">`;
-        
-    if (Object.keys(totals).length === 0) {
-        medalHtml += `<div style="color: #94a3b8; font-style: italic; font-weight: bold; padding-left: 4px;">No totals to display.</div>`;
+
+    if (sortedWeeks.length === 0) {
+        // No medals — just show a message
+        let emptyHtml = `<div style="padding: 30px; background: white; width: 850px; font-family: 'Inter', sans-serif; text-align: center; color: #94a3b8; font-style: italic; font-weight: bold; font-size: 16px;">No medals accrued in the available data.</div>`;
+        await renderMedalChunk(emptyHtml, 'No Medals');
     } else {
+        // Render weeks in small batches (3 weeks per chunk) to avoid overflow
+        const BATCH_SIZE = 3;
+        for (let b = 0; b < sortedWeeks.length; b += BATCH_SIZE) {
+            const batch = sortedWeeks.slice(b, b + BATCH_SIZE);
+            let chunkHtml = `<div style="padding: 20px; background: white; width: 850px; font-family: 'Inter', sans-serif; box-sizing: border-box;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8fafc; text-align: left;">
+                            <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; font-size: 14px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; width: 110px;">Week</th>
+                            <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; font-size: 14px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Medals Awarded</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+            batch.forEach(week => {
+                let medalsListHtml = `<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">` + groupedByWeek[week].map(m => {
+                    let isImp = m.includes('(Improvement)');
+                    let metricName = m.replace(' (Improvement)', '').trim();
+                    let badgeStyle = isImp 
+                        ? 'color:#065f46; background:#ecfdf5; border: 1px solid #6ee7b7;' 
+                        : 'color:#92400e; background:#fffbeb; border: 1px solid #fcd34d;';
+                    let impTag = isImp ? `<span style="background: #a7f3d0; color: #064e3b; font-size: 10px; padding: 2px 6px; border-radius: 5px; margin-left: 8px; text-transform: uppercase; font-weight: 900;">Improved</span>` : '';
+                    return `<div style="display: flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 800; box-shadow: 0 1px 2px rgba(0,0,0,0.05); ${badgeStyle}">
+                                <span>${metricName}</span>
+                                ${impTag}
+                            </div>`;
+                }).join('') + `</div>`;
+
+                chunkHtml += `<tr>
+                    <td style="padding: 16px; border-bottom: 1px solid #f1f5f9; color: #334155; font-weight: 900; font-size: 16px; vertical-align: top;">Wk ${week}</td>
+                    <td style="padding: 16px; border-bottom: 1px solid #f1f5f9; vertical-align: top;">${medalsListHtml}</td>
+                </tr>`;
+            });
+
+            chunkHtml += `</tbody></table></div>`;
+            await renderMedalChunk(chunkHtml, 'Medals Wk ' + batch[0] + '-' + batch[batch.length - 1]);
+        }
+
+        // Medal Totals — render separately so it can start on a new page if needed
+        let totalsHtml = `<div style="padding: 20px; background: white; width: 850px; font-family: 'Inter', sans-serif; box-sizing: border-box;">
+            <h3 style="color: #0f172a; font-size: 18px; font-weight: 900; margin-bottom: 16px; text-transform: uppercase; padding-left: 4px;">Medal Totals</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 14px;">`;
+
         for (let m in totals) {
             let isImp = m.includes('(Improvement)');
             let metricName = m.replace(' (Improvement)', '').trim();
-            let icon = isImp ? '' : '';
-            
-            let impTagTotal = isImp ? `<span style="color: #059669; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">Improved</span>` : ``; 
-            
-            medalHtml += `<div style="background: ${isImp ? '#ecfdf5' : '#fffbeb'}; border: 1px solid ${isImp ? '#6ee7b7' : '#fcd34d'}; padding: 18px 24px; border-radius: 12px; color: #1e293b; display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 230px; max-width: 300px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            let impTagTotal = isImp ? `<span style="color: #059669; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px;">Improved</span>` : ``; 
+            totalsHtml += `<div style="background: ${isImp ? '#ecfdf5' : '#fffbeb'}; border: 1px solid ${isImp ? '#6ee7b7' : '#fcd34d'}; padding: 14px 20px; border-radius: 10px; color: #1e293b; display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 200px; max-width: 280px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                 <div style="display: flex; flex-direction: column; justify-content: center;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 22px;">${icon}</span>
-                        <span style="font-size: 17px; font-weight: 900;">${metricName}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 15px; font-weight: 900;">${metricName}</span>
                     </div>
                     ${impTagTotal}
                 </div>
-                <span style="font-size: 32px; font-weight: 900; color: ${isImp ? '#047857' : '#b45309'}; margin-left: 20px;">${totals[m]}</span>
+                <span style="font-size: 28px; font-weight: 900; color: ${isImp ? '#047857' : '#b45309'}; margin-left: 16px;">${totals[m]}</span>
             </div>`;
         }
-    }
-    medalHtml += `</div></div>`;
-
-    // Render it off-screen
-    let tempDiv = document.createElement('div');
-    tempDiv.style.position = 'absolute';
-    tempDiv.style.left = '-9999px';
-    tempDiv.style.top = '0';
-    tempDiv.innerHTML = medalHtml;
-    document.body.appendChild(tempDiv);
-    
-    // Quick timeout to ensure the DOM paints before canvas capture
-    await new Promise(r => setTimeout(r, 100));
-    
-    let mCanvas = await html2canvas(tempDiv.firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
-    tempDiv.remove();
-
-    const medalPng = safeCanvasPNG(mCanvas, 'Historical Medal Summary');
-    if (medalPng) {
-        let mWidth = 170;
-        let mHeight = mWidth * (mCanvas.height / mCanvas.width);
-
-        // Splice it into the PDF layout
-        pdf.addImage(medalPng, 'PNG', (PAGE_WIDTH - mWidth) / 2, 35, mWidth, mHeight);
+        totalsHtml += `</div></div>`;
+        await renderMedalChunk(totalsHtml, 'Medal Totals');
     }
 
     /* ==================================================
@@ -1193,5 +1194,159 @@ window.exportQSPDF = async function(){
   pdf.save(fileLabel+'_Quarterly_Summary_'+stamp+'.pdf');
 };
 
-async function buildRankTimeline(){ return []; }
-async function drawRankMovementChart(){ }
+async function buildRankTimeline(storeName){
+    if (!storeName) return [];
+    const allKpi = await idbGetAll('kpi');
+    if (!allKpi || allKpi.length === 0) return [];
+
+    const latestYear = Math.max(1, ...allKpi.map(k => k.Year || 0).filter(Boolean));
+    const yearData = allKpi.filter(k => (k.Year || latestYear) === latestYear);
+
+    const weekMap = {};
+    yearData.forEach(k => {
+        const w = k.Week;
+        if (!w) return;
+        if (!weekMap[w]) weekMap[w] = [];
+        weekMap[w].push(k);
+    });
+
+    const timeline = [];
+    Object.keys(weekMap).map(Number).sort((a, b) => a - b).forEach(week => {
+        const weekRows = weekMap[week];
+        const storeScores = {};
+        weekRows.forEach(k => {
+            const branch = k.Branch;
+            if (!branch) return;
+            if (!storeScores[branch]) storeScores[branch] = 0;
+            const sales = Number(k.Sales) || 0;
+            const product = Number(k.Product) || 0;
+            const waste = Number(k.Waste) || 0;
+            const labour = Number(k.Labour) || 0;
+            storeScores[branch] += (sales * 100 + product * 100 - waste * 100 - labour * 100);
+        });
+
+        const sorted = Object.entries(storeScores).sort((a, b) => b[1] - a[1]);
+        const rank = sorted.findIndex(([name]) => canonicalStoreId(name) === canonicalStoreId(storeName)) + 1;
+        timeline.push({ week, rank, total: sorted.length, score: storeScores[canonicalStoreId(storeName)] || 0 });
+    });
+
+    return timeline;
+}
+
+async function drawRankMovementChart(storeName, canvasId){
+    const timeline = await buildRankTimeline(storeName);
+    if (!timeline || timeline.length === 0) return;
+
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    canvas.width = 900;
+    canvas.height = 550;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 900, 550);
+
+    const MINT = '#00A88E';
+    const CHARCOAL = '#373737';
+    const LIGHT_GREY = '#e2e8f0';
+    const PAD = { top: 70, right: 40, bottom: 60, left: 60 };
+    const chartW = 900 - PAD.left - PAD.right;
+    const chartH = 550 - PAD.top - PAD.bottom;
+
+    // Background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 900, 550);
+
+    // Title
+    ctx.fillStyle = CHARCOAL;
+    ctx.font = 'bold 20px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(storeName + ' \u2014 Rank Movement', 450, 30);
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#888888';
+    ctx.fillText('Rank per week (1 = Best)', 450, 50);
+
+    const maxRank = Math.max(...timeline.map(t => t.rank), 1);
+    const minRank = 1;
+    const totalRanks = Math.max(maxRank, 10);
+
+    // Grid lines
+    ctx.strokeStyle = LIGHT_GREY;
+    ctx.lineWidth = 0.5;
+    for (let i = 1; i <= totalRanks; i++) {
+        const y = PAD.top + ((i - 1) / (totalRanks - 1)) * chartH;
+        ctx.beginPath();
+        ctx.moveTo(PAD.left, y);
+        ctx.lineTo(900 - PAD.right, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#888888';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('#' + i, PAD.left - 8, y);
+    }
+
+    // X axis labels
+    ctx.fillStyle = '#888888';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const step = Math.max(1, Math.floor(timeline.length / 12));
+    timeline.forEach((t, i) => {
+        if (i % step === 0 || i === timeline.length - 1) {
+            const x = PAD.left + (i / (timeline.length - 1)) * chartW;
+            ctx.fillText('Wk ' + t.week, x, PAD.top + chartH + 8);
+        }
+    });
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = MINT;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    timeline.forEach((t, i) => {
+        const x = PAD.left + (i / (timeline.length - 1)) * chartW;
+        const y = PAD.top + ((t.rank - 1) / (totalRanks - 1)) * chartH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Fill under line
+    ctx.lineTo(PAD.left + chartW, PAD.top + chartH);
+    ctx.lineTo(PAD.left, PAD.top + chartH);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 168, 142, 0.08)';
+    ctx.fill();
+
+    // Dots + labels
+    timeline.forEach((t, i) => {
+        const x = PAD.left + (i / (timeline.length - 1)) * chartW;
+        const y = PAD.top + ((t.rank - 1) / (totalRanks - 1)) * chartH;
+
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = MINT;
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        if (i === 0 || i === timeline.length - 1 || t.rank <= 3) {
+            ctx.fillStyle = CHARCOAL;
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('#' + t.rank, x, y - 8);
+        }
+    });
+
+    // Axes
+    ctx.strokeStyle = CHARCOAL;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, PAD.top);
+    ctx.lineTo(PAD.left, PAD.top + chartH);
+    ctx.lineTo(900 - PAD.right, PAD.top + chartH);
+    ctx.stroke();
+}
