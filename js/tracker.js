@@ -857,31 +857,166 @@ window.trackerPrintPDF = function() {
 };
 
 window.trackerExportPNG = function() {
-    var el = document.getElementById('tracker-view');
-    if (!el) return;
-    var originalOverflow = el.style.overflow;
-    var originalHeight = el.style.height;
-    var tableWrapper = el.querySelector('.overflow-auto');
-    var table = document.getElementById('trackerTable');
-    var origWrapOverflow, origWrapHeight, origTableWidth;
-    el.style.overflow = 'visible';
-    el.style.height = 'auto';
-    if (tableWrapper) { origWrapOverflow = tableWrapper.style.overflow; origWrapHeight = tableWrapper.style.height; tableWrapper.style.overflow = 'visible'; tableWrapper.style.height = 'auto'; tableWrapper.style.maxHeight = 'none'; }
-    if (table) { origTableWidth = table.style.width; table.style.width = 'max-content'; }
     if (typeof html2canvas === 'undefined') { alert('html2canvas not loaded'); return; }
-    html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, width: table ? table.scrollWidth : undefined }).then(function(canvas) {
+
+    var MINT = '#00A88E';
+    var CHARCOAL = '#373737';
+    var LIGHT_GREY = '#888888';
+
+    // Collect data from visible rows
+    var rows = [];
+    var totalScore = 0, scoreCount = 0, eho5 = 0, eho4 = 0, ehoBelow = 0, overdue = 0;
+    var sectorTotals = { food: 0, fire: 0, hs: 0, journey: 0, coffee: 0 };
+    var sectorCounts = { food: 0, fire: 0, hs: 0, journey: 0, coffee: 0 };
+    var now = new Date();
+    var sectorKeys = ['food', 'fire', 'hs', 'journey', 'coffee'];
+    var sectorLabels = ['Food', 'Fire', 'H&S', 'Journey', 'Coffee'];
+
+    document.querySelectorAll('.tracker-row').forEach(function(tr) {
+        if (tr.style.display === 'none') return;
+        var cells = tr.querySelectorAll('td');
+        var getText = function(el) {
+            var input = el.querySelector('input, select');
+            return input ? (input.value || '') : (el.textContent || '').trim();
+        };
+        var r = [];
+        for (var i = 0; i < 13; i++) r.push(cells[i] ? getText(cells[i]) : '');
+        rows.push(r);
+
+        var t = parseFloat(r[11]);
+        if (!isNaN(t) && t > 0) { totalScore += t; scoreCount++; }
+        var eho = parseInt(r[2]);
+        if (eho === 5) eho5++;
+        else if (eho === 4) eho4++;
+        else if (eho > 0 && eho <= 3) ehoBelow++;
+
+        sectorKeys.forEach(function(sk, idx) {
+            var v = parseFloat(r[5 + idx]);
+            if (!isNaN(v) && v > 0) { sectorTotals[sk] += v; sectorCounts[sk]++; }
+        });
+
+        if (r[4]) {
+            var nd = parseUKDate(r[4]);
+            if (nd && !isNaN(nd.getTime()) && nd < now) overdue++;
+        }
+    });
+
+    var avgTotal = scoreCount > 0 ? (totalScore / scoreCount).toFixed(1) : 'N/A';
+
+    function scoreColor(v) {
+        var n = parseFloat(v);
+        if (isNaN(n) || v === '') return '#64748b';
+        if (n >= 95) return '#059669';
+        if (n >= 90) return '#0e7490';
+        if (n >= 80) return '#b45309';
+        return '#be123c';
+    }
+
+    function scoreBg(v) {
+        var n = parseFloat(v);
+        if (isNaN(n) || v === '') return 'transparent';
+        if (n >= 95) return '#ecfdf5';
+        if (n >= 90) return '#f0fdfa';
+        if (n >= 80) return '#fffbeb';
+        return '#fef2f2';
+    }
+
+    function statusBadge(s) {
+        if (s === 'Resolved') return '<span style="background:#ecfdf5;color:#059669;border:1px solid #6ee7b7;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:900;">Resolved</span>';
+        if (s === 'Unresolved') return '<span style="background:#fef2f2;color:#be123c;border:1px solid #fecdd3;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:900;">Unresolved</span>';
+        return '<span style="background:#fffbeb;color:#b45309;border:1px solid #fde68a;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:900;">' + escapeHtml(s) + '</span>';
+    }
+
+    // Build sector averages HTML
+    var sectorAvgHtml = '<span style="font-weight:900;font-size:12px;color:' + CHARCOAL + ';margin-right:8px;">Sector Averages:</span>';
+    sectorKeys.forEach(function(sk, idx) {
+        var avg = sectorCounts[sk] > 0 ? (sectorTotals[sk] / sectorCounts[sk]).toFixed(1) + '%' : 'N/A';
+        sectorAvgHtml += '<span style="font-size:12px;color:#64748b;margin-right:14px;"><strong>' + sectorLabels[idx] + ':</strong> ' + avg + '</span>';
+    });
+
+    // Build table rows HTML
+    var tableRowsHtml = rows.map(function(r, idx) {
+        var bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+        var cells = [
+            '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-weight:900;font-size:12px;color:' + CHARCOAL + ';white-space:nowrap;">' + escapeHtml(r[0]) + '</td>',
+            '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b;">' + escapeHtml(r[1]) + '</td>',
+            '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;font-weight:700;">' + (r[2] || '-') + '</td>',
+            '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b;">' + escapeHtml(r[3]) + '</td>',
+            '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b;">' + escapeHtml(r[4]) + '</td>'
+        ];
+        // Sector scores (cols 5-10) with colour
+        for (var si = 5; si <= 10; si++) {
+            var val = r[si];
+            var c = scoreColor(val);
+            var bg2 = scoreBg(val);
+            cells.push('<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;font-weight:700;text-align:center;color:' + c + ';background:' + bg2 + ';">' + escapeHtml(val || '') + '</td>');
+        }
+        // Total (col 11)
+        var tc = scoreColor(r[11]);
+        var tbg = scoreBg(r[11]);
+        cells.push('<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:900;text-align:center;color:' + tc + ';background:' + tbg + ';">' + escapeHtml(r[11] || '') + '</td>');
+        // Audit date (col 12)
+        cells.push('<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b;">' + escapeHtml(r[12]) + '</td>');
+        return '<tr style="background:' + bg + ';">' + cells.join('') + '</tr>';
+    }).join('');
+
+    // Full export HTML
+    var exportHtml = '<div style="padding:24px;background:white;width:1400px;font-family:Arial,Helvetica,sans-serif;box-sizing:border-box;">' +
+        // Header
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+            '<div><div style="font-size:28px;font-weight:900;color:' + CHARCOAL + ';text-transform:uppercase;letter-spacing:-0.02em;">EHO & Audit Tracker</div>' +
+            '<div style="font-size:12px;color:' + LIGHT_GREY + ';margin-top:4px;">Generated: ' + new Date().toLocaleDateString('en-GB') + '  |  ' + rows.length + ' stores</div></div>' +
+            '<div style="display:flex;gap:8px;">' +
+                '<div style="background:#f0fdfa;border:1px solid #99f6e4;padding:12px 18px;border-radius:8px;text-align:center;"><div style="font-size:10px;font-weight:900;color:' + LIGHT_GREY + ';text-transform:uppercase;">Stores</div><div style="font-size:24px;font-weight:900;color:' + CHARCOAL + ';">' + rows.length + '</div></div>' +
+                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;padding:12px 18px;border-radius:8px;text-align:center;"><div style="font-size:10px;font-weight:900;color:' + LIGHT_GREY + ';text-transform:uppercase;">5 Star</div><div style="font-size:24px;font-weight:900;color:#059669;">' + eho5 + '</div></div>' +
+                '<div style="background:#f0fdfa;border:1px solid #99f6e4;padding:12px 18px;border-radius:8px;text-align:center;"><div style="font-size:10px;font-weight:900;color:' + LIGHT_GREY + ';text-transform:uppercase;">4 Star</div><div style="font-size:24px;font-weight:900;color:#22c55e;">' + eho4 + '</div></div>' +
+                '<div style="background:#fffbeb;border:1px solid #fde68a;padding:12px 18px;border-radius:8px;text-align:center;"><div style="font-size:10px;font-weight:900;color:' + LIGHT_GREY + ';text-transform:uppercase;">3 & Below</div><div style="font-size:24px;font-weight:900;color:#b45309;">' + ehoBelow + '</div></div>' +
+                '<div style="background:#fef2f2;border:1px solid #fecdd3;padding:12px 18px;border-radius:8px;text-align:center;"><div style="font-size:10px;font-weight:900;color:' + LIGHT_GREY + ';text-transform:uppercase;">EHO Overdue</div><div style="font-size:24px;font-weight:900;color:#be123c;">' + overdue + '</div></div>' +
+                '<div style="background:#f0fdfa;border:1px solid #99f6e4;padding:12px 18px;border-radius:8px;text-align:center;"><div style="font-size:10px;font-weight:900;color:' + LIGHT_GREY + ';text-transform:uppercase;">Avg Total</div><div style="font-size:24px;font-weight:900;color:#0e7490;">' + avgTotal + '%</div></div>' +
+            '</div>' +
+        '</div>' +
+        // Sector averages
+        '<div style="padding:10px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">' + sectorAvgHtml + '</div>' +
+        // Table
+        '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+            '<thead><tr style="background:#f1f5f9;border-bottom:2px solid #e2e8f0;">' +
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Store</th>' +
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Area</th>' +
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">EHO</th>' +
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Insp. Date</th>' +
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Next Due</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Food</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Fire</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">H&S</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Journey</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Coffee</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Focus</th>' +
+                '<th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Total</th>' +
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;">Audit Date</th>' +
+            '</tr></thead>' +
+            '<tbody>' + tableRowsHtml + '</tbody>' +
+        '</table>' +
+        // Footer
+        '<div style="margin-top:12px;padding-top:8px;border-top:1px solid #e2e8f0;font-size:10px;color:' + LIGHT_GREY + ';display:flex;justify-content:space-between;">' +
+            '<span>Birds Bakery \u2014 EHO & Audit Tracker</span>' +
+            '<span>' + new Date().toLocaleString('en-GB') + '</span>' +
+        '</div>' +
+    '</div>';
+
+    var tempDiv = document.createElement('div');
+    tempDiv.style.position = 'absolute';
+    tempDiv.style.left = '-9999px';
+    tempDiv.style.top = '0';
+    tempDiv.innerHTML = exportHtml;
+    document.body.appendChild(tempDiv);
+
+    html2canvas(tempDiv.firstElementChild, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false }).then(function(canvas) {
         canvas.toBlob(function(blob) {
             safeDownload(blob, 'tracker_' + new Date().toISOString().slice(0, 10) + '.png');
         });
-        el.style.overflow = originalOverflow;
-        el.style.height = originalHeight;
-        if (tableWrapper) { tableWrapper.style.overflow = origWrapOverflow; tableWrapper.style.height = origWrapHeight; tableWrapper.style.maxHeight = ''; }
-        if (table) { table.style.width = origTableWidth; }
+        tempDiv.remove();
     }).catch(function(e) {
         console.warn('[Tracker] PNG export failed:', e);
-        el.style.overflow = originalOverflow;
-        el.style.height = originalHeight;
-        if (tableWrapper) { tableWrapper.style.overflow = origWrapOverflow; tableWrapper.style.height = origWrapHeight; tableWrapper.style.maxHeight = ''; }
-        if (table) { table.style.width = origTableWidth; }
+        tempDiv.remove();
     });
 };
