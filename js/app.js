@@ -145,7 +145,7 @@ if(currentView === 'overview'){
     document.getElementById('mainView').innerHTML = `
       <div id="overview-card" class="bg-transparent p-1">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-black outfit birds-green uppercase tracking-tight">C-SUITE BUSINESS SUMMARY (${filterLabel})</h2>
+            <div></div>
             <div onclick="exportCard('overview-card', 'Overview')" class="export-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"> Export Dash</div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">

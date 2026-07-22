@@ -7,6 +7,7 @@ var _trackerSaveTimer = null;
 var _trackerLoading = false;
 var _trackerSort = { col: 'name', dir: 'asc' };
 var _trackerDataCache = {};
+window._trackerLocked = false;
 
 // === RAG Helpers ===
 function trackerEhoRag(rating) {
@@ -119,6 +120,19 @@ window.renderTracker = function() {
     var mainView = document.getElementById('mainView');
     if (!mainView) return;
 
+    if (typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
+        idbGet('settings', 'trackerLocked').then(function(rec) {
+            if (rec && rec.value !== undefined) window._trackerLocked = rec.value;
+        }).catch(function() {}).then(function() {
+            _doRenderTracker();
+        });
+    } else {
+        _doRenderTracker();
+    }
+};
+
+function _doRenderTracker() {
+
     var stores = buildStoresFromMap();
     var ams = AM_LIST.filter(function(a) { return a !== 'Unassigned'; });
 
@@ -136,6 +150,7 @@ window.renderTracker = function() {
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
             <h2 class="text-2xl font-black outfit birds-green uppercase tracking-tight">EHO & Audit Tracker</h2>
             <div class="flex flex-wrap gap-2">
+                <button onclick="trackerToggleLock()" id="trackerLockBtn" class="btn text-xs"></button>
                 <button onclick="trackerRefreshFromFolder()" class="btn-primary text-xs">Refresh from Folder</button>
             </div>
         </div>
@@ -194,6 +209,7 @@ window.renderTracker = function() {
         window._trackerStores = activeStores;
         trackerRenderKpis(activeStores, saved);
         trackerApplyFilter();
+        _updateTrackerLockBtn();
     }
 
     // Always render immediately with empty data
@@ -235,7 +251,13 @@ window.renderTracker = function() {
                     return { data: saved, stores: withData };
                 }
                 // Nothing anywhere — load defaults
-                return fetch('./tracker_defaults.json').then(function(r) { return r.json(); }).then(function(defaults) {
+                var loadDefaults;
+                if (window._trackerDefaults) {
+                    loadDefaults = Promise.resolve(window._trackerDefaults);
+                } else {
+                    loadDefaults = fetch('./tracker_defaults.json').then(function(r) { return r.json(); });
+                }
+                return loadDefaults.then(function(defaults) {
                     var storesData = defaults.stores || {};
                     return Promise.all(Object.keys(storesData).map(function(k) { return idbPut('eho_data', storesData[k]); })).then(function() {
                         console.log('[Tracker] Loaded defaults from tracker_defaults.json');
@@ -256,6 +278,8 @@ window.renderTracker = function() {
 
 
 function trackerRowHTML(id, name, am, d) {
+    var locked = window._trackerLocked;
+    var dis = locked ? ' disabled' : '';
     var ehoCsv = (typeof window._ehoRatings !== 'undefined' && window._ehoRatings.get(name.toLowerCase())) || window._ehoRatings.get(id.toLowerCase()) || null;
     var rating = d.ehoRating || (ehoCsv ? String(ehoCsv.rating) : '');
     var visit = d.ehoVisit || '';
@@ -297,7 +321,7 @@ function trackerRowHTML(id, name, am, d) {
             else nextDueRagCls = 'border-emerald-400 bg-emerald-50 text-emerald-700 font-bold';
         }
     }
-    var nextDueInput = '<input type="text" value="' + escapeHtml(nextDueVal) + '" placeholder="dd/mm/yyyy" class="w-24 text-[10px] border rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none ' + nextDueRagCls + '" onchange="trackerField(\'' + id + '\',\'nextDue\',this.value)">';
+    var nextDueInput = '<input type="text" value="' + escapeHtml(nextDueVal) + '" placeholder="dd/mm/yyyy" class="w-24 text-[10px] border rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none ' + nextDueRagCls + '" onchange="trackerField(\'' + id + '\',\'nextDue\',this.value)"' + dis + '>';
 
 
     var inspRagCls = 'border-slate-200';
@@ -326,22 +350,41 @@ function trackerRowHTML(id, name, am, d) {
         var ehoStatus = 'nodate'; var ehoDueDays = '9999'; if (nextDueVal) { var nd = parseUKDate(nextDueVal); if (nd && !isNaN(nd.getTime())) { var days = Math.ceil((nd - new Date()) / 86400000); ehoDueDays = String(days); if (days < 0) ehoStatus = 'overdue'; else if (days <= 42) ehoStatus = 'duesoon'; else ehoStatus = 'indate'; } }
         return '<tr class="tracker-row border-b border-slate-100 hover:bg-slate-50 transition-colors" data-storeid="' + escapeHtml(id) + '" data-am="' + escapeHtml(am) + '" data-rating="' + escapeHtml(rating) + '" data-total="' + escapeHtml(total) + '" data-name="' + escapeHtml(name.toLowerCase()) + '" data-nextdue="' + escapeHtml(nextDueVal) + '" data-ehodue="' + ehoDueDays + '" data-ehostatus="' + ehoStatus + '">' +
         '<td class="p-2 border-b border-slate-100 sticky left-0 bg-white hover:bg-slate-50 z-10"><span class="text-xs font-black text-slate-800">' + escapeHtml(name) + '</span></td>' +
-        '<td class="p-2 border-b border-slate-100"><select class="w-24 text-[10px] border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'am\',this.value)">' + AM_LIST.filter(function(a){return a!=='Unassigned'}).map(function(a){return '<option value="'+escapeHtml(a)+'"'+(a===am?' selected':'')+'>'+escapeHtml(a)+'</option>'}).join('') + '</select></td>' +
-        '<td class="p-2 border-b border-slate-100"><div class="flex items-center gap-1"><select class="w-20 text-xs border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'ehoRating\',this.value)">' + ratingOpts + '</select>' + starHtml + '</div></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="text" value="' + escapeHtml(inspectionDate) + '" placeholder="dd/mm/yyyy" class="w-24 text-[10px] border rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none ' + inspRagCls + '" onchange="trackerField(\'' + id + '\',\'inspectionDate\',this.value)"></td>' +
+        '<td class="p-2 border-b border-slate-100"><select class="w-24 text-[10px] border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'am\',this.value)"' + dis + '>' + AM_LIST.filter(function(a){return a!=='Unassigned'}).map(function(a){return '<option value="'+escapeHtml(a)+'"'+(a===am?' selected':'')+'>'+escapeHtml(a)+'</option>'}).join('') + '</select></td>' +
+        '<td class="p-2 border-b border-slate-100"><div class="flex items-center gap-1"><select class="w-20 text-xs border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'ehoRating\',this.value)"' + dis + '>' + ratingOpts + '</select>' + starHtml + '</div></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="text" value="' + escapeHtml(inspectionDate) + '" placeholder="dd/mm/yyyy" class="w-24 text-[10px] border rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none ' + inspRagCls + '" onchange="trackerField(\'' + id + '\',\'inspectionDate\',this.value)"' + dis + '></td>' +
         '<td class="p-2 border-b border-slate-100">' + nextDueInput + '</td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(food) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(food) + '" onchange="trackerField(\'' + id + '\',\'food\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(fire) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(fire) + '" onchange="trackerField(\'' + id + '\',\'fire\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(hs) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(hs) + '" onchange="trackerField(\'' + id + '\',\'hs\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(journey) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(journey) + '" onchange="trackerField(\'' + id + '\',\'journey\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(coffee) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(coffee) + '" onchange="trackerField(\'' + id + '\',\'coffee\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(focus) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(focus) + '" onchange="trackerField(\'' + id + '\',\'focus\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(total) + '" class="w-16 text-xs border rounded px-1 py-1 text-center font-black focus:ring-2 focus:ring-emerald-500 outline-none ' + trackerScoreRag(total) + '" onchange="trackerField(\'' + id + '\',\'total\',this.value)"></td>' +
-        '<td class="p-2 border-b border-slate-100"><input type="text" value="' + escapeHtml(auditDate) + '" placeholder="dd/mm/yyyy" class="w-24 text-xs border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'auditDate\',this.value)"></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(food) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(food) + '" onchange="trackerField(\'' + id + '\',\'food\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(fire) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(fire) + '" onchange="trackerField(\'' + id + '\',\'fire\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(hs) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(hs) + '" onchange="trackerField(\'' + id + '\',\'hs\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(journey) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(journey) + '" onchange="trackerField(\'' + id + '\',\'journey\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(coffee) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(coffee) + '" onchange="trackerField(\'' + id + '\',\'coffee\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(focus) + '" class="' + baseScoreCls + ' ' + trackerScoreRag(focus) + '" onchange="trackerField(\'' + id + '\',\'focus\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="number" min="0" max="100" value="' + escapeHtml(total) + '" class="w-16 text-xs border rounded px-1 py-1 text-center font-black focus:ring-2 focus:ring-emerald-500 outline-none ' + trackerScoreRag(total) + '" onchange="trackerField(\'' + id + '\',\'total\',this.value)"' + dis + '></td>' +
+        '<td class="p-2 border-b border-slate-100"><input type="text" value="' + escapeHtml(auditDate) + '" placeholder="dd/mm/yyyy" class="w-24 text-xs border border-slate-200 rounded px-1 py-1 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="trackerField(\'' + id + '\',\'auditDate\',this.value)"' + dis + '></td>' +
         '</tr>';
 }
 
 // === Field Change Handler ===
+window.trackerToggleLock = function() {
+    window._trackerLocked = !window._trackerLocked;
+    idbPut('settings', { id: 'trackerLocked', value: window._trackerLocked });
+    _updateTrackerLockBtn();
+    renderTable(_trackerDataCache, stores);
+};
+
+function _updateTrackerLockBtn() {
+    var btn = document.getElementById('trackerLockBtn');
+    if (!btn) return;
+    if (window._trackerLocked) {
+        btn.innerHTML = '<svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>Unlock';
+        btn.className = 'bg-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-md hover:bg-amber-600';
+    } else {
+        btn.innerHTML = '<svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>Lock';
+        btn.className = 'bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm hover:bg-slate-300';
+    }
+}
+
 window.trackerField = function(storeId, field, value) {
     var rec = _trackerDataCache[storeId] || { StoreId: storeId };
     rec[field] = value;
