@@ -1,134 +1,7 @@
 async function loadDirectoryHandle() {
-  try {
-    // Check whether the browser is likely to evict IndexedDB/cache data
-    try {
-      if (navigator.storage && navigator.storage.persisted) {
-        __anchorMeta.storagePersisted = await navigator.storage.persisted();
-      }
-    } catch (_) {}
-
-    // Check for Azure AD config — if credentials are set, use Graph API path
-    var azureConfig = null;
-    try { azureConfig = await idbGet('settings', 'azureConfig'); } catch (_) {}
-    if (azureConfig && azureConfig.clientId && azureConfig.tenantId) {
-      console.log('[Startup] Azure AD config detected — attempting Microsoft Graph API auth');
-      window.__azureConfig = azureConfig;
-      if (typeof GraphAPI !== 'undefined' && typeof GraphAPI.init === 'function') {
-        try {
-          await GraphAPI.init(azureConfig);
-          await GraphAPI.acquireToken();
-          console.log('[Startup] Graph API authenticated successfully');
-        } catch (graphErr) {
-          console.warn('[Startup] Graph API auth failed, falling back to local folder:', graphErr);
-          window.__azureConfig = null;
-        }
-      } else {
-        console.log('[Startup] GraphAPI module not loaded — using local folder mode');
-        window.__azureConfig = null;
-      }
-      if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
-        console.log('[Startup] Cloud sync active — auto-syncing from SharePoint');
-        const cloudStatusEl = document.getElementById('folderStatus');
-        if (cloudStatusEl) cloudStatusEl.innerText = 'Status: Cloud sync active (Azure AD)';
-        try { await syncData(); } catch (syncErr) { console.warn('[Startup] Cloud sync failed:', syncErr); }
-        return;
-      }
-    }
-
-    const settings = await idbGetAll('settings');
-    const saved = settings.find(s => s.id === 'masterFolder');
-    const statusEl = document.getElementById('folderStatus');
-
-    if (!saved || !saved.dirHandle) {
-      directoryHandle = null;
-      __anchorMeta.folderName = null;
-      __anchorMeta.anchoredAt = null;
-      __anchorMeta.perm = null;
-      if (statusEl) statusEl.innerText = 'Status: Not Anchored';
-      return;
-    }
-
-    // Restore handle + meta
-    directoryHandle = saved.dirHandle;
-    __anchorMeta.folderName = saved.folderName || (directoryHandle && directoryHandle.name) || null;
-    __anchorMeta.anchoredAt = saved.anchoredAt || null;
-
-    // Query permission without prompting (prompting requires a user gesture)
-    let perm = null;
-    try {
-      perm = await directoryHandle.queryPermission({ mode: 'read' });
-    } catch (_) {
-      perm = null;
-    }
-    __anchorMeta.perm = perm;
-
-    const folderLabel = __anchorMeta.folderName ? (' — ' + __anchorMeta.folderName) : '';
-    const lockLine = (perm === 'granted')
-      ? ' Locked (auto-restored)'
-      : (perm === 'prompt')
-        ? '️ Locked (needs permission — press Refresh Data once)'
-        : '️ Locked (permission denied — reselect folder)';
-
-    const persistLine = (__anchorMeta.storagePersisted === true)
-      ? ' • Storage: persistent'
-      : (__anchorMeta.storagePersisted === false)
-        ? ' • Storage: not persistent'
-        : '';
-
-    if (statusEl) statusEl.innerText = 'Status: ' + lockLine + folderLabel + persistLine;
-
-    if (perm === 'granted') {
-      console.log('[Startup] Permission granted — auto-syncing Data folder');
-      try { await syncData(); } catch (syncErr) { console.warn('[Startup] Auto-sync failed:', syncErr); }
-    }
-  } catch (e) {
-    console.warn('loadDirectoryHandle failed', e);
-    try {
-      const statusEl = document.getElementById('folderStatus');
-      if (statusEl) statusEl.innerText = 'Status: Not Anchored';
-    } catch (_) {}
-  }
+  // TEST MODE — skip Graph API init, use local folder picker instead
+  console.log('[Startup] Test mode — skipping Graph API init');
 }
-
-window.selectAndAnchorFolder = async function() {
-  try {
-    // Request persistent storage (best-effort) to reduce IndexedDB eviction
-    try {
-      if (navigator.storage && navigator.storage.persist) {
-        const already = navigator.storage.persisted ? await navigator.storage.persisted() : false;
-        if (!already) {
-          await navigator.storage.persist();
-        }
-        __anchorMeta.storagePersisted = navigator.storage.persisted ? await navigator.storage.persisted() : __anchorMeta.storagePersisted;
-      }
-    } catch (_) {}
-
-    directoryHandle = await window.showDirectoryPicker();
-
-    __anchorMeta.folderName = (directoryHandle && directoryHandle.name) || null;
-    __anchorMeta.anchoredAt = Date.now();
-
-    await idbPut('settings', {
-      id: 'masterFolder',
-      dirHandle: directoryHandle,
-      folderName: __anchorMeta.folderName,
-      anchoredAt: __anchorMeta.anchoredAt
-    });
-
-    const statusEl = document.getElementById('folderStatus');
-    const folderLabel = __anchorMeta.folderName ? (' — ' + __anchorMeta.folderName) : '';
-    const persistLine = (__anchorMeta.storagePersisted === true)
-      ? ' • Storage: persistent'
-      : (__anchorMeta.storagePersisted === false)
-        ? ' • Storage: not persistent'
-        : '';
-    if (statusEl) statusEl.innerText = 'Status:  Locked (selected)' + folderLabel + persistLine;
-
-    await syncData();
-  } catch (err) {
-    console.warn('selectAndAnchorFolder cancelled/failed', err);
-  }
-};
 
 async function verifyPermission(fileHandle, readWrite) {
     const options = {}; if (readWrite) options.mode = 'readwrite';
@@ -180,8 +53,6 @@ window.syncData = async function() {
       window.__dataStatus.syncOk = true;
       window.__dataStatus.ts = Date.now();
       window.__dataStatus.source = 'sharepoint';
-
-      // Tracker data is loaded directly by the tracker tab (reads folder + merges with IDB by newest timestamp)
       return;
     } catch (syncErr) {
       console.error('[Sync] Cloud sync failed:', syncErr);
@@ -191,27 +62,56 @@ window.syncData = async function() {
     }
   }
 
-  // ===== FSA PATH (local folder) =====
-  if (!directoryHandle) { alert("Please anchor a master folder first using 'Select Data Folder'."); return; }
-  const hasPerm = await verifyPermission(directoryHandle, false);
-  if(!hasPerm) { alert("Permission is needed to access the anchored folder. When prompted, choose Allow. If you no longer have access, use 'Select Data Folder' to re-anchor."); return; }
-  let localFiles = [];
-  let trackerJson = null;
+  // ===== LOCAL FOLDER PICKER FALLBACK =====
+  document.getElementById('ingestStatus').innerText = "Opening folder picker...";
   try {
-      for await (const entry of directoryHandle.values()) {
-          if (entry.kind === 'file' && (entry.name.endsWith('.xlsx') || entry.name.endsWith('.csv')) && !entry.name.startsWith('~')) localFiles.push(await entry.getFile());
-          if (entry.kind === 'file' && entry.name === 'tracker_data.json') trackerJson = await entry.getFile();
+    directoryHandle = await window.showDirectoryPicker();
+  } catch (pickErr) {
+    if (pickErr.name === 'AbortError') {
+      document.getElementById('ingestStatus').innerText = "Folder selection cancelled.";
+      window.__dataStatus.syncOk = false;
+      return;
+    }
+    document.getElementById('ingestStatus').innerText = "Folder picker failed: " + pickErr.message;
+    window.__dataStatus.syncOk = false;
+    return;
+  }
+
+  document.getElementById('ingestStatus').innerText = "Reading files from folder...";
+  var localFiles = [];
+  var trackerJsonText = null;
+  for await (const entry of directoryHandle.values()) {
+    if (entry.kind === 'file') {
+      const file = await entry.getFile();
+      if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.csv')) {
+        localFiles.push(file);
       }
-  } catch (err) { alert("Could not scan directory. Ensure the folder still exists."); window.__dataStatus.syncOk = false; return; }
-  window.__dataStatus.filesFound = localFiles.length + (trackerJson ? 1 : 0);
-  if (localFiles.length === 0 && !trackerJson) { document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json files found in the selected folder."; window.__dataStatus.syncOk = false; return; }
-  if (localFiles.length > 0) await processFiles(localFiles, 'file');
+      if (file.name === 'tracker_data.json') {
+        trackerJsonText = await file.text();
+      }
+    }
+  }
+
+  window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
+  if (localFiles.length === 0 && !trackerJsonText) {
+    document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in selected folder.";
+    window.__dataStatus.syncOk = false;
+    return;
+  }
+  if (trackerJsonText) {
+    try {
+      const trackerData = JSON.parse(trackerJsonText);
+      if (Array.isArray(trackerData)) {
+        await idbClear('tracker_audits');
+        for (const rec of trackerData) { await idbPut('tracker_audits', rec); }
+        console.log('[Sync] Loaded', trackerData.length, 'tracker records from local folder');
+      }
+    } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
+  }
+  if (localFiles.length > 0) await processFiles(localFiles, 'local folder');
   window.__dataStatus.syncOk = true;
   window.__dataStatus.ts = Date.now();
-  window.__dataStatus.source = 'folder';
-  // Tracker data is loaded directly by the tracker tab (reads folder + merges with IDB by newest timestamp)
-
-  // Actions are read live from Open/ and Closed/ folders by the Audit Hub — no caching
+  window.__dataStatus.source = 'local folder';
 };
 
 // ===== SHAREPOINT AUTO-SYNC =====
