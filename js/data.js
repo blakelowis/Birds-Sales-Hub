@@ -1,6 +1,36 @@
 async function loadDirectoryHandle() {
-  // TEST MODE — skip Graph API init, use local folder picker instead
-  console.log('[Startup] Test mode — skipping Graph API init');
+  // Hardcoded Azure AD config for server deployment
+  // IT needs to provide: Client ID (from Entra App Registration)
+  var azureConfig = {
+    id: 'azureConfig',
+    clientId: 'REPLACE_WITH_CLIENT_ID',
+    tenantId: '142a5bb2-e3ee-4675-ac9e-7fd88d3946f9',
+    siteUrl: 'https://birdsofderby.sharepoint.com/sites/RetailAudits',
+    libraryPath: 'Shared Documents/Retail Audits/Data'
+  };
+  window.__azureConfig = azureConfig;
+  if (typeof GraphAPI !== 'undefined' && typeof GraphAPI.init === 'function') {
+    try {
+      await GraphAPI.init(azureConfig);
+      console.log('[Startup] Graph API initialized — waiting for user sign-in');
+      try {
+        await GraphAPI.acquireToken();
+        console.log('[Startup] Graph API authenticated (silent)');
+        document.getElementById('signInOverlay').classList.add('hidden');
+        document.getElementById('userBadge').classList.remove('hidden');
+        document.getElementById('userBadge').textContent = 'Connected';
+        document.getElementById('signOutBtn').classList.remove('hidden');
+        document.getElementById('folderStatus').textContent = 'Status: Connected to SharePoint';
+        try { await syncData(); } catch(syncErr) { console.warn('[Startup] Initial sync failed:', syncErr); }
+      } catch(silentErr) {
+        console.log('[Startup] Silent auth failed — showing sign-in overlay');
+      }
+    } catch(graphErr) {
+      console.warn('[Startup] Graph API init failed:', graphErr);
+    }
+  } else {
+    console.warn('[Startup] GraphAPI module not loaded');
+  }
 }
 
 async function verifyPermission(fileHandle, readWrite) {
@@ -62,56 +92,8 @@ window.syncData = async function() {
     }
   }
 
-  // ===== LOCAL FOLDER PICKER FALLBACK =====
-  document.getElementById('ingestStatus').innerText = "Opening folder picker...";
-  try {
-    directoryHandle = await window.showDirectoryPicker();
-  } catch (pickErr) {
-    if (pickErr.name === 'AbortError') {
-      document.getElementById('ingestStatus').innerText = "Folder selection cancelled.";
-      window.__dataStatus.syncOk = false;
-      return;
-    }
-    document.getElementById('ingestStatus').innerText = "Folder picker failed: " + pickErr.message;
-    window.__dataStatus.syncOk = false;
-    return;
-  }
-
-  document.getElementById('ingestStatus').innerText = "Reading files from folder...";
-  var localFiles = [];
-  var trackerJsonText = null;
-  for await (const entry of directoryHandle.values()) {
-    if (entry.kind === 'file') {
-      const file = await entry.getFile();
-      if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.csv')) {
-        localFiles.push(file);
-      }
-      if (file.name === 'tracker_data.json') {
-        trackerJsonText = await file.text();
-      }
-    }
-  }
-
-  window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
-  if (localFiles.length === 0 && !trackerJsonText) {
-    document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in selected folder.";
-    window.__dataStatus.syncOk = false;
-    return;
-  }
-  if (trackerJsonText) {
-    try {
-      const trackerData = JSON.parse(trackerJsonText);
-      if (Array.isArray(trackerData)) {
-        await idbClear('tracker_audits');
-        for (const rec of trackerData) { await idbPut('tracker_audits', rec); }
-        console.log('[Sync] Loaded', trackerData.length, 'tracker records from local folder');
-      }
-    } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
-  }
-  if (localFiles.length > 0) await processFiles(localFiles, 'local folder');
-  window.__dataStatus.syncOk = true;
-  window.__dataStatus.ts = Date.now();
-  window.__dataStatus.source = 'local folder';
+  document.getElementById('ingestStatus').innerText = "Not signed in. Please sign in with Microsoft to sync data.";
+  window.__dataStatus.syncOk = false;
 };
 
 // ===== SHAREPOINT AUTO-SYNC =====

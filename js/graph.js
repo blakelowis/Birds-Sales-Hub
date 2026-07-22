@@ -155,6 +155,14 @@ var GraphAPI = (function() {
     return await resp.json();
   }
 
+  async function deleteFileFromFolder(folderName, fileName) {
+    await acquireToken();
+    var driveInfo = await getDriveId();
+    var path = '/' + folderName + '/' + fileName;
+    var resp = await graphFetch(GRAPH_BASE + '/drives/' + driveInfo.driveId + '/root:' + path, { method: 'DELETE' });
+    if (!resp.ok && resp.status !== 404) throw new Error('Delete failed: ' + folderName + '/' + fileName + ' (' + resp.status + ')');
+  }
+
   // ===== HELPER =====
 
   async function graphFetch(url, options) {
@@ -195,6 +203,7 @@ var GraphAPI = (function() {
     init: init,
     isAuthenticated: isAuthenticated,
     acquireToken: acquireToken,
+    getDriveId: getDriveId,
     listFiles: listFiles,
     listFilesInFolder: listFilesInFolder,
     downloadFile: downloadFile,
@@ -203,6 +212,7 @@ var GraphAPI = (function() {
     downloadFileAsTextFromFolder: downloadFileAsTextFromFolder,
     uploadFile: uploadFile,
     uploadFileToFolder: uploadFileToFolder,
+    deleteFileFromFolder: deleteFileFromFolder,
     getConfig: getConfig,
     logout: logout
   };

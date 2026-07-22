@@ -1110,69 +1110,12 @@ async function writeAuditActionsToXlsx(state) {
   var isCloud = window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
   console.log('[Audit Actions] Cloud sync:', isCloud);
 
-  // ===== GRAPH API PATH =====
-  if (isCloud) {
-    try {
-      var d = new Date(state.date);
-      var year = d.getFullYear();
-      var week = getISOWeek(d);
-
-      var metrics = auditOverallMetrics();
-      var sectorScores = {};
-      if (metrics && metrics.sectorData) {
-        metrics.sectorData.forEach(function(s) { sectorScores[s.id] = s.metrics ? s.metrics.penalisedPct : 0; });
-      }
-
-      var storeEmail = auditEmailForStore(state.storeName);
-      var payload = {
-        storeName: state.storeName, storeEmail: storeEmail,
-        auditor: state.auditor, manager: state.manager, areaManager: state.areaManager || '',
-        date: state.date, isTraining: state.isTraining || false, week: week, year: year,
-        scores: {
-          total: metrics ? metrics.pct : null, food: sectorScores.food || null,
-          fire: sectorScores.fire || null, handS: sectorScores.hs || null,
-          coffee: sectorScores.coffee || null, customerJourney: sectorScores.journey || null,
-          birdsFocus: sectorScores.focus || null
-        },
-        actions: actionItems.map(function(a) {
-          return {
-            questionId: a.questionId || '', sector: a.sector || '', category: a.category || '',
-            question: a.question || '', answer: a.answer || '',
-            description: (a.action && a.action.description) || '',
-            personResponsible: (a.action && a.action.person) || '',
-            actionNeeded: (a.action && a.action.actionNeeded) || '',
-            status: (a.action && a.action.status) || 'Open',
-            critical: (a.action && a.action.critical) ? 'Yes' : 'No',
-            extraComment: '', auditEmailSent: ''
-          };
-        })
-      };
-
-      var safeStore = state.storeName.toLowerCase().replace(/[^a-z0-9]/g, '-');
-      var safeDate = state.date.replace(/\//g, '-');
-      var fileName = safeStore + '-' + safeDate + '.json';
-      var jsonStr = JSON.stringify(payload, null, 2);
-
-      await GraphAPI.uploadFileToFolder('Open', fileName, jsonStr, 'application/json');
-      console.log('[Audit Actions] Cloud write complete — Open/' + fileName + ' saved');
-      return { method: 'sharepoint', count: payload.actions.length };
-    } catch (e) {
-      console.error('[Audit Actions] Cloud write FAILED:', e.message);
-      return { method: 'error', count: actionItems.length, error: e.message };
-    }
-  }
-
-  // ===== FSA PATH =====
-  console.log('[Audit Actions] directoryHandle:', directoryHandle ? directoryHandle.name : 'NULL');
-  if (typeof directoryHandle === 'undefined' || !directoryHandle) {
-    console.warn('[Audit Actions] No directory handle — returning no_folder');
+  if (!isCloud) {
+    console.warn('[Audit Actions] Not connected to SharePoint — cannot save');
     return { method: 'no_folder', count: actionItems.length };
   }
 
-  var hasPerm = typeof verifyPermission === 'function' ? await verifyPermission(directoryHandle, true) : false;
-  console.log('[Audit Actions] write permission:', hasPerm);
-  if (!hasPerm) return { method: 'no_permission', count: actionItems.length };
-
+  // ===== GRAPH API PATH =====
   try {
     var d = new Date(state.date);
     var year = d.getFullYear();
@@ -1186,38 +1129,25 @@ async function writeAuditActionsToXlsx(state) {
 
     var storeEmail = auditEmailForStore(state.storeName);
     var payload = {
-      storeName: state.storeName,
-      storeEmail: storeEmail,
-      auditor: state.auditor,
-      manager: state.manager,
-      areaManager: state.areaManager || '',
-      date: state.date,
-      isTraining: state.isTraining || false,
-      week: week,
-      year: year,
+      storeName: state.storeName, storeEmail: storeEmail,
+      auditor: state.auditor, manager: state.manager, areaManager: state.areaManager || '',
+      date: state.date, isTraining: state.isTraining || false, week: week, year: year,
       scores: {
-        total: metrics ? metrics.pct : null,
-        food: sectorScores.food || null,
-        fire: sectorScores.fire || null,
-        handS: sectorScores.hs || null,
-        coffee: sectorScores.coffee || null,
-        customerJourney: sectorScores.journey || null,
+        total: metrics ? metrics.pct : null, food: sectorScores.food || null,
+        fire: sectorScores.fire || null, handS: sectorScores.hs || null,
+        coffee: sectorScores.coffee || null, customerJourney: sectorScores.journey || null,
         birdsFocus: sectorScores.focus || null
       },
       actions: actionItems.map(function(a) {
         return {
-          questionId: a.questionId || '',
-          sector: a.sector || '',
-          category: a.category || '',
-          question: a.question || '',
-          answer: a.answer || '',
+          questionId: a.questionId || '', sector: a.sector || '', category: a.category || '',
+          question: a.question || '', answer: a.answer || '',
           description: (a.action && a.action.description) || '',
           personResponsible: (a.action && a.action.person) || '',
           actionNeeded: (a.action && a.action.actionNeeded) || '',
           status: (a.action && a.action.status) || 'Open',
           critical: (a.action && a.action.critical) ? 'Yes' : 'No',
-          extraComment: '',
-          auditEmailSent: ''
+          extraComment: '', auditEmailSent: ''
         };
       })
     };
@@ -1225,22 +1155,13 @@ async function writeAuditActionsToXlsx(state) {
     var safeStore = state.storeName.toLowerCase().replace(/[^a-z0-9]/g, '-');
     var safeDate = state.date.replace(/\//g, '-');
     var fileName = safeStore + '-' + safeDate + '.json';
-
-    var openDirHandle = await directoryHandle.getDirectoryHandle('Open', { create: true });
-    console.log('[Audit Actions] Got Open/ folder');
-
-    console.log('[Audit Actions] Writing ' + fileName + ' with', payload.actions.length, 'actions...');
     var jsonStr = JSON.stringify(payload, null, 2);
-    var jsonBlob = new Blob([jsonStr], { type: 'application/json' });
-    var fh = await openDirHandle.getFileHandle(fileName, { create: true });
-    var writable = await fh.createWritable();
-    await writable.write(jsonBlob);
-    await writable.close();
 
-    console.log('[Audit Actions] Write complete — Open/' + fileName + ' saved');
-    return { method: 'folder', count: payload.actions.length };
+    await GraphAPI.uploadFileToFolder('Open', fileName, jsonStr, 'application/json');
+    console.log('[Audit Actions] Cloud write complete — Open/' + fileName + ' saved');
+    return { method: 'sharepoint', count: payload.actions.length };
   } catch (e) {
-    console.error('[Audit Actions] Write FAILED:', e.message, e);
+    console.error('[Audit Actions] Cloud write FAILED:', e.message);
     return { method: 'error', count: actionItems.length, error: e.message };
   }
 }
@@ -1248,55 +1169,31 @@ async function writeAuditActionsToXlsx(state) {
 async function readJsonFolder(folderName) {
   var isCloud = window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
 
-  // ===== GRAPH API PATH =====
-  if (isCloud) {
-    try {
-      var files = await GraphAPI.listFilesInFolder(folderName);
-      var results = [];
-      for (var i = 0; i < files.length; i++) {
-        var f = files[i];
-        if (f.name.endsWith('.json')) {
-          try {
-            var text = await GraphAPI.downloadFileAsTextFromFolder(folderName, f.name);
-            var data = JSON.parse(text);
-            data._fileName = f.name;
-            results.push(data);
-          } catch (e) {
-            console.warn('[Audit Actions] Cloud read failed for ' + folderName + '/' + f.name + ':', e.message);
-          }
-        }
-      }
-      console.log('[Audit Actions] Cloud read: ' + results.length + ' JSON files from ' + folderName);
-      return results;
-    } catch (e) {
-      console.log('[Audit Actions] Cloud folder ' + folderName + ' not accessible');
-      return [];
-    }
+  if (!isCloud) {
+    console.log('[Audit Actions] Not connected to SharePoint');
+    return [];
   }
 
-  // ===== FSA PATH =====
-  if (typeof directoryHandle === 'undefined' || !directoryHandle) return [];
   try {
-    var hasPerm = typeof verifyPermission === 'function' ? await verifyPermission(directoryHandle, false) : false;
-    if (!hasPerm) return [];
-    var dir = await directoryHandle.getDirectoryHandle(folderName);
+    var files = await GraphAPI.listFilesInFolder(folderName);
     var results = [];
-    for await (var entry of dir.values()) {
-      if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (f.name.endsWith('.json')) {
         try {
-          var file = await entry.getFile();
-          var text = await file.text();
+          var text = await GraphAPI.downloadFileAsTextFromFolder(folderName, f.name);
           var data = JSON.parse(text);
-          data._fileName = entry.name;
+          data._fileName = f.name;
           results.push(data);
         } catch (e) {
-          console.warn('[Audit Actions] Failed to read ' + entry.name + ':', e.message);
+          console.warn('[Audit Actions] Cloud read failed for ' + folderName + '/' + f.name + ':', e.message);
         }
       }
     }
+    console.log('[Audit Actions] Cloud read: ' + results.length + ' JSON files from ' + folderName);
     return results;
   } catch (e) {
-    console.log('[Audit Actions] Folder ' + folderName + ' not found or not accessible');
+    console.log('[Audit Actions] Cloud folder ' + folderName + ' not accessible');
     return [];
   }
 }

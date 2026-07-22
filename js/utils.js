@@ -807,7 +807,7 @@ window.BirdsPDF = {
     }
 };
 
-window.isAdmin = function(){ return false; };
+window.isAdmin = function(){ return true; };
 
 // === safeDownload: reliable cross-browser file download ===
 // Chrome/Edge on localhost require the anchor to be in the DOM before clicking.

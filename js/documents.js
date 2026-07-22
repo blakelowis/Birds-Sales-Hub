@@ -1,5 +1,7 @@
 ﻿window.currentLoadedDocs = { open: [], resolved: [], archived: [] };
 window.unlockedDocs = new Set();
+window.currentUserFolder = null;
+window.unlockedFolders = new Set();
 
 const _docDepartments = [
     'Head of Retail', 'Food Safety', 'Health & Safety',
@@ -7,54 +9,640 @@ const _docDepartments = [
     'ALL Team', 'General'
 ];
 
+/* ─── Cloud helpers ──────────────────────────────────────────── */
+function _isDocsCloud() {
+    return window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
+}
+
+async function _cloudListDocs(folder) {
+    try {
+        var files = await GraphAPI.listFilesInFolder('Documents/' + folder);
+        var results = [];
+        for (var i = 0; i < files.length; i++) {
+            var f = files[i];
+            if (f.name.endsWith('.json')) {
+                try {
+                    var text = await GraphAPI.downloadFileAsTextFromFolder('Documents/' + folder, f.name);
+                    results.push(JSON.parse(text));
+                } catch(e) {}
+            }
+        }
+        return results;
+    } catch(e) {
+        return [];
+    }
+}
+
+async function _cloudWriteDoc(folder, id, data) {
+    await GraphAPI.uploadFileToFolder('Documents/' + folder, id + '.json', JSON.stringify(data, null, 2), 'application/json');
+}
+
+async function _cloudDeleteDoc(folder, id) {
+    try {
+        await GraphAPI.deleteFileFromFolder('Documents/' + folder, id + '.json');
+    } catch(e) {}
+}
+
+async function _cloudMoveDoc(fromFolder, toFolder, id) {
+    var text = await GraphAPI.downloadFileAsTextFromFolder('Documents/' + fromFolder, id + '.json');
+    var doc = JSON.parse(text);
+    await GraphAPI.uploadFileToFolder('Documents/' + toFolder, id + '.json', text, 'application/json');
+    await _cloudDeleteDoc(fromFolder, id);
+    return doc;
+}
+
+async function _cloudGetDoc(folder, id) {
+    try {
+        var text = await GraphAPI.downloadFileAsTextFromFolder('Documents/' + folder, id + '.json');
+        return JSON.parse(text);
+    } catch(e) {
+        return null;
+    }
+}
+
+async function _cloudReadEvidence(fileName) {
+    try {
+        var buffer = await GraphAPI.downloadFileFromFolder('Evidence', fileName);
+        var blob = new Blob([buffer]);
+        return URL.createObjectURL(blob);
+    } catch(e) {
+        return null;
+    }
+}
+
+async function _cloudWriteEvidence(fileName, file) {
+    await GraphAPI.uploadFileToFolder('Evidence', fileName, file, file.type || 'application/octet-stream');
+}
+
+/* ─── User Folder Manifest (Graph API) ──────────────────────── */
+async function _loadFolderManifest() {
+    try {
+        var text = await GraphAPI.downloadFileAsTextFromFolder('Documents', 'folders.json');
+        return JSON.parse(text).folders || [];
+    } catch(e) { return []; }
+}
+
+async function _saveFolderManifest(folders) {
+    await GraphAPI.uploadFileToFolder('Documents', 'folders.json', JSON.stringify({ folders }, null, 2), 'application/json');
+}
+
+async function _createUserFolder(name, pin) {
+    var folders = await _loadFolderManifest();
+    var id = 'FOLDER-' + Date.now();
+    folders.push({ id, name, pin: pin || '', created: new Date().toISOString().substring(0, 10) });
+    await _saveFolderManifest(folders);
+    return id;
+}
+
+async function _deleteUserFolder(id) {
+    var folders = await _loadFolderManifest();
+    folders = folders.filter(f => f.id !== id);
+    await _saveFolderManifest(folders);
+    for (var status of ['Open', 'Resolved', 'Archive']) {
+        var docs = await _cloudListDocs(status);
+        for (var doc of docs) {
+            if (doc.userFolderId === id) { delete doc.userFolderId; await _cloudWriteDoc(status, doc.id, doc); }
+        }
+    }
+}
+
+async function _renameUserFolder(id, newName) {
+    var folders = await _loadFolderManifest();
+    var f = folders.find(f => f.id === id);
+    if (f) { f.name = newName; await _saveFolderManifest(folders); }
+}
+
+async function _setFolderPin(id, pin) {
+    var folders = await _loadFolderManifest();
+    var f = folders.find(f => f.id === id);
+    if (f) { f.pin = pin; await _saveFolderManifest(folders); }
+}
+
+async function _getFolderById(id) {
+    var folders = await _loadFolderManifest();
+    return folders.find(f => f.id === id) || null;
+}
+
+async function _isFolderUnlocked(id) {
+    if (!id) return true;
+    if (window.unlockedFolders.has(id)) return true;
+    var folder = await _getFolderById(id);
+    if (!folder || !folder.pin) return true;
+    return false;
+}
+
+async function _promptFolderPin(id) {
+    var folder = await _getFolderById(id);
+    if (!folder || !folder.pin) return true;
+    var input = prompt('Enter PIN for folder "' + folder.name + '":');
+    if (input === folder.pin) { window.unlockedFolders.add(id); return true; }
+    alert('Incorrect PIN.');
+    return false;
+}
+
+function renderUserFolderList() {
+    var container = document.getElementById('user-folders-container');
+    if (!container) return;
+    _loadFolderManifest().then(function(folders) {
+        if (!folders.length) { container.innerHTML = '<p class="text-xs text-slate-400 italic">No custom folders yet.</p>'; return; }
+        container.innerHTML = folders.map(function(f) {
+            var isActive = window.currentUserFolder === f.id;
+            var pinBadge = f.pin ? ' <span class="text-amber-500">🔒</span>' : '';
+            return '<button onclick="enterUserFolder(\'' + f.id + '\')" class="px-3 py-2 rounded-none text-sm font-bold transition-all ' +
+                (isActive ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' +
+                escapeHtml(f.name) + pinBadge + '</button>';
+        }).join('');
+    });
+}
+
+window.enterUserFolder = async function(id) {
+    var ok = await _isFolderUnlocked(id);
+    if (!ok) { var unlocked = await _promptFolderPin(id); if (!unlocked) return; }
+    window.currentUserFolder = id;
+    renderDocuments(true);
+};
+
+window.renameUserFolderPrompt = async function(id) {
+    var folder = await _getFolderById(id);
+    if (!folder) return;
+    var newName = prompt('Rename folder:', folder.name);
+    if (newName && newName.trim()) { await _renameUserFolder(id, newName.trim()); renderDocuments(true); }
+};
+
+window.deleteUserFolderConfirm = async function(id) {
+    var folder = await _getFolderById(id);
+    if (!folder) return;
+    if (!confirm('Delete folder "' + folder.name + '"? Documents will remain in their status folders.')) return;
+    await _deleteUserFolder(id);
+    if (window.currentUserFolder === id) window.currentUserFolder = null;
+    renderDocuments(true);
+};
+
+window.changeFolderPin = async function(id) {
+    var folder = await _getFolderById(id);
+    if (!folder) return;
+    var newPin = prompt('Set PIN for "' + folder.name + '" (leave blank to remove):', folder.pin || '');
+    if (newPin === null) return;
+    await _setFolderPin(id, newPin);
+    alert(newPin ? 'PIN updated.' : 'PIN removed.');
+    renderDocuments(true);
+};
+
+window.showCreateFolderModal = function() {
+    var overlay = document.createElement('div');
+    overlay.id = 'create-folder-modal';
+    overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = '<div class="bg-white p-6 rounded-none shadow-xl w-full max-w-md">' +
+        '<h3 class="text-lg font-black mb-4">Create New Folder</h3>' +
+        '<div class="mb-3"><label class="text-xs font-bold text-slate-500 mb-1 block">Folder Name</label>' +
+        '<input type="text" id="new-folder-name" class="input-chip rounded-none w-full" placeholder="e.g. HR Documents"></div>' +
+        '<div class="mb-4"><label class="text-xs font-bold text-slate-500 mb-1 block">PIN (optional)</label>' +
+        '<input type="password" id="new-folder-pin" class="input-chip rounded-none w-full" placeholder="Leave blank for no PIN"></div>' +
+        '<div class="flex gap-2">' +
+        '<button onclick="submitCreateFolder()" class="btn-primary rounded-none">Create</button>' +
+        '<button onclick="document.getElementById(\'create-folder-modal\').remove()" class="bg-red-50 text-red-600 px-4 py-2 rounded-none font-bold">Cancel</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+    document.getElementById('new-folder-name').focus();
+};
+
+window.submitCreateFolder = async function() {
+    var name = document.getElementById('new-folder-name')?.value?.trim();
+    var pin = document.getElementById('new-folder-pin')?.value || '';
+    if (!name) { alert('Folder name is required.'); return; }
+    await _createUserFolder(name, pin);
+    document.getElementById('create-folder-modal')?.remove();
+    renderDocuments(true);
+};
+
+async function moveDocToFolder(id, folder, currentFolderId) {
+    var doc = await _cloudGetDoc(folder, id);
+    if (!doc) { alert("Document not found."); return; }
+    var folders = await _loadFolderManifest();
+    if (!folders.length) { alert("No custom folders exist. Create one first."); return; }
+    var choice = prompt("Move to which folder?\n\nAvailable:\n" + folders.map((f, i) => (i + 1) + '. ' + f.name).join('\n') + "\n\nType number or folder name:");
+    if (!choice) return;
+    var targetFolder = null;
+    var num = parseInt(choice);
+    if (!isNaN(num) && num >= 1 && num <= folders.length) targetFolder = folders[num - 1];
+    else targetFolder = folders.find(f => f.name.toLowerCase() === choice.trim().toLowerCase());
+    if (!targetFolder) { alert("Folder not found."); return; }
+    doc.userFolderId = targetFolder.id;
+    await writeDocumentFile(doc, folder);
+    alert("Moved to " + targetFolder.name);
+    window.currentUserFolder = targetFolder.id;
+    renderDocuments();
+}
+
+/* ─── Form Template Storage (Graph API) ──────────────────────── */
+async function _loadFormTemplates() {
+    try {
+        var text = await GraphAPI.downloadFileAsTextFromFolder('Document Templates', 'form-templates.json');
+        return JSON.parse(text).templates || [];
+    } catch(e) { return []; }
+}
+
+async function _saveFormTemplates(templates) {
+    await GraphAPI.uploadFileToFolder('Document Templates', 'form-templates.json', JSON.stringify({ templates }, null, 2), 'application/json');
+}
+
+async function _saveFormTemplate(tmpl) {
+    var templates = await _loadFormTemplates();
+    var idx = templates.findIndex(t => t.id === tmpl.id);
+    if (idx >= 0) templates[idx] = tmpl; else templates.push(tmpl);
+    await _saveFormTemplates(templates);
+}
+
+async function _deleteFormTemplate(id) {
+    var templates = await _loadFormTemplates();
+    templates = templates.filter(t => t.id !== id);
+    await _saveFormTemplates(templates);
+}
+
+async function _getFormTemplate(id) {
+    var templates = await _loadFormTemplates();
+    return templates.find(t => t.id === id) || null;
+}
+
+/* ─── Template Builder redirect ────────────────────────────────── */
+window.openTemplateBuilder = async function(editId) {
+    if (editId) window._tplBuilderEditId = editId;
+    setView('templatebuilder');
+};
+
+/* ─── Render form template fields for document create ────────── */
+function _renderFormTemplateFields(templateId, existingValues) {
+    return _getFormTemplate(templateId).then(function(tmpl) {
+        if (!tmpl) return '<p class="text-sm text-red-500">Template not found.</p>';
+        var html = '<div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">';
+        html += '<h4 class="text-sm font-black text-emerald-700 uppercase tracking-widest mb-3">' + escapeHtml(tmpl.name) + '</h4>';
+        html += '<div class="space-y-4">';
+        tmpl.fields.forEach(function(f, i) {
+            var val = (existingValues && existingValues[f.id]) || '';
+            var at = f.answerType || 'text';
+            var scoreLabel = f.scored ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 ml-1">SCORED</span>' : '';
+            html += '<div class="bg-white rounded-lg p-3 border border-slate-200">';
+            html += '<label class="text-sm font-bold text-slate-700 mb-2 block"><span class="text-xs text-slate-400 mr-1">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label) + scoreLabel + '</label>';
+            switch(at) {
+                case 'text':
+                    html += '<input type="text" data-tplfield="' + f.id + '" value="' + escapeHtml(val) + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="Type answer...">';
+                    break;
+                case 'textarea':
+                    html += '<textarea data-tplfield="' + f.id + '" class="w-full p-2 border border-slate-300 rounded text-sm h-20 form-tpl-field" placeholder="Type answer...">' + escapeHtml(val) + '</textarea>';
+                    break;
+                case 'multichoice':
+                    var checked = val ? val.split(',').map(s => s.trim()) : [];
+                    html += '<div class="grid grid-cols-2 gap-1">' + (f.options||[]).map(function(o) {
+                        return '<label class="flex items-center gap-2 text-sm bg-slate-50 px-3 py-1.5 rounded border border-slate-200 cursor-pointer hover:bg-slate-100"><input type="radio" name="mc-' + f.id + '" data-tplfield="' + f.id + '" value="' + escapeHtml(o) + '" ' + (val === o ? 'checked' : '') + ' class="form-tpl-field form-tpl-radio rounded"> ' + escapeHtml(o) + '</label>';
+                    }).join('') + '</div>';
+                    break;
+                case 'yesno':
+                    html += '<div class="flex gap-2">';
+                    html += '<button type="button" data-tplfield="' + f.id + '" data-val="Yes" onclick="window._setYesNo(this)" class="px-5 py-1.5 rounded text-sm font-bold form-tpl-field form-tpl-yesno transition-all ' +
+                        (val === 'Yes' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">Yes</button>';
+                    html += '<button type="button" data-tplfield="' + f.id + '" data-val="No" onclick="window._setYesNo(this)" class="px-5 py-1.5 rounded text-sm font-bold form-tpl-field form-tpl-yesno transition-all ' +
+                        (val === 'No' ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">No</button>';
+                    html += '<input type="hidden" data-tplfield="' + f.id + '" value="' + escapeHtml(val) + '" class="form-tpl-field">';
+                    html += '</div>';
+                    break;
+                case 'rag':
+                    html += '<div class="flex gap-2">';
+                    html += '<button type="button" data-tplfield="' + f.id + '" data-val="Red" onclick="window._setRag(this)" class="px-4 py-1.5 rounded text-sm font-bold form-tpl-field form-tpl-rag transition-all ' +
+                        (val === 'Red' ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">Red</button>';
+                    html += '<button type="button" data-tplfield="' + f.id + '" data-val="Amber" onclick="window._setRag(this)" class="px-4 py-1.5 rounded text-sm font-bold form-tpl-field form-tpl-rag transition-all ' +
+                        (val === 'Amber' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">Amber</button>';
+                    html += '<button type="button" data-tplfield="' + f.id + '" data-val="Green" onclick="window._setRag(this)" class="px-4 py-1.5 rounded text-sm font-bold form-tpl-field form-tpl-rag transition-all ' +
+                        (val === 'Green' ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">Green</button>';
+                    html += '<input type="hidden" data-tplfield="' + f.id + '" value="' + escapeHtml(val) + '" class="form-tpl-field">';
+                    html += '</div>';
+                    break;
+                case 'score':
+                    var min = f.scoreMin || 1, max = f.scoreMax || 10;
+                    var scoreVal = parseInt(val) || 0;
+                    html += '<div class="flex gap-1 flex-wrap">';
+                    for (var s = min; s <= max; s++) {
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-score="' + s + '" onclick="window._setScore(this)" class="w-9 h-9 rounded text-sm font-bold form-tpl-field form-tpl-score transition-all ' +
+                            (scoreVal === s ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' + s + '</button>';
+                    }
+                    html += '<input type="hidden" data-tplfield="' + f.id + '" value="' + escapeHtml(val) + '" class="form-tpl-field">';
+                    html += '</div>';
+                    break;
+            }
+            html += '</div>';
+        });
+        html += '</div></div>';
+        return html;
+    });
+}
+
+/* ─── Render form template fields read-only (viewer) ─────────── */
+async function _renderFormTemplateView(templateId, existingValues) {
+    var tmpl = await _getFormTemplate(templateId);
+    if (!tmpl) return '<p class="text-sm text-red-500">Template not found.</p>';
+    var html = '<div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">';
+    html += '<h4 class="text-sm font-black text-slate-600 uppercase tracking-widest mb-3">' + escapeHtml(tmpl.name) + '</h4>';
+    html += '<div class="space-y-3">';
+    tmpl.fields.forEach(function(f, i) {
+        var val = (existingValues && existingValues[f.id]) || '';
+        var at = f.answerType || 'text';
+        var scoreLabel = f.scored ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 ml-1">SCORED</span>' : '';
+        html += '<div class="bg-white rounded-lg p-3 border border-slate-200">';
+        html += '<label class="text-xs font-bold text-slate-500 mb-1 block"><span class="text-slate-400">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label) + scoreLabel + '</label>';
+        switch(at) {
+            case 'text':
+                html += '<p class="text-sm font-bold text-slate-800">' + escapeHtml(val || '—') + '</p>';
+                break;
+            case 'textarea':
+                html += '<p class="text-sm text-slate-700 whitespace-pre-wrap">' + escapeHtml(val || '—') + '</p>';
+                break;
+            case 'multichoice':
+                var vc = val === 'Red' ? 'text-red-600 bg-red-50' : val === 'Amber' ? 'text-amber-600 bg-amber-50' : 'text-slate-800 bg-slate-50';
+                html += '<p class="text-sm font-bold ' + vc + ' px-3 py-1 rounded inline-block">' + escapeHtml(val || '—') + '</p>';
+                break;
+            case 'yesno':
+                var yc = val === 'Yes' ? 'text-emerald-600 bg-emerald-50' : val === 'No' ? 'text-red-600 bg-red-50' : 'text-slate-400 bg-slate-50';
+                html += '<p class="text-sm font-bold ' + yc + ' px-3 py-1 rounded inline-block">' + escapeHtml(val || '—') + '</p>';
+                break;
+            case 'rag':
+                var rc = val === 'Green' ? 'text-green-700 bg-green-50' : val === 'Amber' ? 'text-amber-700 bg-amber-50' : val === 'Red' ? 'text-red-700 bg-red-50' : 'text-slate-400 bg-slate-50';
+                html += '<p class="text-sm font-bold ' + rc + ' px-3 py-1 rounded inline-block">' + escapeHtml(val || '—') + '</p>';
+                break;
+            case 'score':
+                var sv = parseInt(val) || 0;
+                var sc = sv >= 8 ? 'text-green-600 bg-green-50' : sv >= 4 ? 'text-amber-600 bg-amber-50' : sv > 0 ? 'text-red-600 bg-red-50' : 'text-slate-400 bg-slate-50';
+                html += '<p class="text-sm font-bold ' + sc + ' px-3 py-1 rounded inline-block">' + (val || '—') + ' / ' + (f.scoreMax || 10) + '</p>';
+                break;
+        }
+        html += '</div>';
+    });
+    html += '</div></div>';
+    return html;
+}
+
+/* ─── Score / YesNo / Rag handlers ───────────────────────────── */
+window._setScore = function(btn) {
+    var score = btn.getAttribute('data-score');
+    var hidden = btn.closest('.flex').querySelector('input[type="hidden"]');
+    if (hidden) hidden.value = score;
+    btn.closest('.flex').querySelectorAll('.form-tpl-score').forEach(function(b) { b.className = b.className.replace(/bg-birds-green text-white/, 'bg-slate-100 text-slate-600'); });
+    btn.className = btn.className.replace(/bg-slate-100 text-slate-600/, 'bg-birds-green text-white');
+};
+
+window._setYesNo = function(btn) {
+    var val = btn.getAttribute('data-val');
+    var hidden = btn.parentElement.querySelector('input[type="hidden"]');
+    if (hidden) hidden.value = val;
+    btn.parentElement.querySelectorAll('.form-tpl-yesno').forEach(function(b) { b.className = b.className.replace(/bg-emerald-500 text-white/, 'bg-slate-100 text-slate-600').replace(/bg-red-500 text-white/, 'bg-slate-100 text-slate-600'); });
+    btn.className = btn.className.replace('bg-slate-100 text-slate-600', val === 'Yes' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white');
+};
+
+window._setRag = function(btn) {
+    var val = btn.getAttribute('data-val');
+    var hidden = btn.parentElement.querySelector('input[type="hidden"]');
+    if (hidden) hidden.value = val;
+    btn.parentElement.querySelectorAll('.form-tpl-rag').forEach(function(b) { b.className = b.className.replace(/bg-red-500 text-white/, 'bg-slate-100 text-slate-600').replace(/bg-amber-500 text-white/, 'bg-slate-100 text-slate-600').replace(/bg-green-500 text-white/, 'bg-slate-100 text-slate-600'); });
+    btn.className = btn.className.replace('bg-slate-100 text-slate-600', val === 'Red' ? 'bg-red-500 text-white' : val === 'Amber' ? 'bg-amber-500 text-white' : 'bg-green-500 text-white');
+};
+
+function _gatherFormTemplateFields(templateId) {
+    return _getFormTemplate(templateId).then(function(tmpl) {
+        if (!tmpl) return null;
+        var values = {};
+        tmpl.fields.forEach(function(f) {
+            var at = f.answerType || 'text';
+            if (at === 'multichoice') {
+                var checked = document.querySelector('.form-tpl-field.form-tpl-radio[data-tplfield="' + f.id + '"]:checked');
+                values[f.id] = checked ? checked.value : '';
+            } else if (at === 'score' || at === 'yesno' || at === 'rag') {
+                var hidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
+                values[f.id] = hidden ? hidden.value : '';
+            } else {
+                var el = document.querySelector('.form-tpl-field[data-tplfield="' + f.id + '"]');
+                values[f.id] = el ? el.value : '';
+            }
+        });
+        return { templateId: templateId, templateName: tmpl.name, values: values };
+    });
+}
+
+/* ─── Scoring & Summary Calculator ───────────────────────────── */
+async function _calculateFormSummary(templateId, values) {
+    var tmpl = await _getFormTemplate(templateId);
+    if (!tmpl) return null;
+
+    var scoreFields = tmpl.fields.filter(f => f.answerType === 'score');
+    var yesNoFields = tmpl.fields.filter(f => f.answerType === 'yesno' && f.scored);
+    var ragFields = tmpl.fields.filter(f => f.answerType === 'rag');
+    var summary = {
+        totalScore: 0,
+        maxScore: 0,
+        scorePercent: 0,
+        yesCount: 0,
+        noCount: 0,
+        ragRedCount: 0,
+        ragAmberCount: 0,
+        ragGreenCount: 0,
+        fieldResults: [],
+        overallRating: ''
+    };
+
+    // Calculate scores
+    scoreFields.forEach(function(f) {
+        var val = parseInt(values[f.id]) || 0;
+        var max = f.scoreMax || 10;
+        var min = f.scoreMin || 1;
+        summary.totalScore += val;
+        summary.maxScore += max;
+        summary.fieldResults.push({
+            label: f.label,
+            type: 'score',
+            value: val,
+            max: max,
+            percent: max > 0 ? Math.round((val / max) * 100) : 0
+        });
+    });
+
+    // Yes/No counts
+    yesNoFields.forEach(function(f) {
+        var val = values[f.id] || '';
+        if (val === 'Yes') summary.yesCount++;
+        else if (val === 'No') summary.noCount++;
+        summary.fieldResults.push({
+            label: f.label,
+            type: 'yesno',
+            value: val
+        });
+    });
+
+    // RAG counts
+    ragFields.forEach(function(f) {
+        var val = values[f.id] || '';
+        if (val === 'Red') summary.ragRedCount++;
+        else if (val === 'Amber') summary.ragAmberCount++;
+        else if (val === 'Green') summary.ragGreenCount++;
+        summary.fieldResults.push({
+            label: f.label,
+            type: 'rag',
+            value: val
+        });
+    });
+
+    // Calculate percentage
+    if (summary.maxScore > 0) {
+        summary.scorePercent = Math.round((summary.totalScore / summary.maxScore) * 100);
+    }
+
+    // Overall rating from score
+    if (summary.scorePercent >= 90) summary.overallRating = 'Excellent';
+    else if (summary.scorePercent >= 75) summary.overallRating = 'Good';
+    else if (summary.scorePercent >= 50) summary.overallRating = 'Needs Improvement';
+    else if (summary.scorePercent > 0) summary.overallRating = 'Poor';
+
+    // Factor in RAG
+    if (ragFields.length > 0) {
+        var totalRag = summary.ragRedCount + summary.ragAmberCount + summary.ragGreenCount;
+        if (totalRag > 0) {
+            var redRate = summary.ragRedCount / totalRag;
+            if (redRate > 0.5) summary.overallRating = 'Fail';
+            else if (redRate > 0.25 || summary.ragAmberCount > summary.ragGreenCount) summary.overallRating = 'Needs Improvement';
+            else if (summary.overallRating === '') summary.overallRating = 'Good';
+        }
+    }
+
+    // Factor in Yes/No
+    if (yesNoFields.length > 0) {
+        var noRate = summary.noCount / yesNoFields.length;
+        if (noRate > 0.5 && summary.overallRating === '') summary.overallRating = 'Needs Improvement';
+    }
+
+    return summary;
+}
+
+/* ─── Render Summary Panel ───────────────────────────────────── */
+async function _renderSummaryPanel(templateId, values) {
+    var summary = await _calculateFormSummary(templateId, values);
+    if (!summary || summary.maxScore === 0 && summary.yesCount + summary.noCount === 0 && summary.ragRedCount + summary.ragAmberCount + summary.ragGreenCount === 0) {
+        return '';
+    }
+
+    var ratingColor = 'text-slate-500';
+    var ratingBg = 'bg-slate-50';
+    if (summary.overallRating === 'Excellent') { ratingColor = 'text-green-700'; ratingBg = 'bg-green-50'; }
+    else if (summary.overallRating === 'Good') { ratingColor = 'text-green-600'; ratingBg = 'bg-green-50'; }
+    else if (summary.overallRating === 'Needs Improvement') { ratingColor = 'text-amber-700'; ratingBg = 'bg-amber-50'; }
+    else if (summary.overallRating === 'Poor' || summary.overallRating === 'Fail') { ratingColor = 'text-red-700'; ratingBg = 'bg-red-50'; }
+
+    var html = '<div class="border border-slate-200 rounded-lg p-4 mb-4 ' + ratingBg + '">';
+    html += '<h3 class="text-sm font-black text-slate-500 uppercase tracking-widest mb-3">Summary &amp; Scoring</h3>';
+
+    // Score bar
+    if (summary.maxScore > 0) {
+        var pct = summary.scorePercent;
+        // RAG: 80%+ green, 40-79% amber, under 40% red
+        var barColor = pct >= 80 ? 'bg-green-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+        var barTextColor = pct >= 80 ? 'text-green-700' : pct >= 40 ? 'text-amber-700' : 'text-red-700';
+        html += '<div class="mb-3">';
+        html += '<div class="flex items-center justify-between mb-1">';
+        html += '<span class="text-sm font-bold text-slate-700">Score: ' + summary.totalScore + ' / ' + summary.maxScore + '</span>';
+        html += '<span class="text-sm font-black ' + barTextColor + '">' + pct + '%</span>';
+        html += '</div>';
+        html += '<div class="w-full h-3 bg-slate-200 rounded-full overflow-hidden">';
+        html += '<div class="h-full ' + barColor + ' rounded-full transition-all" style="width:' + pct + '%"></div>';
+        html += '</div>';
+        html += '</div>';
+    }
+
+    // Yes/No counts
+    if (summary.yesCount + summary.noCount > 0) {
+        html += '<div class="flex gap-4 mb-2">';
+        html += '<span class="text-sm font-bold"><span class="text-emerald-600">' + summary.yesCount + ' Yes</span></span>';
+        html += '<span class="text-sm font-bold"><span class="text-red-600">' + summary.noCount + ' No</span></span>';
+        html += '</div>';
+    }
+
+    // RAG counts
+    if (summary.ragRedCount + summary.ragAmberCount + summary.ragGreenCount > 0) {
+        html += '<div class="flex gap-4 mb-2">';
+        html += '<span class="text-sm font-bold"><span class="text-green-600">' + summary.ragGreenCount + ' Green</span></span>';
+        html += '<span class="text-sm font-bold"><span class="text-amber-600">' + summary.ragAmberCount + ' Amber</span></span>';
+        html += '<span class="text-sm font-bold"><span class="text-red-600">' + summary.ragRedCount + ' Red</span></span>';
+        html += '</div>';
+    }
+
+    // Overall rating
+    if (summary.overallRating) {
+        html += '<div class="mt-3 pt-3 border-t border-slate-200">';
+        html += '<span class="text-xs font-bold text-slate-500 uppercase">Overall: </span>';
+        html += '<span class="text-lg font-black ' + ratingColor + '">' + escapeHtml(summary.overallRating) + '</span>';
+        html += '</div>';
+    }
+
+    // Field breakdown
+    if (summary.fieldResults.length > 0) {
+        html += '<div class="mt-3 pt-3 border-t border-slate-200">';
+        html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-2">';
+        summary.fieldResults.forEach(function(r) {
+            if (r.type === 'score') {
+                var max = r.max || 10;
+                var v = r.value || 0;
+                var fp = max > 0 ? Math.round((v / max) * 100) : 0;
+                // RAG: 8-10 green, 4-7 amber, 1-3 red
+                var fc = v >= 8 ? 'text-green-600 bg-green-50' : v >= 4 ? 'text-amber-600 bg-amber-50' : v > 0 ? 'text-red-600 bg-red-50' : 'text-slate-400 bg-slate-50';
+                html += '<div class="text-xs"><span class="font-bold text-slate-500">' + escapeHtml(r.label) + ':</span> <span class="font-black ' + fc + ' px-2 py-0.5 rounded">' + v + ' / ' + max + '</span></div>';
+            } else if (r.type === 'yesno') {
+                var ync = r.value === 'Yes' ? 'text-emerald-600' : r.value === 'No' ? 'text-red-600' : 'text-slate-400';
+                html += '<div class="text-xs"><span class="font-bold text-slate-500">' + escapeHtml(r.label) + ':</span> <span class="font-black ' + ync + '">' + escapeHtml(r.value || '—') + '</span></div>';
+            } else if (r.type === 'rag') {
+                var ragc = r.value === 'Green' ? 'text-green-600' : r.value === 'Amber' ? 'text-amber-600' : r.value === 'Red' ? 'text-red-600' : 'text-slate-400';
+                html += '<div class="text-xs"><span class="font-bold text-slate-500">' + escapeHtml(r.label) + ':</span> <span class="font-black ' + ragc + '">' + escapeHtml(r.value || '—') + '</span></div>';
+            }
+        });
+        html += '</div></div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
 /* ─── Load ──────────────────────────────────────────────────── */
 async function loadDocuments() {
     const result = { open: [], resolved: [], archived: [] };
-    try {
-        const root = await directoryHandle.getDirectoryHandle("Documents");
-        for (const fName of ["Open", "Resolved", "Archive"]) {
-            try {
-                const folder = await root.getDirectoryHandle(fName);
-                for await (const entry of folder.values()) {
-                    if (entry.kind === "file" && entry.name.endsWith(".json")) {
-                        const file = await entry.getFile();
-                        const key = fName === "Archive" ? "archived" : fName.toLowerCase();
-                        if (result[key]) result[key].push(JSON.parse(await file.text()));
-                    }
-                }
-            } catch (e) { continue; }
-        }
-    } catch (e) { console.error(e); }
+    result.open = await _cloudListDocs('Open');
+    result.resolved = await _cloudListDocs('Resolved');
+    result.archived = await _cloudListDocs('Archive');
+    // Enrich with folder names
+    var folders = await _loadFolderManifest();
+    var folderMap = {};
+    folders.forEach(f => folderMap[f.id] = f.name);
+    [result.open, result.resolved, result.archived].forEach(arr => {
+        arr.forEach(doc => {
+            if (doc.userFolderId && folderMap[doc.userFolderId]) {
+                doc.userFolderName = folderMap[doc.userFolderId];
+            }
+        });
+    });
     return result;
 }
 
 /* ─── Write helper ──────────────────────────────────────────── */
 async function writeDocumentFile(doc, folder) {
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const target = await docsRoot.getDirectoryHandle(folder, { create: true });
-    const fileHandle = await target.getFileHandle(doc.id + ".json", { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(doc, null, 2));
-    await writable.close();
+    await _cloudWriteDoc(folder, doc.id, doc);
 }
 
 /* ─── Evidence URL ──────────────────────────────────────────── */
 async function resolveDocumentEvidenceUrl(doc) {
     if (!doc.evidenceFile) return null;
-    try {
-        const ev = await directoryHandle.getDirectoryHandle("Evidence");
-        const fh = await ev.getFileHandle(doc.evidenceFile);
-        return URL.createObjectURL(await fh.getFile());
-    } catch (e) { return null; }
+    return await _cloudReadEvidence(doc.evidenceFile);
 }
 
 /* ─── Render Document Hub ───────────────────────────────────── */
 async function renderDocuments(useCache = false) {
-    if (!directoryHandle) {
+    if (!_isDocsCloud()) {
         document.getElementById("mainView").innerHTML = `
             <div class="card p-12 text-center rounded-none">
                 <h2 class="text-3xl font-black outfit birds-green mb-2">Document Hub</h2>
-                <p class="text-slate-500 font-bold mb-4">Master folder not anchored.</p>
+                <p class="text-slate-500 font-bold mb-4">Sign in with Microsoft to access documents.</p>
             </div>`;
         return;
     }
@@ -91,29 +679,105 @@ async function renderDocuments(useCache = false) {
         const lastReply = replies[replies.length - 1];
         const borderClass = folder === 'Open' ? 'border-l-amber-400' : folder === 'Archive' ? 'border-l-purple-400' : 'border-l-birds-green';
         const pinned = doc.pin ? '<span class="text-amber-500 font-bold text-[10px]">PINNED</span>' : '';
+        const ufId = doc.userFolderId || '';
+        const ufBadge = ufId ? `<span class="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">📁 ${escapeHtml(doc.userFolderName || 'Folder')}</span>` : '';
         return `
         <div class="card p-5 border-l-4 rounded-none ${borderClass} mb-4 bg-white shadow-sm">
             <div class="flex items-start justify-between">
                 <h4 class="font-black text-slate-800">${escapeHtml(doc.title || doc.name)}</h4>
-                ${pinned}
+                <div class="flex items-center gap-2">${pinned} ${ufBadge}</div>
             </div>
             <p class="text-xs font-bold text-slate-500">${escapeHtml(doc.type)} • ${escapeHtml(doc.date)}</p>
             <p class="text-xs font-bold text-slate-400">Author: ${escapeHtml(doc.creator || '—')}${doc.attentionOf ? ` • For: ${escapeHtml(doc.attentionOf)}` : ''}</p>
             ${doc.department ? `<p class="text-[10px] font-bold text-slate-400 uppercase">${escapeHtml(doc.department)}</p>` : ''}
             ${lastReply ? `<p class="text-xs text-slate-400 mt-2 italic">${replies.length} repl${replies.length === 1 ? 'y' : 'ies'} — latest from ${escapeHtml(lastReply.author)}: "${escapeHtml(String(lastReply.body || '').slice(0, 60))}${String(lastReply.body || '').length > 60 ? '…' : ''}"</p>` : ''}
             <div class="flex gap-2 mt-3">
-                <button onclick="openDocumentViewer('${doc.id}', '${folder}')" class="btn-primary rounded-none text-sm flex-1">Open</button>
-                ${folder === 'Open' ? `<button onclick="resolveDocument('${doc.id}')" class="bg-emerald-50 text-emerald-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-emerald-100">Resolve</button>` : ''}
-                ${folder === 'Open' ? `<button onclick="archiveDocument('${doc.id}', '${folder}')" class="bg-purple-50 text-purple-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-purple-100">Archive</button>` : ''}
-                ${folder === 'Archive' ? `<button onclick="relaunchDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>` : ''}
+                <button onclick="openDocumentViewer('${doc.id}', '${folder}', '${ufId}')" class="btn-primary rounded-none text-sm flex-1">Open</button>
+                ${folder === 'Open' ? `<button onclick="resolveDocument('${doc.id}', '${ufId}')" class="bg-emerald-50 text-emerald-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-emerald-100">Resolve</button>` : ''}
+                ${folder === 'Open' ? `<button onclick="archiveDocument('${doc.id}', '${folder}', '${ufId}')" class="bg-purple-50 text-purple-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-purple-100">Archive</button>` : ''}
+                ${folder === 'Archive' ? `<button onclick="relaunchDocument('${doc.id}', '${ufId}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Archive' ? `<button onclick="permanentDeleteDocument('${doc.id}')" class="bg-red-100 text-red-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-red-200">Delete</button>` : ''}
-                ${folder === 'Resolved' ? `<button onclick="relaunchResolvedDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>` : ''}
+                ${folder === 'Resolved' ? `<button onclick="relaunchResolvedDocument('${doc.id}', '${ufId}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Resolved' ? `<button onclick="deleteDocument('${doc.id}', '${folder}')" class="bg-red-50 text-red-600 rounded-none text-sm flex-1 py-2 font-bold hover:bg-red-100">Delete</button>` : ''}
             </div>
         </div>`;
     };
 
     const activeAttention = fAttention;
+
+    // If viewing a user folder, show folder-specific view
+    if (window.currentUserFolder) {
+        var ufFolders = await _loadFolderManifest();
+        var activeFolder = ufFolders.find(f => f.id === window.currentUserFolder);
+        var folderName = activeFolder ? activeFolder.name : 'Unknown Folder';
+        var folderAllDocs = [...docs.open, ...docs.resolved, ...docs.archived];
+        var folderDocs = folderAllDocs.filter(d => d.userFolderId === window.currentUserFolder);
+
+        var fStatus2 = document.getElementById("filter-status")?.value || "All";
+        var fAttention2 = document.getElementById("filter-attention")?.value || "All";
+        var fAuthor2 = document.getElementById("filter-author")?.value || "All";
+        var fDept2 = document.getElementById("filter-dept")?.value || "All";
+        var fSort2 = document.getElementById("filter-sort")?.value || "newest";
+
+        var filteredDocs = folderDocs.filter(d => {
+            if (fStatus2 !== "All" && d.status !== fStatus2) return false;
+            if (fAttention2 !== "All" && d.attentionOf !== fAttention2) return false;
+            if (fAuthor2 !== "All" && d.creator !== fAuthor2) return false;
+            if (fDept2 !== "All" && d.department !== fDept2) return false;
+            return true;
+        });
+
+        var sortedDocs = [...filteredDocs].sort((a, b) => {
+            const da = new Date(a.date || 0).getTime() || 0;
+            const db = new Date(b.date || 0).getTime() || 0;
+            return fSort2 === "oldest" ? da - db : db - da;
+        });
+
+        var openCount = folderDocs.filter(d => d.status === 'Open').length;
+        var resolvedCount = folderDocs.filter(d => d.status === 'Resolved').length;
+        var archivedCount = folderDocs.filter(d => d.status === 'Archived').length;
+
+        document.getElementById("mainView").innerHTML = `
+            <div class="flex items-center gap-3 mb-6">
+                <button onclick="window.currentUserFolder=null;renderDocuments()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">←</button>
+                <h2 class="text-[36px] font-black outfit birds-green">📁 ${escapeHtml(folderName)}</h2>
+                <span class="text-sm font-bold text-slate-400">${folderDocs.length} documents</span>
+                <button onclick="renameUserFolderPrompt('${window.currentUserFolder}')" class="text-xs font-bold text-slate-400 hover:text-slate-600 bg-slate-100 px-3 py-1 rounded-none">✏️ Rename</button>
+                <button onclick="deleteUserFolderConfirm('${window.currentUserFolder}')" class="text-xs font-bold text-slate-400 hover:text-red-500 bg-slate-100 px-3 py-1 rounded-none">🗑️ Delete</button>
+                ${activeFolder && activeFolder.pin ? `<button onclick="changeFolderPin('${window.currentUserFolder}')" class="text-xs font-bold text-amber-600 hover:text-amber-700 bg-amber-50 px-3 py-1 rounded-none">🔒 Change PIN</button>` : `<button onclick="changeFolderPin('${window.currentUserFolder}')" class="text-xs font-bold text-slate-400 hover:text-slate-600 bg-slate-100 px-3 py-1 rounded-none">🔓 Set PIN</button>`}
+            </div>
+            <div class="flex gap-3 mb-4 text-xs font-bold">
+                <span class="bg-amber-50 text-amber-700 px-3 py-1 rounded-none">Open: ${openCount}</span>
+                <span class="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-none">Resolved: ${resolvedCount}</span>
+                <span class="bg-purple-50 text-purple-700 px-3 py-1 rounded-none">Archived: ${archivedCount}</span>
+            </div>
+            <div class="flex flex-wrap gap-3 mb-6">
+                <select id="filter-status" class="input-chip rounded-none" onchange="renderDocuments(true)">
+                    <option value="All" ${fStatus2 === 'All' ? 'selected' : ''}>All Statuses</option>
+                    <option value="Open" ${fStatus2 === 'Open' ? 'selected' : ''}>Open</option>
+                    <option value="Resolved" ${fStatus2 === 'Resolved' ? 'selected' : ''}>Resolved</option>
+                    <option value="Archived" ${fStatus2 === 'Archived' ? 'selected' : ''}>Archived</option>
+                </select>
+                <select id="filter-dept" class="input-chip rounded-none" onchange="renderDocuments(true)">
+                    <option value="All">All Departments</option>
+                    ${deptOptions.map(a => `<option value="${escapeHtml(a)}" ${fDept2 === a ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
+                </select>
+                <select id="filter-author" class="input-chip rounded-none" onchange="renderDocuments(true)">
+                    <option value="All">All Authors</option>
+                    ${authorOptions.map(a => `<option value="${escapeHtml(a)}" ${fAuthor2 === a ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
+                </select>
+                <select id="filter-sort" class="input-chip rounded-none" onchange="renderDocuments(true)">
+                    <option value="newest" ${fSort2 === 'newest' ? 'selected' : ''}>Newest First</option>
+                    <option value="oldest" ${fSort2 === 'oldest' ? 'selected' : ''}>Oldest First</option>
+                </select>
+                <button onclick="renderDocumentCreate()" class="btn-primary rounded-none">+ New Document</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                ${sortedDocs.length ? sortedDocs.map(d => docCard(d, d.status === 'Archived' ? 'Archive' : d.status)).join('') : '<p class="text-slate-400 italic text-sm col-span-full">No documents in this folder.</p>'}
+            </div>`;
+        return;
+    }
+
     document.getElementById("mainView").innerHTML = `
         <h2 class="text-[36px] font-black outfit birds-green mb-6">Document Hub</h2>
         <div class="flex flex-wrap gap-2 mb-4">
@@ -144,18 +808,35 @@ async function renderDocuments(useCache = false) {
             </select>
             <button onclick="renderDocumentCreate()" class="btn-primary rounded-none">+ New Document</button>
         </div>
+
+        <!-- User Folders -->
+        <div class="mb-6 border border-slate-200 rounded-none p-4 bg-slate-50">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-black text-slate-500 uppercase tracking-widest">📁 Folders</h3>
+                <button onclick="showCreateFolderModal()" class="text-xs font-bold text-birds-green hover:underline">+ New Folder</button>
+            </div>
+            <div id="user-folders-container" class="flex flex-wrap gap-2"></div>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div><h3 class="font-black text-slate-400 uppercase mb-4">Open (${docs.open.filter(d => filterDoc(d, 'Open')).length})</h3>${sortDocs(docs.open.filter(d => filterDoc(d, 'Open'))).map(d => docCard(d, 'Open')).join('') || '<p class="text-slate-400 italic text-sm">No documents.</p>'}</div>
             <div><h3 class="font-black text-slate-400 uppercase mb-4">Resolved (${docs.resolved.filter(d => filterDoc(d, 'Resolved')).length})</h3>${sortDocs(docs.resolved.filter(d => filterDoc(d, 'Resolved'))).map(d => docCard(d, 'Resolved')).join('') || '<p class="text-slate-400 italic text-sm">No documents.</p>'}</div>
         </div>`;
+
+    // Render folder list after DOM is ready
+    setTimeout(renderUserFolderList, 50);
 }
 
 /* ─── Create Document ───────────────────────────────────────── */
-function renderDocumentCreate() {
+async function renderDocumentCreate() {
     const today = new Date().toISOString().substring(0, 10);
+    var folders = await _loadFolderManifest();
+    var folderOptions = folders.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('');
+
     document.getElementById('mainView').innerHTML = `
     <div class="card p-6 border-t-4 border-t-birds-green rounded-none">
         <h2 class="text-2xl font-black birds-green mb-4">Create New Document</h2>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Author Name</label>
@@ -191,14 +872,21 @@ function renderDocumentCreate() {
                     <option value="Feedback">Feedback from department</option>
                 </select>
             </div>
+            <div>
+                <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Save to Folder</label>
+                <select id="doc-user-folder" class="input-chip rounded-none w-full">
+                    <option value="">-- No folder (status only) --</option>
+                    ${folderOptions}
+                </select>
+            </div>
         </div>
         <div class="mb-4">
-            <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Document PIN (optional — locks the document so only people with the PIN can open it)</label>
+            <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Document PIN (optional)</label>
             <input type="password" id="doc-pin" class="input-chip rounded-none w-full md:w-1/2">
         </div>
         <div class="mb-4">
-            <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Document Body</label>
-            <textarea id="doc-body" class="w-full h-64 p-4 border border-slate-300 rounded-lg resize-y"></textarea>
+            <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Document Body / Notes</label>
+            <textarea id="doc-body" class="w-full h-40 p-4 border border-slate-300 rounded-lg resize-y" placeholder="Additional notes or free text..."></textarea>
         </div>
         <div class="mb-4">
             <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Attach Evidence (optional)</label>
@@ -212,12 +900,14 @@ function renderDocumentCreate() {
 }
 
 async function saveDocumentRecord() {
-    if (!directoryHandle) return alert("Select Data Folder first");
     const author = document.getElementById("doc-author")?.value?.trim();
-    const body = document.getElementById("doc-body")?.value?.trim();
-    if (!author || !body) { alert('Author and body are required.'); return; }
+    if (!author) { alert('Author is required.'); return; }
 
     const id = "DOC-" + Date.now();
+    const formTemplateId = document.getElementById("doc-form-template")?.value || '';
+    const body = document.getElementById("doc-body")?.value?.trim() || '';
+    const userFolderId = document.getElementById("doc-user-folder")?.value || '';
+
     const data = {
         id,
         creator: author,
@@ -232,27 +922,33 @@ async function saveDocumentRecord() {
         replies: []
     };
 
+    if (userFolderId) data.userFolderId = userFolderId;
+
+    // Gather form template fields
+    if (formTemplateId) {
+        var formData = await _gatherFormTemplateFields(formTemplateId);
+        if (formData) {
+            data.formTemplateId = formTemplateId;
+            data.formTemplateName = formData.templateName;
+            data.formTemplateValues = formData.values;
+        }
+    }
+
     const fileInput = document.getElementById("doc-evidence");
     if (fileInput.files.length > 0) {
         try {
-            const evFolder = await directoryHandle.getDirectoryHandle("Evidence", { create: true });
             const file = fileInput.files[0];
             const safeName = `${id}_evidence.${file.name.split('.').pop()}`;
-            const handle = await evFolder.getFileHandle(safeName, { create: true });
-            const writable = await handle.createWritable();
-            await writable.write(file);
-            await writable.close();
+            await _cloudWriteEvidence(safeName, file);
             data.evidenceFile = safeName;
         } catch (e) { console.warn('Evidence save failed:', e); }
     }
 
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const folder = await docsRoot.getDirectoryHandle("Open", { create: true });
-    const fileHandle = await folder.getFileHandle(id + ".json", { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
+    await _cloudWriteDoc('Open', id, data);
     alert("Document Saved");
+    if (userFolderId) {
+        window.currentUserFolder = userFolderId;
+    }
     renderDocuments();
 }
 
@@ -285,11 +981,11 @@ async function addDocumentReply(id, folder) {
     if (!doc.replies) doc.replies = [];
     doc.replies.push(reply);
     await writeDocumentFile(doc, folder);
-    renderLinearViewer(doc, await resolveDocumentEvidenceUrl(doc), folder);
+    renderLinearViewer(doc, await resolveDocumentEvidenceUrl(doc), folder, doc.userFolderId || '');
 }
 
 /* ─── Document Viewer ───────────────────────────────────────── */
-async function openDocumentViewer(id, folder) {
+async function openDocumentViewer(id, folder, userFolderId) {
     const doc = window.currentLoadedDocs[folder.toLowerCase()]?.find(d => d.id === id);
     if (!doc) return alert("Document not found.");
     if (doc.pin && !window.unlockedDocs.has(id)) {
@@ -298,10 +994,10 @@ async function openDocumentViewer(id, folder) {
         window.unlockedDocs.add(id);
     }
     const evidenceUrl = await resolveDocumentEvidenceUrl(doc);
-    renderLinearViewer(doc, evidenceUrl, folder);
+    renderLinearViewer(doc, evidenceUrl, folder, userFolderId);
 }
 
-function renderLinearViewer(doc, evidenceUrl, folder) {
+async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
     const replies = Array.isArray(doc.replies) ? doc.replies : [];
     const today = new Date().toISOString().substring(0, 10);
 
@@ -315,19 +1011,53 @@ function renderLinearViewer(doc, evidenceUrl, folder) {
             ${r.photo ? `<img src="${r.photo}" class="mt-2 max-w-xs rounded border border-slate-200" />` : ''}
         </div>`).join('') : '';
 
+    // Render form template fields (read-only view)
+    var formTplHtml = '';
+    var summaryHtml = '';
+    if (doc.formTemplateId && doc.formTemplateValues) {
+        formTplHtml = await _renderFormTemplateView(doc.formTemplateId, doc.formTemplateValues);
+        summaryHtml = await _renderSummaryPanel(doc.formTemplateId, doc.formTemplateValues);
+    }
+
     document.getElementById("mainView").innerHTML = `
         <div id="print-doc-area" class="card p-8 bg-white rounded-none">
             <div class="flex items-start justify-between mb-2">
                 <h2 class="text-3xl font-black" id="doc-title-display">${escapeHtml(doc.name)}</h2>
-                ${doc.pin ? '<span class="text-amber-500 font-bold text-xs bg-amber-50 px-2 py-1 rounded">PINNED</span>' : ''}
+                <div class="flex items-center gap-2">
+                    ${doc.pin ? '<span class="text-amber-500 font-bold text-xs bg-amber-50 px-2 py-1 rounded">PINNED</span>' : ''}
+                    ${doc.status ? '<span class="text-xs font-bold px-2 py-1 rounded ' +
+                        (doc.status === 'Open' ? 'bg-amber-100 text-amber-700' :
+                         doc.status === 'Resolved' ? 'bg-emerald-100 text-emerald-700' :
+                         'bg-purple-100 text-purple-700') + '">' + escapeHtml(doc.status) + '</span>' : ''}
+                </div>
             </div>
             <p class="text-xs font-bold text-slate-500 mb-1">ID: ${escapeHtml(doc.id)} | Author: ${escapeHtml(doc.creator)} | Type: ${escapeHtml(doc.type)}${doc.department ? ` | Dept: ${escapeHtml(doc.department)}` : ''}</p>
             <p class="text-xs font-bold text-slate-400 mb-4">Created: ${escapeHtml(doc.date)}${doc.attentionOf ? ` | For: ${escapeHtml(doc.attentionOf)}` : ''}</p>
+
+            ${summaryHtml}
 
             <div id="doc-body-container">
                 <div class="text-sm leading-relaxed p-5 bg-slate-50 rounded-none mb-2 whitespace-pre-wrap" id="doc-body-display">${escapeHtml(doc.body)}</div>
                 <button onclick="editDocumentBodyInline('${doc.id}','${folder}')" class="text-[10px] font-bold text-birds-green hover:underline mb-4 print:hidden">Edit Document</button>
             </div>
+
+            ${formTplHtml}
+
+            ${doc.templateFields && Object.keys(doc.templateFields).length > 0 ? `
+                <div class="mb-4">
+                    <h3 class="text-xs font-black uppercase text-slate-400 mb-2">Template: ${escapeHtml(doc.templateName || 'Unknown')}</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        ${Object.entries(doc.templateFields).map(([k, v]) => `
+                            <div class="bg-slate-50 border border-slate-200 rounded p-3">
+                                <div class="text-[10px] font-black text-slate-400 uppercase">${escapeHtml(k)}</div>
+                                <div class="text-sm font-bold text-slate-700">${escapeHtml(v) || '<span class="text-slate-300 italic">Empty</span>'}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            ${doc.templateName && !doc.templateFields ? `<p class="text-xs text-slate-400 italic mb-4">Template: ${escapeHtml(doc.templateName)}</p>` : ''}
 
             ${evidenceUrl ? `<img src="${evidenceUrl}" class="w-64 mb-6 border-4 border-slate-50" />` : ''}
 
@@ -348,14 +1078,15 @@ function renderLinearViewer(doc, evidenceUrl, folder) {
             </div>
 
             <div class="print:hidden flex flex-wrap gap-2">
-                <button onclick="renderDocuments()" class="btn-secondary rounded-none">Back</button>
+                <button onclick="${userFolderId ? 'enterUserFolder(\'' + userFolderId + '\')' : 'renderDocuments()'}" class="btn-secondary rounded-none">Back</button>
                 <button onclick="window.print()" class="btn-secondary rounded-none">Print PDF</button>
-                ${doc.pin ? `<button onclick="removeDocumentPin('${doc.id}','${folder}')" class="bg-amber-50 text-amber-700 rounded-none font-bold px-4 py-2 hover:bg-amber-100">Unpin</button>` : `<button onclick="setDocumentPin('${doc.id}','${folder}')" class="bg-slate-100 text-slate-600 rounded-none font-bold px-4 py-2 hover:bg-slate-200">Pin</button>`}
-                ${folder === 'Open' ? `<button onclick="resolveDocument('${doc.id}')" class="bg-emerald-50 text-emerald-700 rounded-none font-bold px-4 py-2 hover:bg-emerald-100">Resolve</button>` : ''}
-                ${folder === 'Open' ? `<button onclick="archiveDocument('${doc.id}','${folder}')" class="bg-purple-50 text-purple-700 rounded-none font-bold px-4 py-2 hover:bg-purple-100">Archive</button>` : ''}
-                ${folder === 'Archive' ? `<button onclick="relaunchDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none font-bold px-4 py-2 hover:bg-blue-100">Relaunch</button>` : ''}
+                <button onclick="moveDocToFolder('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-slate-100 text-slate-600 rounded-none font-bold px-4 py-2 hover:bg-slate-200">📁 Move to Folder</button>
+                ${doc.pin ? `<button onclick="removeDocumentPin('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-amber-50 text-amber-700 rounded-none font-bold px-4 py-2 hover:bg-amber-100">Unpin</button>` : `<button onclick="setDocumentPin('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-slate-100 text-slate-600 rounded-none font-bold px-4 py-2 hover:bg-slate-200">Pin</button>`}
+                ${folder === 'Open' ? `<button onclick="resolveDocument('${doc.id}','${userFolderId || ''}')" class="bg-emerald-50 text-emerald-700 rounded-none font-bold px-4 py-2 hover:bg-emerald-100">Resolve</button>` : ''}
+                ${folder === 'Open' ? `<button onclick="archiveDocument('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-purple-50 text-purple-700 rounded-none font-bold px-4 py-2 hover:bg-purple-100">Archive</button>` : ''}
+                ${folder === 'Archive' ? `<button onclick="relaunchDocument('${doc.id}','${userFolderId || ''}')" class="bg-blue-50 text-blue-700 rounded-none font-bold px-4 py-2 hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Archive' ? `<button onclick="permanentDeleteDocument('${doc.id}')" class="bg-red-100 text-red-700 rounded-none font-bold px-4 py-2 hover:bg-red-200">Delete</button>` : ''}
-                ${folder === 'Resolved' ? `<button onclick="relaunchResolvedDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none font-bold px-4 py-2 hover:bg-blue-100">Relaunch</button>` : ''}
+                ${folder === 'Resolved' ? `<button onclick="relaunchResolvedDocument('${doc.id}','${userFolderId || ''}')" class="bg-blue-50 text-blue-700 rounded-none font-bold px-4 py-2 hover:bg-blue-100">Relaunch</button>` : ''}
                 ${folder === 'Resolved' ? `<button onclick="deleteDocument('${doc.id}','${folder}')" class="bg-red-50 text-red-600 rounded-none font-bold px-4 py-2 hover:bg-red-100">Delete</button>` : ''}
             </div>
         </div>`;
@@ -443,7 +1174,7 @@ async function cancelReplyInline(id, folder, idx) {
 }
 
 /* ─── Pin / Unpin ───────────────────────────────────────────── */
-async function setDocumentPin(id, folder) {
+async function setDocumentPin(id, folder, userFolderId) {
     const doc = window.currentLoadedDocs[folder.toLowerCase()]?.find(d => d.id === id);
     if (!doc) return;
     const pin = prompt("Set a PIN for this document (leave blank for none):");
@@ -451,10 +1182,10 @@ async function setDocumentPin(id, folder) {
     doc.pin = pin;
     await writeDocumentFile(doc, folder);
     alert(pin ? "Document pinned." : "PIN cleared.");
-    renderLinearViewer(doc, await resolveDocumentEvidenceUrl(doc), folder);
+    renderLinearViewer(doc, await resolveDocumentEvidenceUrl(doc), folder, userFolderId);
 }
 
-async function removeDocumentPin(id, folder) {
+async function removeDocumentPin(id, folder, userFolderId) {
     const doc = window.currentLoadedDocs[folder.toLowerCase()]?.find(d => d.id === id);
     if (!doc) return;
     if (!confirm("Remove PIN from this document?")) return;
@@ -462,128 +1193,84 @@ async function removeDocumentPin(id, folder) {
     window.unlockedDocs.add(id);
     await writeDocumentFile(doc, folder);
     alert("PIN removed.");
-    renderLinearViewer(doc, await resolveDocumentEvidenceUrl(doc), folder);
+    renderLinearViewer(doc, await resolveDocumentEvidenceUrl(doc), folder, userFolderId);
 }
 
 /* ─── Resolve / Archive / Relaunch / Delete ─────────────────── */
-async function resolveDocument(id) {
+async function resolveDocument(id, userFolderId) {
     const note = prompt("How was this resolved?");
     if (!note) return;
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const openFolder = await docsRoot.getDirectoryHandle("Open");
-    const resolvedFolder = await docsRoot.getDirectoryHandle("Resolved", { create: true });
-
-    const fileHandle = await openFolder.getFileHandle(id + ".json");
-    const file = await fileHandle.getFile();
-    const doc = JSON.parse(await file.text());
-
+    var doc = await _cloudGetDoc('Open', id);
+    if (!doc) { alert("Document not found."); return; }
     doc.status = "Resolved";
     doc.resolution = note;
     doc.resolvedDate = new Date().toISOString().substring(0, 10);
-
-    const newHandle = await resolvedFolder.getFileHandle(id + ".json", { create: true });
-    const writable = await newHandle.createWritable();
-    await writable.write(JSON.stringify(doc, null, 2));
-    await writable.close();
-
-    await openFolder.removeEntry(id + ".json");
+    await _cloudWriteDoc('Resolved', id, doc);
+    await _cloudDeleteDoc('Open', id);
     alert("Document Resolved.");
+    if (userFolderId) { window.currentUserFolder = userFolderId; }
     renderDocuments();
 }
 
-async function archiveDocument(id, folder) {
+async function archiveDocument(id, folder, userFolderId) {
     if (!confirm("Archive this document?")) return;
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const source = await docsRoot.getDirectoryHandle(folder);
-    const archiveFolder = await docsRoot.getDirectoryHandle("Archive", { create: true });
-
-    const fileHandle = await source.getFileHandle(id + ".json");
-    const file = await fileHandle.getFile();
-    const doc = JSON.parse(await file.text());
-
+    var doc = await _cloudGetDoc(folder, id);
+    if (!doc) { alert("Document not found."); return; }
     doc.status = "Archived";
     doc.archivedDate = new Date().toISOString().substring(0, 10);
-
-    const newHandle = await archiveFolder.getFileHandle(id + ".json", { create: true });
-    const writable = await newHandle.createWritable();
-    await writable.write(JSON.stringify(doc, null, 2));
-    await writable.close();
-
-    await source.removeEntry(id + ".json");
+    await _cloudWriteDoc('Archive', id, doc);
+    await _cloudDeleteDoc(folder, id);
     alert("Document Archived.");
+    if (userFolderId) { window.currentUserFolder = userFolderId; }
     renderDocuments();
 }
 
-async function relaunchDocument(id) {
+async function relaunchDocument(id, userFolderId) {
     if (!confirm("Relaunch this document to Open?")) return;
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const archiveFolder = await docsRoot.getDirectoryHandle("Archive");
-    const openFolder = await docsRoot.getDirectoryHandle("Open", { create: true });
-
-    const fileHandle = await archiveFolder.getFileHandle(id + ".json");
-    const file = await fileHandle.getFile();
-    const doc = JSON.parse(await file.text());
-
+    var doc = await _cloudGetDoc('Archive', id);
+    if (!doc) { alert("Document not found."); return; }
     doc.status = "Open";
     delete doc.archivedDate;
-
-    const newHandle = await openFolder.getFileHandle(id + ".json", { create: true });
-    const writable = await newHandle.createWritable();
-    await writable.write(JSON.stringify(doc, null, 2));
-    await writable.close();
-
-    await archiveFolder.removeEntry(id + ".json");
+    await _cloudWriteDoc('Open', id, doc);
+    await _cloudDeleteDoc('Archive', id);
     alert("Document relaunched to Open.");
+    if (userFolderId) { window.currentUserFolder = userFolderId; }
     renderDocuments();
 }
 
 async function permanentDeleteDocument(id) {
     if (!confirm("PERMANENTLY delete this archived document? This cannot be undone.")) return;
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const archiveFolder = await docsRoot.getDirectoryHandle("Archive");
-    await archiveFolder.removeEntry(id + ".json");
+    await _cloudDeleteDoc('Archive', id);
     alert("Document deleted.");
     renderDocuments();
 }
 
-async function relaunchResolvedDocument(id) {
+async function relaunchResolvedDocument(id, userFolderId) {
     if (!confirm("Relaunch this resolved document back to Open?")) return;
-    const docsRoot = await directoryHandle.getDirectoryHandle("Documents", { create: true });
-    const resolvedFolder = await docsRoot.getDirectoryHandle("Resolved");
-    const openFolder = await docsRoot.getDirectoryHandle("Open", { create: true });
-
-    const fileHandle = await resolvedFolder.getFileHandle(id + ".json");
-    const file = await fileHandle.getFile();
-    const doc = JSON.parse(await file.text());
-
+    var doc = await _cloudGetDoc('Resolved', id);
+    if (!doc) { alert("Document not found."); return; }
     doc.status = "Open";
-
-    const newHandle = await openFolder.getFileHandle(id + ".json", { create: true });
-    const writable = await newHandle.createWritable();
-    await writable.write(JSON.stringify(doc, null, 2));
-    await writable.close();
-
-    await resolvedFolder.removeEntry(id + ".json");
+    await _cloudWriteDoc('Open', id, doc);
+    await _cloudDeleteDoc('Resolved', id);
     alert("Document relaunched to Open.");
+    if (userFolderId) { window.currentUserFolder = userFolderId; }
     renderDocuments();
 }
 
 async function deleteDocument(id, folder) {
     if (!confirm("Permanently delete this document?")) return;
-    const root = await directoryHandle.getDirectoryHandle("Documents");
-    const target = await root.getDirectoryHandle(folder);
-    await target.removeEntry(id + ".json");
+    await _cloudDeleteDoc(folder, id);
     alert("Document deleted.");
     renderDocuments();
 }
 
 /* ─── Archive Tab ───────────────────────────────────────────── */
 async function renderDocumentArchive() {
-    if (!directoryHandle) {
+    if (!_isDocsCloud()) {
         document.getElementById("mainView").innerHTML = `
             <div class="card p-12 text-center rounded-none">
                 <h2 class="text-3xl font-black outfit text-purple-600 mb-2">Document Archive</h2>
-                <p class="text-slate-500 font-bold mb-4">Master folder not anchored.</p>
+                <p class="text-slate-500 font-bold mb-4">Sign in with Microsoft to access documents.</p>
             </div>`;
         return;
     }
@@ -610,8 +1297,8 @@ async function renderDocumentArchive() {
             ${doc.archivedDate ? `<p class="text-xs font-bold text-purple-500">Archived: ${escapeHtml(doc.archivedDate)}</p>` : ''}
             ${lastReply ? `<p class="text-xs text-slate-400 mt-2 italic">${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}</p>` : ''}
             <div class="flex gap-2 mt-4">
-                <button onclick="openDocumentViewer('${doc.id}', 'Archive')" class="btn-primary rounded-none text-sm flex-1">Open</button>
-                <button onclick="relaunchDocument('${doc.id}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>
+                <button onclick="openDocumentViewer('${doc.id}', 'Archive', '${doc.userFolderId || ''}')" class="btn-primary rounded-none text-sm flex-1">Open</button>
+                <button onclick="relaunchDocument('${doc.id}', '${doc.userFolderId || ''}')" class="bg-blue-50 text-blue-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-blue-100">Relaunch</button>
                 <button onclick="permanentDeleteDocument('${doc.id}')" class="bg-red-100 text-red-700 rounded-none text-sm flex-1 py-2 font-bold hover:bg-red-200">Delete</button>
             </div>
         </div>`;
