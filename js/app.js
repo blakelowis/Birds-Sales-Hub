@@ -572,7 +572,7 @@ window.leaderboardPDFExport = function() {
     // Table
     var tableY = 46;
     var tableBody = data.map(function(d, idx) {
-        var deltaStr = d.deltaNum > 0 ? '\u25b2 +' + d.deltaNum : d.deltaNum < 0 ? '\u25bc ' + d.deltaNum : '\u2014';
+        var deltaStr = d.deltaNum > 0 ? 'UP +' + d.deltaNum : d.deltaNum < 0 ? 'DN ' + Math.abs(d.deltaNum) : '-';
         return [
             String(d.rank),
             deltaStr,
@@ -587,7 +587,7 @@ window.leaderboardPDFExport = function() {
 
     doc.autoTable({
         startY: tableY,
-        head: [['Rank', '\u0394', 'Store', 'Area', 'Comp Score', 'Sales', 'Labour', 'Energy']],
+        head: [['Rank', 'Move', 'Store', 'Area', 'Comp Score', 'Sales', 'Labour', 'Energy']],
         body: tableBody,
         styles: { fontSize: 8, cellPadding: 2.5 },
         headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
@@ -608,8 +608,8 @@ window.leaderboardPDFExport = function() {
                 // Color code rank delta
                 if (hookData.column.index === 1) {
                     var raw = String(hookData.cell.raw);
-                    if (raw.includes('\u25b2')) { hookData.cell.styles.textColor = [5, 150, 105]; hookData.cell.styles.fontStyle = 'bold'; }
-                    else if (raw.includes('\u25bc')) { hookData.cell.styles.textColor = [190, 18, 60]; hookData.cell.styles.fontStyle = 'bold'; }
+                    if (raw.startsWith('UP')) { hookData.cell.styles.textColor = [5, 150, 105]; hookData.cell.styles.fontStyle = 'bold'; }
+                    else if (raw.startsWith('DN')) { hookData.cell.styles.textColor = [190, 18, 60]; hookData.cell.styles.fontStyle = 'bold'; }
                     else { hookData.cell.styles.textColor = [180, 180, 180]; }
                 }
                 // Color code comp score
@@ -640,7 +640,7 @@ window.leaderboardPDFExport = function() {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
             doc.setTextColor(160, 160, 160);
-            doc.text('Birds Bakery \u2014 Leaderboard', MG, PH - 6);
+            doc.text('Birds Bakery - Leaderboard', MG, PH - 6);
             doc.text('Page ' + hookData.pageNumber, PW - MG, PH - 6, { align: 'right' });
         }
     });
@@ -656,7 +656,7 @@ window.leaderboardPDFExport = function() {
         var movers = data.filter(d => Math.abs(d.deltaNum) > 0).sort((a, b) => Math.abs(b.deltaNum) - Math.abs(a.deltaNum)).slice(0, 5);
         if (movers.length > 0) {
             var moverBody = movers.map(function(d) {
-                var dir = d.deltaNum > 0 ? '\u25b2 Up' : '\u25bc Down';
+                var dir = d.deltaNum > 0 ? 'Up' : 'Down';
                 var dirColor = d.deltaNum > 0 ? 'green' : 'red';
                 return [d.branch, dir + ' ' + Math.abs(d.deltaNum) + ' places', String(d.rank) + ' (was ' + (d.wasRank || '?') + ')', d.score.toFixed(1)];
             });
@@ -676,8 +676,8 @@ window.leaderboardPDFExport = function() {
                 didParseCell: function(hookData) {
                     if (hookData.section === 'body' && hookData.column.index === 1) {
                         var raw = String(hookData.cell.raw);
-                        if (raw.includes('\u25b2')) hookData.cell.styles.textColor = [5, 150, 105];
-                        else if (raw.includes('\u25bc')) hookData.cell.styles.textColor = [190, 18, 60];
+                        if (raw.startsWith('Up')) hookData.cell.styles.textColor = [5, 150, 105];
+                        else if (raw.startsWith('Down')) hookData.cell.styles.textColor = [190, 18, 60];
                     }
                 }
             });
