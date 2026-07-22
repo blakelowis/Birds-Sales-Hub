@@ -102,8 +102,8 @@
     <main id="mainView" class="space-y-6"></main>
   </div>
 
-  <!-- Sign-In Overlay -->
-  <div id="signInOverlay" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);">
+  <!-- Sign-In Overlay (TEST MODE - auto-hidden) -->
+  <div id="signInOverlay" class="fixed inset-0 z-50 hidden items-center justify-center" style="background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);">
     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 p-8 text-center">
       <img src="logo.png" alt="Birds" class="h-16 w-auto mx-auto mb-4">
       <h2 class="text-xl font-black outfit birds-green mb-2">Sales Hub</h2>
@@ -279,8 +279,16 @@
       document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">Data Cleared</h2><p class="text-slate-500 mb-6">Refresh to reload data from SharePoint.</p></div>';
     }
 
-    // Boot: auto-sync from local folder on load
+    // Boot: TEST MODE — skip Entra, auto-admin
     (function() {
+      // Auto-enable admin mode (no login required)
+      window.__tempAdmin = true;
+      window.isAdmin = function() { return true; };
+      document.getElementById('signInOverlay').classList.add('hidden');
+      document.getElementById('userBadge').textContent = 'Admin (Test Mode)';
+      document.getElementById('userBadge').classList.remove('hidden');
+      document.getElementById('folderStatus').textContent = 'Status: Test Mode — No Auth';
+
       // Load EHO ratings
       if (typeof window.loadEHORatings === 'function') {
         window.loadEHORatings();
@@ -297,16 +305,16 @@
     (function() { var img = new Image(); img.onload = function() { window.__pdfLogo = img; }; img.src = 'logo.png'; })();
   </script>
   <script>
-    // Register fresh service worker after all scripts loaded
-    window.addEventListener('load', function() {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').then(function(reg) {
-          console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? reg.active.scriptURL : 'unknown'), 'scope:', reg.scope);
-        }).catch(function(err) {
-          console.warn('[SW] Registration failed:', err);
-        });
-      }
-    });
+    // TEST MODE — service worker disabled
+    // window.addEventListener('load', function() {
+    //   if ('serviceWorker' in navigator) {
+    //     navigator.serviceWorker.register('./sw.js').then(function(reg) {
+    //       console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? reg.active.scriptURL : 'unknown'), 'scope:', reg.scope);
+    //     }).catch(function(err) {
+    //       console.warn('[SW] Registration failed:', err);
+    //     });
+    //   }
+    // });
   </script>
 </body>
 </html>
