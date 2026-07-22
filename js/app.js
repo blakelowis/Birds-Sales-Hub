@@ -424,28 +424,78 @@ if(currentView === 'overview'){
     const prevSorted = [...prevLB].sort((a,b)=> getCompScore(b) - getCompScore(a)); 
     const prevRank = new Map(prevSorted.map((r,i)=>[r.Branch, i+1]));
 
-    const rows = currSorted.map((r,i)=>{
-      const nowRank = i+1; const wasRank = prevRank.get(r.Branch); let delta = '<span class="text-slate-300 font-black">—</span>';
-      if(wasRank && wasRank !== nowRank) { const diff = wasRank - nowRank; if(diff > 0) delta = `<span class="text-emerald-600 font-black">▲ ${diff}</span>`; else delta = `<span class="text-red-600 font-black">▼ ${Math.abs(diff)}</span>`; }
+    const leaderData = currSorted.map((r,i)=>{
+      const nowRank = i+1; const wasRank = prevRank.get(r.Branch);
+      let deltaNum = 0; let deltaHtml = '<span class="text-slate-300 font-black">\u2014</span>';
+      if(wasRank && wasRank !== nowRank) { deltaNum = wasRank - nowRank; if(deltaNum > 0) deltaHtml = `<span class="text-emerald-600 font-black">\u25b2 ${deltaNum}</span>`; else deltaHtml = `<span class="text-red-600 font-black">\u25bc ${Math.abs(deltaNum)}</span>`; }
+      return { rank: nowRank, wasRank: wasRank || null, deltaNum, deltaHtml, branch: r.Branch, am: r.AM, score: getCompScore(r), sales: (r.Sales||0)*100, labour: (r.Labour||0)*100, energy: r.Energy||0 };
+    });
+
+    window._leaderData = leaderData;
+
+    function leaderRowHtml(d) {
       return `<tr class="border-b border-slate-100 text-[11px] hover:bg-slate-50">
-        <td class="p-3 font-black">${nowRank}</td>
-        <td class="p-3">${delta}</td>
-        <td class="p-3 font-bold">${r.Branch}</td>
-        <td class="p-3 text-slate-500">${r.AM}</td>
-        <td class="p-3 font-black text-indigo-600">${getCompScore(r).toFixed(1)}</td>
-        <td class="p-3 font-bold birds-green">${(r.Sales*100).toFixed(1)}%</td>
-        <td class="p-3">${(r.Labour*100).toFixed(1)}%</td>
-        <td class="p-3">${(r.Energy).toFixed(0)} kWh</td>
+        <td class="p-3 font-black">${d.rank}</td>
+        <td class="p-3">${d.deltaHtml}</td>
+        <td class="p-3 font-bold">${escapeHtml(d.branch)}</td>
+        <td class="p-3 text-slate-500">${escapeHtml(d.am)}</td>
+        <td class="p-3 font-black text-indigo-600">${d.score.toFixed(1)}</td>
+        <td class="p-3 font-bold birds-green">${d.sales.toFixed(1)}%</td>
+        <td class="p-3">${d.labour.toFixed(1)}%</td>
+        <td class="p-3">${d.energy.toFixed(0)} kWh</td>
       </tr>`;
-    }).join('');
+    }
+
+    window._leaderFilter = function() {
+      const sortBy = document.getElementById('leaderSortBy')?.value || 'rank';
+      const dir = document.getElementById('leaderSortDir')?.value || 'asc';
+      let data = [...(window._leaderData || [])];
+      if(sortBy === 'rank') data.sort((a,b) => dir==='asc' ? a.rank - b.rank : b.rank - a.rank);
+      else if(sortBy === 'movement') data.sort((a,b) => dir==='asc' ? a.deltaNum - b.deltaNum : b.deltaNum - a.deltaNum);
+      else if(sortBy === 'score') data.sort((a,b) => dir==='asc' ? a.score - b.score : b.score - a.score);
+      else if(sortBy === 'sales') data.sort((a,b) => dir==='asc' ? a.sales - b.sales : b.sales - a.sales);
+      else if(sortBy === 'labour') data.sort((a,b) => dir==='asc' ? a.labour - b.labour : b.labour - a.labour);
+      else if(sortBy === 'energy') data.sort((a,b) => dir==='asc' ? a.energy - b.energy : b.energy - a.energy);
+      else if(sortBy === 'name') data.sort((a,b) => dir==='asc' ? a.branch.localeCompare(b.branch) : b.branch.localeCompare(a.branch));
+      const tbody = document.getElementById('leaderTbody');
+      if(tbody) tbody.innerHTML = data.map(leaderRowHtml).join('');
+      window._leaderFiltered = data;
+    };
+
+    window._leaderFiltered = leaderData;
+
+    const timeLabel = currentTimeFilter === 'latest' ? 'Week ' + baseWeek : currentTimeFilter === 'last4' ? 'Last 4 Weeks' : 'YTD';
 
     document.getElementById('mainView').innerHTML = `
+      <div class="mb-4 flex flex-wrap items-end gap-3">
+        <div class="filter-group">
+          <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Sort By</label>
+          <select id="leaderSortBy" onchange="window._leaderFilter()" class="border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none">
+            <option value="rank">Rank (Default)</option>
+            <option value="movement">Rank Movement</option>
+            <option value="score">Composite Score</option>
+            <option value="sales">Sales %</option>
+            <option value="labour">Labour %</option>
+            <option value="energy">Energy kWh</option>
+            <option value="name">Store Name</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Direction</label>
+          <select id="leaderSortDir" onchange="window._leaderFilter()" class="border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none">
+            <option value="desc">Highest First</option>
+            <option value="asc">Lowest First</option>
+          </select>
+        </div>
+        <button onclick="leaderboardPDFExport()" class="bg-rose-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-rose-700">PDF Export</button>
+        <span class="text-xs font-bold text-slate-400 ml-auto">${timeLabel} \u2014 ${leaderData.length} stores</span>
+      </div>
       <div class="card overflow-x-auto relative max-h-[600px] overflow-y-auto shadow-inner border border-slate-200">
         <table class="w-full text-left relative">
           <thead class="sticky top-0 bg-slate-50 z-10 shadow-sm border-b border-slate-200">
             <tr>
               <th class="p-3 text-[10px] uppercase text-slate-500 font-black">Rank</th>
-              <th class="p-3 text-[10px] uppercase text-slate-500 font-black">Δ</th>
+              <th class="p-3 text-[10px] uppercase text-slate-500 font-black">\u0394</th>
               <th class="p-3 text-[10px] uppercase text-slate-500 font-black">Store</th>
               <th class="p-3 text-[10px] uppercase text-slate-500 font-black">Area</th>
               <th class="p-3 text-[10px] uppercase text-slate-500 font-black">Comp Score</th>
@@ -454,11 +504,194 @@ if(currentView === 'overview'){
               <th class="p-3 text-[10px] uppercase text-slate-500 font-black">Energy</th>
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
+          <tbody id="leaderTbody">${leaderData.map(leaderRowHtml).join('')}</tbody>
         </table>
       </div>`;
   }
 }
+
+window.leaderboardPDFExport = function() {
+    if (typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') { alert('PDF library not loaded'); return; }
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    var MINT = [0, 168, 142];
+    var CHARCOAL = [55, 55, 55];
+    var LIGHT_GREY = [120, 120, 120];
+    var PW = 297, PH = 210, MG = 14;
+
+    var data = window._leaderFiltered || window._leaderData || [];
+    if (data.length === 0) { alert('No leaderboard data to export.'); return; }
+
+    var sortBy = document.getElementById('leaderSortBy')?.value || 'rank';
+    var dir = document.getElementById('leaderSortDir')?.value || 'asc';
+    var sortLabel = { rank: 'Rank', movement: 'Rank Movement', score: 'Composite Score', sales: 'Sales %', labour: 'Labour %', energy: 'Energy kWh', name: 'Store Name' };
+    var timeFilter = (typeof currentTimeFilter !== 'undefined') ? currentTimeFilter : 'ytd';
+    var timeLabel = timeFilter === 'latest' ? 'Latest Week' : timeFilter === 'last4' ? 'Last 4 Weeks' : 'Year to Date';
+
+    // Header
+    doc.setFillColor(...MINT);
+    doc.rect(0, 0, PW, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(...CHARCOAL);
+    doc.text('Leaderboard Summary', MG, 15);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...LIGHT_GREY);
+    doc.text('Generated: ' + new Date().toLocaleDateString('en-GB') + '  |  ' + timeLabel + '  |  Sorted by: ' + (sortLabel[sortBy] || sortBy) + ' (' + (dir === 'asc' ? 'Lowest First' : 'Highest First') + ')', MG, 21);
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.3);
+    doc.line(MG, 24, PW - MG, 24);
+
+    // KPI boxes
+    var avgScore = data.reduce((s, d) => s + d.score, 0) / data.length;
+    var topMovers = data.filter(d => Math.abs(d.deltaNum) > 0).sort((a, b) => Math.abs(b.deltaNum) - Math.abs(a.deltaNum)).slice(0, 3);
+    var avgSales = data.reduce((s, d) => s + d.sales, 0) / data.length;
+
+    var bw = 42, bh = 14;
+    var kpis = [
+        { label: 'STORES', value: String(data.length), bg: [241,245,249], fg: [51,65,85] },
+        { label: 'AVG SCORE', value: avgScore.toFixed(1), bg: [238,242,255], fg: [55,53,147] },
+        { label: 'AVG SALES', value: avgSales.toFixed(1) + '%', bg: [236,253,245], fg: [5,150,105] },
+        { label: 'TOP MOVER', value: topMovers.length ? topMovers[0].branch.substring(0, 12) : 'N/A', bg: [255,251,235], fg: [180,83,9] }
+    ];
+    var bx = MG;
+    kpis.forEach(function(k) {
+        doc.setFillColor(...k.bg);
+        doc.roundedRect(bx, 28, bw, bh, 2, 2, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6);
+        doc.setTextColor(...k.fg);
+        doc.text(k.label, bx + 3, 33);
+        doc.setFontSize(13);
+        doc.text(k.value, bx + 3, 39);
+        bx += bw + 3;
+    });
+
+    // Table
+    var tableY = 46;
+    var tableBody = data.map(function(d, idx) {
+        var deltaStr = d.deltaNum > 0 ? '\u25b2 +' + d.deltaNum : d.deltaNum < 0 ? '\u25bc ' + d.deltaNum : '\u2014';
+        return [
+            String(d.rank),
+            deltaStr,
+            d.branch,
+            d.am,
+            d.score.toFixed(1),
+            d.sales.toFixed(1) + '%',
+            d.labour.toFixed(1) + '%',
+            d.energy.toFixed(0)
+        ];
+    });
+
+    doc.autoTable({
+        startY: tableY,
+        head: [['Rank', '\u0394', 'Store', 'Area', 'Comp Score', 'Sales', 'Labour', 'Energy']],
+        body: tableBody,
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+            0: { cellWidth: 14, fontStyle: 'bold', halign: 'center' },
+            1: { cellWidth: 18, halign: 'center' },
+            2: { cellWidth: 48, fontStyle: 'bold' },
+            3: { cellWidth: 35 },
+            4: { cellWidth: 24, fontStyle: 'bold', halign: 'center' },
+            5: { cellWidth: 22, halign: 'center' },
+            6: { cellWidth: 22, halign: 'center' },
+            7: { cellWidth: 22, halign: 'center' }
+        },
+        margin: { left: MG, right: MG },
+        didParseCell: function(hookData) {
+            if (hookData.section === 'body') {
+                // Color code rank delta
+                if (hookData.column.index === 1) {
+                    var raw = String(hookData.cell.raw);
+                    if (raw.includes('\u25b2')) { hookData.cell.styles.textColor = [5, 150, 105]; hookData.cell.styles.fontStyle = 'bold'; }
+                    else if (raw.includes('\u25bc')) { hookData.cell.styles.textColor = [190, 18, 60]; hookData.cell.styles.fontStyle = 'bold'; }
+                    else { hookData.cell.styles.textColor = [180, 180, 180]; }
+                }
+                // Color code comp score
+                if (hookData.column.index === 4) {
+                    var val = parseFloat(hookData.cell.raw);
+                    if (!isNaN(val)) {
+                        if (val > 100) hookData.cell.styles.textColor = [5, 150, 105];
+                        else if (val > 50) hookData.cell.styles.textColor = [14, 116, 144];
+                        else if (val > 0) hookData.cell.styles.textColor = [180, 83, 9];
+                        else hookData.cell.styles.textColor = [190, 18, 60];
+                    }
+                }
+                // Color code sales
+                if (hookData.column.index === 5) {
+                    var val = parseFloat(hookData.cell.raw);
+                    if (!isNaN(val)) {
+                        if (val > 100) hookData.cell.styles.textColor = [5, 150, 105];
+                        else if (val > 98) hookData.cell.styles.textColor = [14, 116, 144];
+                        else hookData.cell.styles.textColor = [190, 18, 60];
+                    }
+                }
+            }
+        },
+        didDrawPage: function(hookData) {
+            doc.setDrawColor(220, 220, 220);
+            doc.setLineWidth(0.3);
+            doc.line(MG, PH - 10, PW - MG, PH - 10);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(160, 160, 160);
+            doc.text('Birds Bakery \u2014 Leaderboard', MG, PH - 6);
+            doc.text('Page ' + hookData.pageNumber, PW - MG, PH - 6, { align: 'right' });
+        }
+    });
+
+    // Top Movers Summary
+    var summaryY = doc.lastAutoTable.finalY + 12;
+    if (summaryY + 40 < PH - 20) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...CHARCOAL);
+        doc.text('Top Movers', MG, summaryY);
+        summaryY += 5;
+        var movers = data.filter(d => Math.abs(d.deltaNum) > 0).sort((a, b) => Math.abs(b.deltaNum) - Math.abs(a.deltaNum)).slice(0, 5);
+        if (movers.length > 0) {
+            var moverBody = movers.map(function(d) {
+                var dir = d.deltaNum > 0 ? '\u25b2 Up' : '\u25bc Down';
+                var dirColor = d.deltaNum > 0 ? 'green' : 'red';
+                return [d.branch, dir + ' ' + Math.abs(d.deltaNum) + ' places', String(d.rank) + ' (was ' + (d.wasRank || '?') + ')', d.score.toFixed(1)];
+            });
+            doc.autoTable({
+                startY: summaryY,
+                head: [['Store', 'Movement', 'Now (Was)', 'Score']],
+                body: moverBody,
+                styles: { fontSize: 8, cellPadding: 2 },
+                headStyles: { fillColor: MINT, fontSize: 7, fontStyle: 'bold' },
+                columnStyles: {
+                    0: { cellWidth: 50, fontStyle: 'bold' },
+                    1: { cellWidth: 40 },
+                    2: { cellWidth: 35 },
+                    3: { cellWidth: 25 }
+                },
+                margin: { left: MG, right: MG },
+                didParseCell: function(hookData) {
+                    if (hookData.section === 'body' && hookData.column.index === 1) {
+                        var raw = String(hookData.cell.raw);
+                        if (raw.includes('\u25b2')) hookData.cell.styles.textColor = [5, 150, 105];
+                        else if (raw.includes('\u25bc')) hookData.cell.styles.textColor = [190, 18, 60];
+                    }
+                }
+            });
+        } else {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(150, 150, 150);
+            doc.text('No rank movement data available for this period.', MG, summaryY + 5);
+        }
+    }
+
+    var stamp = new Date().toISOString().slice(0, 10);
+    doc.save('Leaderboard_' + stamp + '.pdf');
+};
 
 function renderControlPanel() { if(window.isAdmin && !isAdmin()){ document.getElementById('mainView').innerHTML='<div class="card p-8 text-center"><h2>Admin Access Required</h2></div>'; return; }
     let rows = ''; const sortedStores = Array.from(storeMap.entries()).sort((a,b) => a[0].localeCompare(b[0]));
