@@ -1088,7 +1088,7 @@ async function generateComplaintsPDF() {
     doc.setTextColor(...LIGHT_GREY);
     doc.text('AVG RESOLVE TIME', sx, sy);
     doc.setFontSize(16);
-    doc.setTextColor([14, 116, 144]);
+    doc.setTextColor(14, 116, 144);
     doc.text(avgCloseText, sx, sy + 9);
 
     sx += 48;
@@ -1097,7 +1097,7 @@ async function generateComplaintsPDF() {
     doc.setTextColor(...LIGHT_GREY);
     doc.text('TOTAL VOUCHER COST', sx, sy);
     doc.setFontSize(16);
-    doc.setTextColor([124, 58, 237]);
+    doc.setTextColor(124, 58, 237);
     doc.text(formatVoucherTotal(totalVoucherCost), sx, sy + 9);
 
     sx += 52;
@@ -1106,7 +1106,7 @@ async function generateComplaintsPDF() {
     doc.setTextColor(...LIGHT_GREY);
     doc.text('RESOLUTION RATE', sx, sy);
     doc.setFontSize(16);
-    doc.setTextColor([5, 150, 105]);
+    doc.setTextColor(5, 150, 105);
     doc.text(resolutionRate + '%', sx, sy + 9);
 
     sx += 48;
@@ -1115,7 +1115,7 @@ async function generateComplaintsPDF() {
     doc.setTextColor(...LIGHT_GREY);
     doc.text('UNRESOLVED', sx, sy);
     doc.setFontSize(16);
-    doc.setTextColor([190, 18, 60]);
+    doc.setTextColor(190, 18, 60);
     doc.text(String(openCount), sx, sy + 9);
 
     // Complaint type breakdown in summary

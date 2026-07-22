@@ -466,7 +466,7 @@ if (!storeName) {
     const medalPngWidth = 170;
     const medalPngX = (PAGE_WIDTH - medalPngWidth) / 2;
     let medalY = 30;
-    const PAGE_MEDAL_LIMIT = PH - 25;
+    const PAGE_MEDAL_LIMIT = 297 - 25;
 
     async function renderMedalChunk(html, label) {
         let chunkDiv = document.createElement('div');

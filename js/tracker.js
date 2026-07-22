@@ -166,6 +166,7 @@ window.renderTracker = function() {
                 </div>
                 <button onclick="trackerClearFilters()" class="btn text-xs">Clear Filters</button>
                 <button onclick="trackerExportPNG()" class="btn-primary text-xs">Export PNG</button>
+                <button onclick="trackerPrintPDF()" class="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-md hover:bg-rose-700">PDF Export</button>
                 <span id="trackerRowCount" class="text-xs font-bold text-slate-400 ml-auto"></span>
             </div>
         </div>
