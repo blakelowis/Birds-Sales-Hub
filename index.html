@@ -114,22 +114,22 @@
 
 
   <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
-  <script src="js/db.js?v=113"></script>
-  <script src="js/utils.js?v=113"></script>
-  <script src="js/data.js?v=113"></script>
-  <script src="js/charts.js?v=113"></script>
-  <script src="js/scorecards.js?v=113"></script>
-  <script src="js/reports.js?v=113"></script>
-  <script src="js/complaints.js?v=113"></script>
-  <script src="js/documents.js?v=113"></script>
-  <script src="js/template-builder.js?v=113"></script>
-  <script src="js/audits.js?v=113"></script>
-  <script src="js/tracker_defaults.js?v=113"></script>
-  <script src="js/tracker.js?v=113"></script>
-  <script src="js/awards.js?v=113"></script>
-  <script src="js/audit-perform.js?v=113"></script>
-  <script src="js/overview.js?v=113"></script>
-  <script src="js/app.js?v=113"></script>
+  <script src="js/db.js?v=114"></script>
+  <script src="js/utils.js?v=114"></script>
+  <script src="js/data.js?v=114"></script>
+  <script src="js/charts.js?v=114"></script>
+  <script src="js/scorecards.js?v=114"></script>
+  <script src="js/reports.js?v=114"></script>
+  <script src="js/complaints.js?v=114"></script>
+  <script src="js/documents.js?v=114"></script>
+  <script src="js/template-builder.js?v=114"></script>
+  <script src="js/audits.js?v=114"></script>
+  <script src="js/tracker_defaults.js?v=114"></script>
+  <script src="js/tracker.js?v=114"></script>
+  <script src="js/awards.js?v=114"></script>
+  <script src="js/audit-perform.js?v=114"></script>
+  <script src="js/overview.js?v=114"></script>
+  <script src="js/app.js?v=114"></script>
   <script>
     // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
     var _activeTab = 'sales';
@@ -231,7 +231,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=113').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=114').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
