@@ -488,19 +488,43 @@ function _renderFormTemplateFields(templateId, existingValues) {
                     var rows = f.tableRows || 3, cols = f.tableCols || 3;
                     var headers = f.tableHeaders || [];
                     var rowHdrs = f.tableRowHeaders || [];
+                    var scoredRows = f.tableScoredRows || [];
+                    var hasScoring = f.scoringType && f.scoringType !== 'none';
                     var tableVals = (val || '').split('\n');
                     html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                     html += '<thead><tr>';
                     for (var tc = 0; tc < cols; tc++) {
                         html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[tc] || 'Col ' + (tc+1)) + '</th>';
                     }
+                    if (scoredRows.length && hasScoring) html += '<th class="bg-amber-50 border border-slate-200 p-2 text-center font-bold text-amber-700 text-xs" style="min-width:50px">Score</th>';
                     html += '</tr></thead><tbody>';
                     for (var tr = 0; tr < rows; tr++) {
                         var rowParts = (tableVals[tr] || '').split(' | ');
-                        html += '<tr>';
+                        var rowScored = scoredRows.indexOf(tr) !== -1 && hasScoring;
+                        html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                         html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[tr] || 'Row ' + (tr+1)) + '</td>';
                         for (var tc = 0; tc < cols; tc++) {
                             html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="' + tc + '" value="' + escapeHtml(rowParts[tc] || '') + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field focus:bg-white focus:ring-1 focus:ring-emerald-300 rounded" placeholder=""></td>';
+                        }
+                        if (rowScored) {
+                            var scType = f.scoringType || 'score_1_10';
+                            var existingScore = (existingValues && existingValues[f.id + '_r' + tr + '_c' + 'score']) || '';
+                            html += '<td class="border border-slate-200 p-1 text-center" style="min-width:120px">';
+                            if (scType === 'rag') {
+                                html += '<div class="flex gap-1 justify-center">';
+                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Green' ? ' ring-2 ring-offset-1' : '') + '">G</button>';
+                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200' + (existingScore === 'Amber' ? ' ring-2 ring-offset-1' : '') + '">A</button>';
+                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Red' ? ' ring-2 ring-offset-1' : '') + '">R</button>';
+                                html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
+                            } else if (scType === 'passfail') {
+                                html += '<div class="flex gap-1 justify-center">';
+                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Pass' ? ' ring-2 ring-offset-1' : '') + '">Pass</button>';
+                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Fail' ? ' ring-2 ring-offset-1' : '') + '">Fail</button>';
+                                html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
+                            } else {
+                                html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" min="0" max="10" value="' + escapeHtml(existingScore) + '" class="w-12 p-1 text-sm border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+                            }
+                            html += '</td>';
                         }
                         html += '</tr>';
                     }
@@ -809,6 +833,7 @@ async function _calculateFormSummary(templateId, values) {
             if (rowIdx >= rows) return;
             var key = f.id + '_r' + rowIdx + '_c' + 'score';
             var rawVal = values[key] || '';
+            if (!rawVal) return;
             var val = 0;
             if (scType === 'rag') {
                 val = rawVal === 'Green' ? max : rawVal === 'Amber' ? Math.round(max * 0.5) : 0;
@@ -822,7 +847,7 @@ async function _calculateFormSummary(templateId, values) {
             summary.totalScore += weightedVal;
             summary.maxScore += weightedMax;
             summary.fieldResults.push({
-                label: (rowHdrs[rowIdx] || 'Row ' + (rowIdx+1)) + ' (table)',
+                label: (rowHdrs[rowIdx] || 'Row ' + (rowIdx+1)),
                 type: 'table_row',
                 scoringType: scType,
                 rawValue: rawVal,
@@ -962,7 +987,7 @@ async function _renderSummaryPanel(templateId, values) {
         html += '<div class="pt-3 border-t border-slate-200">';
         html += '<div class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Question Breakdown</div>';
         html += '<div class="space-y-1.5">';
-        summary.fieldResults.forEach(function(r) {
+        summary.fieldResults.filter(function(r) { return r.type !== 'table_row'; }).forEach(function(r) {
             var st = r.scoringType || 'none';
             if (st === 'score_1_10' || r.type === 'score') {
                 var max = r.max || 10;
@@ -1026,10 +1051,6 @@ async function _renderSummaryPanel(templateId, values) {
         html += '</div></div>';
     }
 
-    // CSV download button
-    html += '<div class="pt-3 border-t border-slate-200">';
-    html += '<button onclick="window._downloadSummaryCSV()" class="text-[10px] font-bold px-3 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-colors">\u2B07 Download CSV</button>';
-    html += '</div>';
 
     html += '</div>';
     return html;
@@ -1607,6 +1628,7 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
             <div class="print:hidden flex flex-wrap gap-2">
                 <button onclick="${userFolderId ? 'enterUserFolder(\'' + userFolderId + '\')' : 'renderDocuments()'}" style="background:rgba(85,91,110,0.08);color:#555B6E;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">Back</button>
                 <button onclick="window.print()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 13px;">Print PDF</button>
+                ${doc.formTemplateId && doc.formTemplateValues ? '<button onclick="window._downloadSummaryCSV()" style="background:var(--edwardian-sage);color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">\u2B07 Download CSV</button>' : ''}
                 <button onclick="moveDocToFolder('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-slate-100 text-slate-600 rounded-none font-bold px-4 py-2 hover:bg-slate-200">📁 Move to Folder</button>
                 ${doc.pin ? `<button onclick="removeDocumentPin('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-amber-50 text-amber-700 rounded-none font-bold px-4 py-2 hover:bg-amber-100">Unpin</button>` : `<button onclick="setDocumentPin('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-slate-100 text-slate-600 rounded-none font-bold px-4 py-2 hover:bg-slate-200">Pin</button>`}
                 ${folder === 'Open' ? `<button onclick="resolveDocument('${doc.id}','${userFolderId || ''}')" style="background:var(--edwardian-rose);color:white;" class="rounded-none font-bold px-4 py-2">Resolve</button>` : ''}

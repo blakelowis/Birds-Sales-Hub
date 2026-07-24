@@ -451,6 +451,8 @@ function _bldRender() {
     var b = window._bld;
     if (!b) return;
     var el = document.getElementById('mainView');
+    var scrollY = window.scrollY;
+    var scrollX = window.scrollX;
     var tmpl = b.tmpl;
 
     // Canvas
@@ -551,6 +553,7 @@ function _bldRender() {
         '<h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Properties</h3>' +
         propsHtml + '</div>' : '') +
         '</div>';
+    window.scrollTo(scrollX, scrollY);
 }
 
 /* ─── Field preview on canvas card ──────────────────────────── */
