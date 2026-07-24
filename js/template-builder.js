@@ -202,7 +202,10 @@ window.renderTemplateFill = async function() {
 
         var html = '<div class="bg-white rounded-lg p-4 border border-slate-200">';
         if (at !== 'signoff') {
-            html += '<label class="text-sm font-bold text-slate-700 mb-2 block"><span class="text-xs text-slate-400 mr-1">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label) + scoringBadge + '</label>';
+            html += '<label class="text-sm font-bold text-slate-700 mb-2 block"><span class="text-xs text-slate-400 mr-1">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label) + (f.required ? ' <span class="text-red-500">*</span>' : '') + scoringBadge + '</label>';
+        }
+        if (f.helperText) {
+            html += '<p class="text-[11px] text-slate-400 mb-2 italic">' + escapeHtml(f.helperText) + '</p>';
         }
 
         if (at === 'text') {
@@ -233,6 +236,7 @@ window.renderTemplateFill = async function() {
         } else if (at === 'table') {
             var rows = f.tableRows || 3, cols = f.tableCols || 3;
             var headers = f.tableHeaders || [];
+            var rowHdrs = f.tableRowHeaders || [];
             var scoredRows = f.tableScoredRows || [];
             var scoredCols = f.tableScoredCols || [];
             var hasScoring = f.scoringType && f.scoringType !== 'none';
@@ -245,11 +249,28 @@ window.renderTemplateFill = async function() {
             for (var r = 0; r < rows; r++) {
                 var rowScored = scoredRows.indexOf(r) !== -1 && hasScoring;
                 html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
+                html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[r] || 'Row ' + (r+1)) + '</td>';
                 for (var c2 = 0; c2 < cols; c2++) {
                     html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="' + c2 + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field rounded" placeholder=""></td>';
                 }
                 if (rowScored) {
-                    html += '<td class="border border-slate-200 p-1 text-center"><input type="number" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" min="0" max="10" class="w-12 p-1 text-sm border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014"></td>';
+                    var scType = f.scoringType || 'score_1_10';
+                    html += '<td class="border border-slate-200 p-1 text-center" style="min-width:120px">';
+                    if (scType === 'rag') {
+                        html += '<div class="flex gap-1 justify-center">';
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">G</button>';
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200">A</button>';
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">R</button>';
+                        html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
+                    } else if (scType === 'passfail') {
+                        html += '<div class="flex gap-1 justify-center">';
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">Pass</button>';
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">Fail</button>';
+                        html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
+                    } else {
+                        html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" min="0" max="10" class="w-12 p-1 text-sm border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+                    }
+                    html += '</td>';
                 }
                 html += '</tr>';
             }
@@ -546,8 +567,12 @@ function _bldFieldPreview(f) {
     if (at === 'table') {
         var rows = f.tableRows || 3, cols = f.tableCols || 3;
         var hdrs = (f.tableHeaders || []).slice(0, cols).map(function(h) { return '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(h) + '</th>'; }).join('');
+        var rowHdrs = f.tableRowHeaders || [];
         var cells = '';
-        for (var r = 0; r < Math.min(rows, 2); r++) cells += '<tr>' + Array(cols).fill('<td class="border border-slate-200 px-2 py-0.5 text-[9px] text-slate-300">...</td>').join('') + '</tr>';
+        for (var r = 0; r < Math.min(rows, 2); r++) {
+            var lbl = rowHdrs[r] ? '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500 text-left">' + escapeHtml(rowHdrs[r]) + '</th>' : '';
+            cells += '<tr>' + lbl + Array(cols).fill('<td class="border border-slate-200 px-2 py-0.5 text-[9px] text-slate-300">...</td>').join('') + '</tr>';
+        }
         return '<div class="mt-1 overflow-x-auto"><table class="w-full text-[10px] border border-slate-200"><thead><tr>' + hdrs + '</tr></thead><tbody>' + cells + '</tbody></table></div>';
     }
     return '';
@@ -603,6 +628,8 @@ function _bldProperties(f) {
             '<input type="number" id="prop-tablerows" value="' + (f.tableRows || 3) + '" min="1" max="20" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div></div>';
         html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Column Headers (one per line)</label>' +
             '<textarea id="prop-tableheaders" class="w-full h-20 p-2 border border-slate-300 rounded-lg text-sm font-mono" onchange="window._bldUpdateField()">' + escapeHtml((f.tableHeaders || []).join('\n')) + '</textarea></div>';
+        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Row Labels (one per line)</label>' +
+            '<textarea id="prop-tablerowheaders" class="w-full h-20 p-2 border border-slate-300 rounded-lg text-sm font-mono" onchange="window._bldUpdateField()">' + escapeHtml((f.tableRowHeaders || []).join('\n')) + '</textarea></div>';
 
         // Table row/col scoring (only when scoring is attached)
         if (f.scoringType && f.scoringType !== 'none') {
@@ -618,9 +645,10 @@ function _bldProperties(f) {
             }
             html += '<label class="text-[10px] font-black text-amber-700 uppercase tracking-widest mt-3 mb-2 block">Score These Rows</label>';
             for (var tr = 0; tr < (f.tableRows || 3); tr++) {
+                var rowLbl = (f.tableRowHeaders || [])[tr] || 'Row ' + (tr + 1);
                 html += '<label class="flex items-center gap-2 text-xs text-amber-700 mb-1 cursor-pointer">' +
                     '<input type="checkbox" class="prop-table-scored-row" data-row="' + tr + '" ' + (scoredRows.indexOf(tr) !== -1 ? 'checked' : '') + ' onchange="window._bldUpdateField()">' +
-                    'Row ' + (tr + 1) + '</label>';
+                    escapeHtml(rowLbl) + '</label>';
             }
             html += '</div>';
         }
@@ -647,6 +675,15 @@ function _bldProperties(f) {
         }
     }
 
+    // Required + helper text (for all question types)
+    if (at !== 'divider' && at !== 'pagebreak') {
+        html += '<div class="bg-slate-50 border border-slate-200 rounded-lg p-3">';
+        html += '<label class="flex items-center gap-2 text-xs font-bold text-slate-600 mb-2 cursor-pointer"><input type="checkbox" id="prop-required" ' + (f.required ? 'checked' : '') + ' class="accent-birds-green" onchange="window._bldUpdateField()"><span>Required field</span></label>';
+        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Helper Text (shown below question)</label>';
+        html += '<input type="text" id="prop-helpertext" value="' + escapeHtml(f.helperText || '') + '" class="input-chip rounded-none w-full" placeholder="Optional hint or instruction..." onchange="window._bldUpdateField()"></div>';
+        html += '</div>';
+    }
+
     html += '</div>';
     return html;
 }
@@ -667,14 +704,14 @@ window._bldAdd = function(sidebarType) {
         subLabel: undefined,
         signoffRole: undefined,
         numberMin: undefined, numberMax: undefined, numberStep: undefined,
-        tableCols: undefined, tableRows: undefined, tableHeaders: undefined,
+        tableCols: undefined, tableRows: undefined, tableHeaders: undefined, tableRowHeaders: undefined,
         tableScoredCols: undefined, tableScoredRows: undefined,
         scoreWeight: undefined
     };
     if (answerType === 'multichoice' || answerType === 'checkbox') field.options = ['Option 1', 'Option 2'];
     if (answerType === 'header') field.subLabel = '';
     if (answerType === 'signoff') field.signoffRole = 'Manager';
-    if (answerType === 'table') { field.tableCols = 3; field.tableRows = 3; field.tableHeaders = ['Col 1', 'Col 2', 'Col 3']; }
+    if (answerType === 'table') { field.tableCols = 3; field.tableRows = 3; field.tableHeaders = ['Col 1', 'Col 2', 'Col 3']; field.tableRowHeaders = ['Row 1', 'Row 2', 'Row 3']; }
     b.tmpl.fields.push(field);
     b.selectedIdx = b.tmpl.fields.length - 1;
     b.previewMode = false;
@@ -724,6 +761,12 @@ window._bldUpdateField = function() {
     var wEl = document.getElementById('prop-scoreweight');
     if (wEl) f.scoreWeight = parseFloat(wEl.value) || 1;
 
+    // Required + helper text
+    var reqEl = document.getElementById('prop-required');
+    if (reqEl) f.required = reqEl.checked;
+    var htEl = document.getElementById('prop-helpertext');
+    if (htEl) { if (htEl.value.trim()) f.helperText = htEl.value.trim(); else delete f.helperText; }
+
     // Type-specific
     if (f.answerType === 'header') {
         var sl = document.getElementById('prop-sublabel');
@@ -752,6 +795,8 @@ window._bldUpdateField = function() {
         if (tc) f.tableCols = parseInt(tc.value) || 3;
         if (tr) f.tableRows = parseInt(tr.value) || 3;
         if (th) f.tableHeaders = th.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+        var trh = document.getElementById('prop-tablerowheaders');
+        if (trh) f.tableRowHeaders = trh.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
         // Scored columns
         var colChecks = document.querySelectorAll('.prop-table-scored-col');
         if (colChecks.length) {
@@ -771,7 +816,7 @@ window._bldUpdateField = function() {
     if (f.answerType !== 'signoff') delete f.signoffRole;
     if (f.answerType !== 'multichoice' && f.answerType !== 'checkbox') delete f.options;
     if (f.answerType !== 'number') { delete f.numberMin; delete f.numberMax; delete f.numberStep; }
-    if (f.answerType !== 'table') { delete f.tableCols; delete f.tableRows; delete f.tableHeaders; delete f.tableScoredCols; delete f.tableScoredRows; }
+    if (f.answerType !== 'table') { delete f.tableCols; delete f.tableRows; delete f.tableHeaders; delete f.tableRowHeaders; delete f.tableScoredCols; delete f.tableScoredRows; }
     if (!f.scoringType || f.scoringType === 'none') { delete f.scoreWeight; delete f.tableScoredCols; delete f.tableScoredRows; }
 
     _bldRender();
@@ -813,7 +858,10 @@ window._bldSave = async function() {
     tmpl.description = document.getElementById('bld-page-desc') ? document.getElementById('bld-page-desc').value.trim() : '';
     if (!tmpl.name) { alert('Form name is required.'); return; }
     if (!tmpl.fields.length) { alert('Add at least one question.'); return; }
-    var empty = tmpl.fields.find(function(f) { return !f.label || !f.label.trim(); });
+    var empty = tmpl.fields.find(function(f) {
+        if (f.answerType === 'header' || f.answerType === 'divider' || f.answerType === 'signoff') return false;
+        return !f.label || !f.label.trim();
+    });
     if (empty) { alert('All questions need question text.'); return; }
     await _tplSaveTemplate(tmpl);
     alert('Form saved: ' + tmpl.name);
@@ -842,7 +890,8 @@ function _bldPreview(tmpl) {
             html += '<div class="p-5 border-2 border-dashed border-slate-200 rounded-2xl bg-amber-50/50 flex gap-4"><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Role</label><p class="text-sm font-black">' + escapeHtml(f.signoffRole || 'Manager') + '</p></div><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Name</label><input type="text" class="input-chip rounded-none w-full" placeholder="Print Name..." disabled></div><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Date</label><input type="date" class="input-chip rounded-none w-full" disabled></div></div>';
         } else {
             html += '<div class="bg-white rounded-lg p-4 border border-slate-200">';
-            html += '<label class="text-sm font-bold text-slate-700 mb-1.5 block"><span class="text-xs text-slate-400 mr-1">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label || 'Question') + '</label>';
+            html += '<label class="text-sm font-bold text-slate-700 mb-1.5 block"><span class="text-xs text-slate-400 mr-1">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label || 'Question') + (f.required ? ' <span class="text-red-500">*</span>' : '') + '</label>';
+            if (f.helperText) html += '<p class="text-[11px] text-slate-400 mb-2 italic">' + escapeHtml(f.helperText) + '</p>';
             if (at === 'text') html += '<input type="text" class="input-chip rounded-none w-full" placeholder="Type answer..." disabled>';
             else if (at === 'textarea') html += '<textarea class="w-full h-20 p-3 border border-slate-300 rounded-lg text-sm" placeholder="Type answer..." disabled></textarea>';
             else if (at === 'number') html += '<input type="number" class="input-chip rounded-none w-full" placeholder="Number..." disabled>';
@@ -860,10 +909,16 @@ function _bldPreview(tmpl) {
                 html += '<div class="p-6 border-2 border-dashed border-slate-300 rounded-xl text-center text-xs text-slate-400">Photo upload area</div>';
             } else if (at === 'table') {
                 var rows = f.tableRows || 3, cols = f.tableCols || 3;
+                var rowHdrs = f.tableRowHeaders || [];
                 html += '<table class="w-full text-sm border border-slate-200"><thead><tr>';
                 for (var c = 0; c < cols; c++) html += '<th class="bg-slate-100 border border-slate-200 p-2 text-xs font-bold text-slate-600">' + escapeHtml((f.tableHeaders||[])[c] || 'Col '+(c+1)) + '</th>';
                 html += '</tr></thead><tbody>';
-                for (var r = 0; r < rows; r++) { html += '<tr>'; for (var c2 = 0; c2 < cols; c2++) html += '<td class="border border-slate-200 p-2 text-xs text-slate-300">...</td>'; html += '</tr>'; }
+                for (var r = 0; r < rows; r++) {
+                    html += '<tr>';
+                    html += '<td class="bg-slate-50 border border-slate-200 p-2 text-xs font-bold text-slate-500 text-left">' + escapeHtml(rowHdrs[r] || 'Row '+(r+1)) + '</td>';
+                    for (var c2 = 0; c2 < cols; c2++) html += '<td class="border border-slate-200 p-2 text-xs text-slate-300">...</td>';
+                    html += '</tr>';
+                }
                 html += '</tbody></table>';
             }
             html += '</div>';

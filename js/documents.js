@@ -487,6 +487,7 @@ function _renderFormTemplateFields(templateId, existingValues) {
                 case 'table':
                     var rows = f.tableRows || 3, cols = f.tableCols || 3;
                     var headers = f.tableHeaders || [];
+                    var rowHdrs = f.tableRowHeaders || [];
                     var tableVals = (val || '').split('\n');
                     html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                     html += '<thead><tr>';
@@ -497,6 +498,7 @@ function _renderFormTemplateFields(templateId, existingValues) {
                     for (var tr = 0; tr < rows; tr++) {
                         var rowParts = (tableVals[tr] || '').split(' | ');
                         html += '<tr>';
+                        html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[tr] || 'Row ' + (tr+1)) + '</td>';
                         for (var tc = 0; tc < cols; tc++) {
                             html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="' + tc + '" value="' + escapeHtml(rowParts[tc] || '') + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field focus:bg-white focus:ring-1 focus:ring-emerald-300 rounded" placeholder=""></td>';
                         }
@@ -538,8 +540,9 @@ async function _renderFormTemplateView(templateId, existingValues) {
 
         html += '<div class="bg-white rounded-lg p-3 border border-slate-200">';
         if (at !== 'signoff') {
-            html += '<label class="text-xs font-bold text-slate-500 mb-1 block"><span class="text-slate-400">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label) + scoreLabel + '</label>';
+            html += '<label class="text-xs font-bold text-slate-500 mb-1 block"><span class="text-slate-400">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label) + (f.required ? ' <span class="text-red-500">*</span>' : '') + scoreLabel + '</label>';
         }
+        if (f.helperText) html += '<p class="text-[11px] text-slate-400 mb-1.5 italic">' + escapeHtml(f.helperText) + '</p>';
         
         switch(at) {
             case 'text':
@@ -620,6 +623,7 @@ async function _renderFormTemplateView(templateId, existingValues) {
             case 'table':
                 var tableRows = (val || '').split('\n');
                 var headers = f.tableHeaders || [];
+                var rowHdrs = f.tableRowHeaders || [];
                 var numCols = f.tableCols || 3;
                 html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                 html += '<thead><tr>';
@@ -627,9 +631,10 @@ async function _renderFormTemplateView(templateId, existingValues) {
                     html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[hc] || 'Col ' + (hc+1)) + '</th>';
                 }
                 html += '</tr></thead><tbody>';
-                tableRows.forEach(function(row) {
+                tableRows.forEach(function(row, ri) {
                     var cells = row.split(' | ');
                     html += '<tr>';
+                    html += '<td class="bg-slate-50 border border-slate-200 p-2 text-xs font-bold text-slate-500 text-left">' + escapeHtml(rowHdrs[ri] || 'Row ' + (ri+1)) + '</td>';
                     for (var cc = 0; cc < numCols; cc++) {
                         html += '<td class="border border-slate-200 p-2 text-sm">' + escapeHtml(cells[cc] || '—') + '</td>';
                     }
@@ -709,6 +714,12 @@ function _gatherFormTemplateFields(templateId) {
                     data.push(row.join(' | '));
                 }
                 values[f.id] = data.join('\n');
+                // Gather table row score values (hidden inputs for RAG/PF, number inputs for score)
+                var scoredRows = f.tableScoredRows || [];
+                scoredRows.forEach(function(ri) {
+                    var scoreEl = document.querySelector('input.form-tpl-field[data-tplfield="' + f.id + '"][data-row="' + ri + '"][data-col="score"]');
+                    values[f.id + '_r' + ri + '_c' + 'score'] = scoreEl ? scoreEl.value : '';
+                });
             } else if (at === 'image') {
                 var fileInput = document.querySelector('input[type="file"].form-tpl-field[data-tplfield="' + f.id + '"]');
                 values[f.id] = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0].name : '';
@@ -717,6 +728,18 @@ function _gatherFormTemplateFields(templateId) {
                 values[f.id] = el ? el.value : '';
             }
         });
+        // Validate required fields
+        var missing = [];
+        tmpl.fields.forEach(function(f) {
+            if (!f.required) return;
+            if (f.answerType === 'header' || f.answerType === 'divider' || f.answerType === 'pagebreak' || f.answerType === 'signoff') return;
+            var val = values[f.id] || '';
+            if (!val.trim()) missing.push(f.label || 'Unnamed field');
+        });
+        if (missing.length) {
+            alert('Required fields missing:\n\n' + missing.map(function(m, i) { return (i + 1) + '. ' + m; }).join('\n'));
+            return null;
+        }
         return { templateId: templateId, templateName: tmpl.name, values: values };
     });
 }
@@ -785,34 +808,39 @@ async function _calculateFormSummary(templateId, values) {
     });
 
     // Table row/col scoring (new scoringType attachment)
-    tmpl.fields.filter(function(f) { return f.answerType === 'table' && f.scoringType && f.scoringType !== 'none' && f.tableScoredCols && f.tableScoredCols.length; }).forEach(function(f) {
+    tmpl.fields.filter(function(f) { return f.answerType === 'table' && f.scoringType && f.scoringType !== 'none' && f.tableScoredRows && f.tableScoredRows.length; }).forEach(function(f) {
         var weight = f.scoreWeight || 1;
-        var cols = f.tableCols || 3;
         var rows = f.tableRows || 3;
         var headers = f.tableHeaders || [];
-        var scoredCols = f.tableScoredCols || [];
+        var rowHdrs = f.tableRowHeaders || [];
+        var scoredRows = f.tableScoredRows || [];
         var max = f.scoreMax || 10;
-        scoredCols.forEach(function(colIdx) {
-            if (colIdx >= cols) return;
-            var colTotal = 0;
-            var colCount = 0;
-            for (var r = 0; r < rows; r++) {
-                var key = f.id + '_r' + r + '_c' + colIdx;
-                var v = parseFloat(values[key]) || 0;
-                if (v > 0) { colTotal += v; colCount++; }
+        var scType = f.scoringType || 'score_1_10';
+        scoredRows.forEach(function(rowIdx) {
+            if (rowIdx >= rows) return;
+            var key = f.id + '_r' + rowIdx + '_c' + 'score';
+            var rawVal = values[key] || '';
+            var val = 0;
+            if (scType === 'rag') {
+                val = rawVal === 'Green' ? max : rawVal === 'Amber' ? Math.round(max * 0.5) : 0;
+            } else if (scType === 'passfail') {
+                val = rawVal === 'Pass' ? max : 0;
+            } else {
+                val = parseFloat(rawVal) || 0;
             }
-            var avg = colCount > 0 ? colTotal / colCount : 0;
-            var weightedVal = avg * weight;
+            var weightedVal = val * weight;
             var weightedMax = max * weight;
             summary.totalScore += weightedVal;
             summary.maxScore += weightedMax;
             summary.fieldResults.push({
-                label: (headers[colIdx] || 'Col ' + (colIdx + 1)) + ' (table)',
-                type: 'table_col',
-                value: Math.round(avg),
+                label: (rowHdrs[rowIdx] || 'Row ' + (rowIdx+1)) + ' (table)',
+                type: 'table_row',
+                scoringType: scType,
+                rawValue: rawVal,
+                value: val,
                 max: max,
                 weight: weight,
-                percent: max > 0 ? Math.round((avg / max) * 100) : 0
+                percent: max > 0 ? Math.round((val / max) * 100) : 0
             });
         });
     });
@@ -831,6 +859,16 @@ async function _calculateFormSummary(templateId, values) {
         if (val === 'Red') summary.ragRedCount++;
         else if (val === 'Amber') summary.ragAmberCount++;
         else if (val === 'Green') summary.ragGreenCount++;
+    });
+
+    // Count table_row RAG values too
+    summary.fieldResults.forEach(function(r) {
+        if (r.type === 'table_row' && r.scoringType === 'rag') {
+            var rv = r.rawValue || '';
+            if (rv === 'Red') summary.ragRedCount++;
+            else if (rv === 'Amber') summary.ragAmberCount++;
+            else if (rv === 'Green') summary.ragGreenCount++;
+        }
     });
 
     // Calculate percentage
@@ -972,6 +1010,23 @@ async function _renderSummaryPanel(templateId, values) {
                 html += '<span class="font-bold text-slate-600">' + escapeHtml(r.label) + '</span>';
                 html += '<span class="font-black border px-2 py-0.5 rounded bg-slate-50 text-slate-600 border-slate-200">' + r.value + ' / ' + r.max + '</span>';
                 html += '</div>';
+            } else if (r.type === 'table_row') {
+                var rv = r.rawValue || '';
+                var trDisplay = '', trClass = '';
+                if (st === 'rag') {
+                    trDisplay = rv || '\u2014';
+                    trClass = rv === 'Green' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : rv === 'Amber' ? 'bg-amber-50 text-amber-700 border-amber-200' : rv === 'Red' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
+                } else if (st === 'passfail') {
+                    trDisplay = rv || '\u2014';
+                    trClass = rv === 'Pass' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : rv === 'Fail' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
+                } else {
+                    trDisplay = r.value + ' / ' + r.max;
+                    trClass = r.value >= 8 ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : r.value >= 4 ? 'bg-amber-50 text-amber-700 border-amber-200' : r.value > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
+                }
+                html += '<div class="flex items-center justify-between text-xs bg-white rounded px-2.5 py-1.5 border border-slate-100">';
+                html += '<span class="font-bold text-slate-600">' + escapeHtml(r.label) + '</span>';
+                html += '<span class="font-black border px-2 py-0.5 rounded ' + trClass + '">' + escapeHtml(trDisplay) + '</span>';
+                html += '</div>';
             } else {
                 html += '<div class="flex items-center justify-between text-xs bg-white rounded px-2.5 py-1.5 border border-slate-100">';
                 html += '<span class="font-bold text-slate-600">' + escapeHtml(r.label) + '</span>';
@@ -982,9 +1037,72 @@ async function _renderSummaryPanel(templateId, values) {
         html += '</div></div>';
     }
 
+    // CSV download button
+    html += '<div class="pt-3 border-t border-slate-200">';
+    html += '<button onclick="window._downloadSummaryCSV()" class="text-[10px] font-bold px-3 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-colors">\u2B07 Download CSV</button>';
+    html += '</div>';
+
     html += '</div>';
     return html;
 }
+
+/* ─── CSV Export ───────────────────────────────────────────── */
+window._downloadSummaryCSV = async function() {
+    var url = new URL(window.location.href);
+    var folder = url.searchParams.get('folder') || '';
+    var docId = url.searchParams.get('id') || '';
+    if (!docId) return;
+    var doc = await _cloudGetDoc(folder, docId);
+    if (!doc || !doc.formTemplateId || !doc.formTemplateValues) { alert('No form data to export.'); return; }
+    var tmpl = await _getFormTemplate(doc.formTemplateId);
+    if (!tmpl) return;
+
+    var rows = [['Question', 'Answer', 'Scoring Type', 'Score', 'Max', 'Weight', 'Percent']];
+    tmpl.fields.forEach(function(f) {
+        if (f.answerType === 'header' || f.answerType === 'divider' || f.answerType === 'pagebreak') return;
+        var val = doc.formTemplateValues[f.id] || '';
+        var st = f.scoringType || 'none';
+        var score = '', max = '', weight = f.scoreWeight || 1, pct = '';
+        if (st !== 'none') {
+            max = f.scoreMax || 10;
+            if (st === 'rag') score = val === 'Green' ? max : val === 'Amber' ? Math.round(max * 0.5) : 0;
+            else if (st === 'passfail') score = val === 'Pass' ? max : 0;
+            else if (st === 'score_1_10') score = parseFloat(val) || 0;
+            else if (f.answerType === 'yesno') score = val === 'Yes' ? max : 0;
+            else score = val ? max : 0;
+            pct = max > 0 ? Math.round((score / max) * 100) + '%' : '';
+            score = score + ' / ' + max;
+            max = max;
+        }
+        rows.push([f.label || '', val, st === 'none' ? '' : st, score, max, weight > 1 ? weight : '', pct]);
+    });
+
+    // Table rows
+    tmpl.fields.filter(function(f) { return f.answerType === 'table'; }).forEach(function(f) {
+        var rowHdrs = f.tableRowHeaders || [];
+        var headers = f.tableHeaders || [];
+        var scoredRows = f.tableScoredRows || [];
+        var tableVals = (doc.formTemplateValues[f.id] || '').split('\n');
+        tableVals.forEach(function(row, ri) {
+            var cells = row.split(' | ');
+            var cellStr = cells.map(function(c, ci) { return (headers[ci] || 'Col ' + (ci+1)) + ': ' + c; }).join('; ');
+            var scoreInfo = '';
+            if (scoredRows.indexOf(ri) !== -1 && f.scoringType && f.scoringType !== 'none') {
+                var rawScore = doc.formTemplateValues[f.id + '_r' + ri + '_c' + 'score'] || '';
+                scoreInfo = ' [Score: ' + rawScore + ']';
+            }
+            rows.push([(rowHdrs[ri] || 'Row ' + (ri+1)) + ' (' + (f.label || 'Table') + ')', cellStr + scoreInfo, '', '', '', '', '']);
+        });
+    });
+
+    var csv = rows.map(function(r) { return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = (doc.name || doc.id || 'document') + '_summary.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+};
 
 /* ─── Load ──────────────────────────────────────────────────── */
 async function loadDocuments() {
@@ -1061,10 +1179,11 @@ async function renderDocuments(useCache = false) {
                 <h4 class="font-black text-slate-800">${escapeHtml(doc.title || doc.name)}</h4>
                 <div class="flex items-center gap-2">${pinned} ${ufBadge}</div>
             </div>
-            <p class="text-xs font-bold text-slate-500">${escapeHtml(doc.type)} • ${escapeHtml(doc.date)}</p>
-            <p class="text-xs font-bold text-slate-400">Author: ${escapeHtml(doc.creator || '—')}${doc.attentionOf ? ` • For: ${escapeHtml(doc.attentionOf)}` : ''}</p>
+            <p class="text-xs font-bold text-slate-500">${doc.reference ? '<span class="font-mono text-birds-green">' + escapeHtml(doc.reference) + '</span> \u2022 ' : ''}${escapeHtml(doc.type)} \u2022 ${escapeHtml(doc.date)}</p>
+            <p class="text-xs font-bold text-slate-400">Author: ${escapeHtml(doc.creator || '\u2014')}${doc.attentionOf ? ' \u2022 For: ' + escapeHtml(doc.attentionOf) : ''}</p>
             ${doc.department ? `<p class="text-[10px] font-bold text-slate-400 uppercase">${escapeHtml(doc.department)}</p>` : ''}
-            ${lastReply ? `<p class="text-xs text-slate-400 mt-2 italic">${replies.length} repl${replies.length === 1 ? 'y' : 'ies'} — latest from ${escapeHtml(lastReply.author)}: "${escapeHtml(String(lastReply.body || '').slice(0, 60))}${String(lastReply.body || '').length > 60 ? '…' : ''}"</p>` : ''}
+            ${doc.parentDocRef ? `<p class="text-[10px] font-bold text-slate-400">Follow-up from: <span class="font-mono">${escapeHtml(doc.parentDocRef)}</span></p>` : ''}
+            ${lastReply ? `<p class="text-xs text-slate-400 mt-2 italic">${replies.length} repl${replies.length === 1 ? 'y' : 'ies'} — latest from ${escapeHtml(lastReply.author)}: "${escapeHtml(String(lastReply.body || '').slice(0, 60))}${String(lastReply.body || '').length > 60 ? '\u2026' : ''}"</p>` : ''}
             <div class="flex gap-2 mt-3">
                 <button onclick="openDocumentViewer('${doc.id}', '${folder}', '${ufId}')" style="background:var(--edwardian-rose);color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;display:flex;flex:1;">Open</button>
                 ${folder === 'Open' ? `<button onclick="resolveDocument('${doc.id}', '${ufId}')" style="background:var(--edwardian-rose);color:white;" class="rounded-none text-sm flex-1 py-2 font-bold">Resolve</button>` : ''}
@@ -1239,6 +1358,11 @@ async function renderDocumentCreate() {
                 <input type="text" id="doc-name" class="input-chip rounded-none w-full">
             </div>
             <div>
+                <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Reference Number</label>
+                <input type="text" id="doc-reference" class="input-chip rounded-none w-full" placeholder="Auto-generated if blank">
+            </div>
+            <div></div>
+            <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Document Type</label>
                 <select id="doc-type" class="input-chip rounded-none w-full">
                     <option value="General query">General query</option>
@@ -1260,6 +1384,14 @@ async function renderDocumentCreate() {
                 <select id="doc-form-template" class="input-chip rounded-none w-full" onchange="_previewDocTemplate(this.value)">
                     ${tplOptions}
                 </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Follow-up Template (when resolved)</label>
+                <select id="doc-followup-template" class="input-chip rounded-none w-full">
+                    <option value="">-- No follow-up --</option>
+                    ${templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
+                </select>
+                <p class="text-[10px] text-slate-400 mt-1">When this document is resolved, a new document will be created from this template.</p>
             </div>` : ''}
         </div>
         <div id="doc-template-preview"></div>
@@ -1313,17 +1445,33 @@ async function saveDocumentRecord() {
         replies: []
     };
 
+    // Reference number — auto-generate if blank
+    var refInput = (document.getElementById("doc-reference")?.value || '').trim();
+    if (refInput) {
+        data.reference = refInput;
+    } else {
+        var typePrefix = { 'General query': 'GQ', 'Investigation': 'INV', 'Review': 'REV', 'Issue raised': 'IR', 'Feedback': 'FB' };
+        var prefix = typePrefix[data.type] || 'DOC';
+        var seq = String(Date.now()).slice(-4);
+        data.reference = prefix + '-' + new Date().getFullYear() + '-' + seq;
+    }
+
     if (userFolderId) data.userFolderId = userFolderId;
 
     // Gather form template fields
     if (formTemplateId) {
         var formData = await _gatherFormTemplateFields(formTemplateId);
+        if (formData === null) return; // validation failed
         if (formData) {
             data.formTemplateId = formTemplateId;
             data.formTemplateName = formData.templateName;
             data.formTemplateValues = formData.values;
         }
     }
+
+    // Follow-up template
+    var followupId = document.getElementById("doc-followup-template")?.value || '';
+    if (followupId) data.followupTemplateId = followupId;
 
     const fileInput = document.getElementById("doc-evidence");
     if (fileInput.files.length > 0) {
@@ -1422,8 +1570,8 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
                          'background:rgba(164,119,114,0.15);color:var(--edwardian-rose);') + '">' + escapeHtml(doc.status) + '</span>' : ''}
                 </div>
             </div>
-            <p class="text-xs font-bold text-slate-500 mb-1">ID: ${escapeHtml(doc.id)} | Author: ${escapeHtml(doc.creator)} | Type: ${escapeHtml(doc.type)}${doc.department ? ` | Dept: ${escapeHtml(doc.department)}` : ''}</p>
-            <p class="text-xs font-bold text-slate-400 mb-4">Created: ${escapeHtml(doc.date)}${doc.attentionOf ? ` | For: ${escapeHtml(doc.attentionOf)}` : ''}</p>
+            <p class="text-xs font-bold text-slate-500 mb-1">${doc.reference ? 'Ref: <span class="font-mono text-birds-green">' + escapeHtml(doc.reference) + '</span> | ' : ''}ID: ${escapeHtml(doc.id)} | Author: ${escapeHtml(doc.creator)} | Type: ${escapeHtml(doc.type)}${doc.department ? ' | Dept: ' + escapeHtml(doc.department) : ''}</p>
+            <p class="text-xs font-bold text-slate-400 mb-4">Created: ${escapeHtml(doc.date)}${doc.attentionOf ? ' | For: ' + escapeHtml(doc.attentionOf) : ''}${doc.parentDocRef ? ' | Follow-up from: <span class="font-mono">' + escapeHtml(doc.parentDocRef) + '</span>' : ''}</p>
 
             ${summaryHtml}
 
@@ -1598,9 +1746,49 @@ async function resolveDocument(id, userFolderId) {
     doc.resolvedDate = new Date().toISOString().substring(0, 10);
     await _cloudWriteDoc('Resolved', id, doc);
     await _cloudDeleteDoc('Open', id);
+
+    // Offer follow-up document creation
+    if (doc.followupTemplateId) {
+        var createFollowup = confirm("Create a follow-up document from template?");
+        if (createFollowup) {
+            await _createFollowupDocument(doc);
+        }
+    }
+
     alert("Document Resolved.");
     if (userFolderId) { window.currentUserFolder = userFolderId; }
     renderDocuments();
+}
+
+async function _createFollowupDocument(originalDoc) {
+    var tmpl = await _getFormTemplate(originalDoc.followupTemplateId);
+    if (!tmpl) { alert("Follow-up template not found."); return; }
+    var id = "DOC-" + Date.now();
+    var typePrefix = { 'General query': 'GQ', 'Investigation': 'INV', 'Review': 'REV', 'Issue raised': 'IR', 'Feedback': 'FB' };
+    var prefix = typePrefix[originalDoc.type] || 'DOC';
+    var seq = String(Date.now()).slice(-4);
+    var newData = {
+        id: id,
+        creator: originalDoc.creator || '',
+        date: new Date().toISOString().substring(0, 10),
+        attentionOf: originalDoc.attentionOf || '',
+        department: originalDoc.department || '',
+        name: (originalDoc.name || 'Untitled') + ' (Follow-up)',
+        title: (originalDoc.title || 'Untitled') + ' (Follow-up)',
+        type: originalDoc.type || 'General query',
+        body: 'Follow-up from: ' + (originalDoc.reference || originalDoc.id),
+        status: 'Open',
+        replies: [],
+        reference: prefix + '-' + new Date().getFullYear() + '-' + seq,
+        formTemplateId: originalDoc.followupTemplateId,
+        formTemplateName: tmpl.name,
+        formTemplateValues: {},
+        parentDocId: originalDoc.id,
+        parentDocRef: originalDoc.reference || ''
+    };
+    if (originalDoc.userFolderId) newData.userFolderId = originalDoc.userFolderId;
+    await _cloudWriteDoc('Open', id, newData);
+    alert("Follow-up document created: " + newData.reference);
 }
 
 async function archiveDocument(id, folder, userFolderId) {
@@ -1674,9 +1862,10 @@ async function renderDocumentArchive() {
         return `
         <div class="card p-5 border-l-4 rounded-none mb-4 bg-white shadow-sm" style="border-left:4px solid var(--edwardian-rose);">
             <h4 class="font-black text-slate-800">${escapeHtml(doc.title || doc.name)}</h4>
-            <p class="text-xs font-bold text-slate-500">${escapeHtml(doc.type)} • ${escapeHtml(doc.date)}</p>
-            <p class="text-xs font-bold text-slate-400">Author: ${escapeHtml(doc.creator || '—')}${doc.attentionOf ? ` • For: ${escapeHtml(doc.attentionOf)}` : ''}</p>
+            <p class="text-xs font-bold text-slate-500">${doc.reference ? '<span class="font-mono text-birds-green">' + escapeHtml(doc.reference) + '</span> \u2022 ' : ''}${escapeHtml(doc.type)} \u2022 ${escapeHtml(doc.date)}</p>
+            <p class="text-xs font-bold text-slate-400">Author: ${escapeHtml(doc.creator || '\u2014')}${doc.attentionOf ? ' \u2022 For: ' + escapeHtml(doc.attentionOf) : ''}</p>
             ${doc.department ? `<p class="text-[10px] font-bold text-slate-400 uppercase">${escapeHtml(doc.department)}</p>` : ''}
+            ${doc.parentDocRef ? `<p class="text-[10px] font-bold text-slate-400">Follow-up from: <span class="font-mono">${escapeHtml(doc.parentDocRef)}</span></p>` : ''}
             ${doc.archivedDate ? `<p class="text-xs font-bold" style="color:var(--edwardian-rose);">Archived: ${escapeHtml(doc.archivedDate)}</p>` : ''}
             ${lastReply ? `<p class="text-xs text-slate-400 mt-2 italic">${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}</p>` : ''}
             <div class="flex gap-2 mt-4">
