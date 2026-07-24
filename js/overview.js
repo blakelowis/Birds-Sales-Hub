@@ -163,7 +163,29 @@ function renderOverviewFresh(bAvgs, pAvgs, ehoData, allActions, auditMap, effect
     +ehoHtml
     +'<div style="background:#fff;border:1px solid #d5ddd0;border-radius:12px;padding:16px;border-top:3px solid #D94F4F;">'
     +'<div style="font-size:13px;font-weight:900;color:#20231F;margin-bottom:8px;font-family:Merriweather,Georgia,serif;">EHO Overdue</div>'
-    +'<div style="font-size:12px;color:#999;">Check tracker for overdue inspections.</div>'
+    +(function(){
+      if(!ehoData || !ehoData.length) return '<div style="font-size:12px;color:#999;">No EHO data loaded.</div>';
+      var now = new Date();
+      var overdue = [];
+      ehoData.forEach(function(d){
+        var nd = d.nextDue || '';
+        if(!nd) return;
+        var parsed = parseUKDate(nd);
+        if(!parsed || isNaN(parsed.getTime())) return;
+        var days = Math.ceil((parsed - now) / 86400000);
+        if(days < 0) overdue.push({store: d.StoreId || d.name || '?', days: Math.abs(days), dateStr: nd, rating: d.ehoRating || d.rating || ''});
+      });
+      overdue.sort(function(a,b){return b.days - a.days;});
+      if(!overdue.length) return '<div style="font-size:12px;color:#6E8E6D;font-weight:700;">All inspections up to date</div>';
+      var html = '';
+      overdue.slice(0,5).forEach(function(r){
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:12px;">'
+          +'<span style="font-weight:700;">'+r.store+'</span>'
+          +'<span style="color:#D94F4F;font-weight:800;">'+r.days+' days overdue</span></div>';
+      });
+      if(overdue.length > 5) html += '<div style="font-size:11px;color:#999;margin-top:6px;">+'+(overdue.length-5)+' more overdue</div>';
+      return html;
+    })()
     +'</div>'
     +'</div>'
     +'</div>'
