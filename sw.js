@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v91';
+const CACHE_NAME = 'birds-hub-v112';
 
 const ASSETS = [
   './',
@@ -6,6 +6,8 @@ const ASSETS = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './logo.png',
+  './favicon.ico',
   './tailwind.min.css',
   './css/app.css',
   './html2canvas.min.js',
@@ -23,6 +25,9 @@ const ASSETS = [
   './fonts/outfit-v15-latin-regular.woff2',
   './fonts/outfit-v15-latin-700.woff2',
   './fonts/outfit-v15-latin-800.woff2',
+  './fonts/merriweather-v33-latin-regular.woff2',
+  './fonts/merriweather-v33-latin-700.woff2',
+  './fonts/merriweather-v33-latin-900.woff2',
   './AuditQuestions.json',
   './tracker_defaults.json',
   './EHO_Ratings.csv',
@@ -38,8 +43,11 @@ const ASSETS = [
   './js/documents.js',
   './js/audits.js',
   './js/tracker.js',
+  './js/tracker_defaults.js',
   './js/awards.js',
   './js/audit-perform.js',
+  './js/template-builder.js',
+  './js/overview.js',
   './js/app.js'
 ];
 
@@ -58,6 +66,12 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
@@ -68,6 +82,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+
+  // Never cache sw.js itself — browser must fetch fresh copy to detect updates
+  if (url.pathname.endsWith('/sw.js') || url.pathname === 'sw.js' || url.pathname === './sw.js') {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   const cleanPath = url.pathname.replace(/\/+$/, '') || './';
 
   // Strip query params for cache lookup (handles ?v=84 cache-busting)

@@ -3,12 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Birds Executive Hub</title>
+  <title>The Hub — Birds of Derby</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="tailwind.min.css?v=100">
   <link rel="stylesheet" href="css/app.css?v=100">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#5B8C7A">
+  <meta name="theme-color" content="#8BA88A">
   <script src="xlsx.full.min.js?v=100"></script>
   <script src="chart.js?v=100"></script>
   <script src="jspdf.umd.min.js?v=100"></script>
@@ -17,56 +20,54 @@
   <script src="jszip.min.js?v=100"></script>
   <script src="papaparse.min.js?v=100"></script>
   <style>
-    .nav-tab-bar{display:flex;gap:6px;margin-bottom:0;}
-    .nav-tab{flex:1;padding:14px 16px;border-radius:16px 16px 0 0;font-weight:900;font-size:14px;letter-spacing:.06em;text-transform:uppercase;text-align:center;cursor:pointer;border:2px solid transparent;border-bottom:none;transition:all .2s;opacity:.55;}
-    .nav-tab:hover{opacity:.8;}
-    .nav-tab.active{opacity:1;border-color:var(--tab-color);background:var(--tab-bg);color:var(--tab-color);}
-    .nav-panel{display:none;padding:12px 16px;background:var(--panel-bg);border:2px solid var(--tab-color);border-top:none;border-radius:0 0 16px 16px;margin-bottom:24px;flex-wrap:wrap;gap:6px;}
+    .nav-tab-bar{display:flex;gap:0;margin-bottom:0;background:#fff;border:1px solid #E8E5E0;border-radius:12px;overflow:hidden;}
+    .nav-tab{flex:1;padding:12px 16px;font-family:'Merriweather',Georgia,serif;font-weight:700;font-size:13px;letter-spacing:.03em;text-transform:uppercase;text-align:center;cursor:pointer;border:none;transition:all .2s;opacity:.6;color:#4A4A4A;background:transparent;position:relative;}
+    .nav-tab:hover{opacity:.85;}
+    .nav-tab.active{opacity:1;color:#6E8E6D;background:transparent;border-bottom:2px solid #8BA88A;}
+    .nav-tab .alert-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#D94F4F;margin-left:4px;vertical-align:middle;}
+    .nav-panel{display:none;padding:10px 12px;background:rgba(248,246,242,0.5);border:1px solid #E8E5E0;border-top:none;border-radius:0 0 12px 12px;margin-bottom:24px;flex-wrap:wrap;gap:6px;}
     .nav-panel.open{display:flex;}
-    .nav-tab[data-tab="sales"]{--tab-color:#059669;--tab-bg:#ecfdf5;}
-    .nav-tab[data-tab="audits"]{--tab-color:#d97706;--tab-bg:#fffbeb;}
-    .nav-tab[data-tab="docs"]{--tab-color:#2563eb;--tab-bg:#eff6ff;}
-    .nav-panel[data-panel="sales"]{--tab-color:#059669;--panel-bg:#f0fdf4;}
-    .nav-panel[data-panel="audits"]{--tab-color:#d97706;--panel-bg:#fefce8;}
-    .nav-panel[data-panel="docs"]{--tab-color:#2563eb;--panel-bg:#f0f9ff;}
+    .nav-tab[data-tab="sales"]{--tab-color:#8BA88A;--tab-bg:rgba(139,168,138,0.08);}
+    .nav-tab[data-tab="audits"]{--tab-color:#C17F4E;--tab-bg:rgba(193,127,78,0.08);}
+    .nav-tab[data-tab="docs"]{--tab-color:#7A7A7A;--tab-bg:rgba(122,122,122,0.08);}
+    .nav-panel[data-panel="sales"]{--tab-color:#8BA88A;--panel-bg:rgba(139,168,138,0.04);}
+    .nav-panel[data-panel="audits"]{--tab-color:#C17F4E;--panel-bg:rgba(193,127,78,0.04);}
+    .nav-panel[data-panel="docs"]{--tab-color:#7A7A7A;--panel-bg:rgba(122,122,122,0.04);}
     @media print {
       body * { visibility: hidden; }
       #print-doc-area, #print-doc-area * { visibility: visible; }
       #print-doc-area { position: absolute; left: 0; top: 0; width: 100%; }
-      .nav-tab, .seg-btn, .filter-group, #syncBtn, #signOutBtn, #userBadge, .export-btn { display: none !important; }
+      .nav-tab, .seg-btn, .filter-group, #syncBtn, .export-btn { display: none !important; }
     }
   </style>
 </head>
-<body class="bg-slate-50 font-sans antialiased">
-  <div class="max-w-[1800px] mx-auto p-4 md:p-8">
+<body style="background-color:#F8F6F2;color:#4A4A4A;font-family:'Inter',system-ui,-apple-system,sans-serif;margin:0;padding:0;-webkit-font-smoothing:antialiased;">
+  <div class="max-w-[1400px] mx-auto p-4 md:p-6">
 
     <!-- Header -->
-    <header class="flex flex-col md:flex-row justify-between items-center mb-6 header-glass p-5 rounded-3xl">
-      <div class="flex items-center gap-3 w-full md:w-auto">
-        <img src="logo.png" alt="Birds" class="h-[100px] w-auto">
-        <div>
-          <h1 class="text-xl md:text-[28px] font-extrabold outfit birds-green leading-tight tracking-tight" style="color:#5B8C7A">Sales Hub</h1>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span id="activeWeekBadge" class="bg-slate-700 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">LATEST DATA</span>
-            <p id="ingestStatus" class="text-slate-400 text-xs font-bold">&mdash;</p>
-            <span id="missingWeeksBadge" class="text-[10px] font-black text-amber-600"></span>
-            <span id="lastSyncedBadge" class="text-[10px] font-bold text-slate-400"></span>
+    <header class="mb-4 header-glass p-4">
+      <div class="flex items-center justify-between w-full flex-wrap gap-4">
+        <!-- Left: Logo + Status -->
+        <div class="flex items-center gap-3">
+          <img src="logo.png" alt="Birds Bakery" class="h-[60px] w-auto logo-mark" style="font-family:'Merriweather',Georgia,serif;">
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span id="activeWeekBadge" style="background:#6E8E6D;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;text-transform:uppercase;letter-spacing:0.05em;">Latest Data</span>
+              <p id="ingestStatus" style="color:#7A7A7A;font-size:11px;font-weight:600;margin:0;">—</p>
+              <span id="missingWeeksBadge" onclick="renderMissingWeeksReport()" style="font-size:10px;font-weight:700;color:#D97706;cursor:pointer;" title="Click to view full missing weeks report"></span>
+              <span id="lastSyncedBadge" style="font-size:10px;font-weight:600;color:#aaa;"></span>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="flex items-center gap-3 flex-wrap">
-        <button onclick="startAudit()" class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-4 py-2.5 rounded-full transition-colors shadow-md whitespace-nowrap" title="Perform a retail audit">Audit Store</button>
-        <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
-        <button onclick="document.getElementById('mobileAuditZipInput').click()" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-black px-4 py-2.5 rounded-full transition-colors shadow-md whitespace-nowrap" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
-        <button onclick="doRefresh()" class="btn-secondary rounded-none text-sm whitespace-nowrap" id="syncBtn" title="Refresh Data">
-          &#x21bb; Refresh
-        </button>
-        <span id="folderStatus" class="text-[10px] font-bold text-slate-400"></span>
-        <span id="userBadge" class="hidden text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full">Signed in</span>
-        <button id="signOutBtn" onclick="GraphAPI.logout(); location.reload()" class="hidden text-[10px] font-bold text-red-500 hover:text-red-700 px-2 py-1 rounded transition-colors">Sign Out</button>
-        <button onclick="showTempAdminLogin()" class="text-slate-300 hover:text-slate-500 transition-colors" title="Temporary Admin Login (DEV)" id="padlockBtn">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-        </button>
+        <!-- Right: Actions -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <button onclick="startAudit()" style="background:#C17F4E;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Perform a retail audit">Audit Store</button>
+          <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
+          <button onclick="document.getElementById('mobileAuditZipInput').click()" style="background:#7A7A7A;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
+          <button onclick="doRefresh()" style="background:transparent;color:#4A4A4A;font-size:11px;font-weight:600;padding:6px 14px;border-radius:8px;border:1px solid #E8E5E0;cursor:pointer;white-space:nowrap;" id="syncBtn" title="Refresh Data">&#x21bb; Refresh</button>
+          <span id="folderStatus" style="font-size:10px;font-weight:600;color:#aaa;"></span>
+
+        </div>
       </div>
     </header>
 
@@ -111,58 +112,24 @@
     <main id="mainView" class="space-y-6"></main>
   </div>
 
-  <!-- Sign-In Overlay -->
-  <div id="signInOverlay" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);">
-    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 p-8 text-center">
-      <img src="logo.png" alt="Birds" class="h-16 w-auto mx-auto mb-4">
-      <h2 class="text-xl font-black outfit birds-green mb-2">Sales Hub</h2>
-      <p class="text-sm text-slate-500 mb-6">Sign in with your Birds of Derby Microsoft account to access the dashboard.</p>
-      <button onclick="doSignIn()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-2xl text-lg shadow-lg transition-colors flex items-center justify-center gap-3">
-        <svg class="w-6 h-6" viewBox="0 0 21 21" fill="none"><path d="M10 2L2 7v8l8 5 8-5V7l-8-5z" fill="#fff"/><path d="M10 2v18m8-13H2" stroke="#fff" stroke-width="1.5"/></svg>
-        Sign in with Microsoft
-      </button>
-      <button onclick="showTempAdminLogin()" class="mt-4 text-xs font-bold text-slate-400 hover:text-amber-500 transition-colors flex items-center justify-center gap-1.5 mx-auto">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-        Temp Admin Login
-      </button>
-      <p id="signInError" class="text-xs font-bold text-red-500 mt-4 hidden"></p>
-    </div>
-  </div>
-
-  <!-- Temp Admin Login Modal -->
-  <div id="tempAdminModal" class="fixed inset-0 z-[60] flex items-center justify-center hidden" style="background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);">
-    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm mx-4 p-8 text-center">
-      <svg class="w-10 h-10 mx-auto mb-3 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-      <h3 class="text-lg font-black text-slate-800 mb-1">Temp Admin Access</h3>
-      <p class="text-xs text-slate-400 mb-5">For testing only — will be removed before deployment.</p>
-      <input type="text" id="tempAdminUser" placeholder="Username" class="w-full border border-slate-200 p-2.5 rounded-xl text-sm mb-3 focus:ring-2 focus:ring-amber-400 outline-none" autocomplete="off">
-      <input type="password" id="tempAdminPass" placeholder="Password" class="w-full border border-slate-200 p-2.5 rounded-xl text-sm mb-4 focus:ring-2 focus:ring-amber-400 outline-none" autocomplete="off">
-      <p id="tempAdminError" class="text-xs font-bold text-red-500 mb-3 hidden">Invalid credentials</p>
-      <div class="flex gap-2">
-        <button onclick="closeTempAdminLogin()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm py-2.5 rounded-xl transition-colors">Cancel</button>
-        <button onclick="doTempAdminLogin()" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm py-2.5 rounded-xl transition-colors shadow-md">Sign In</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
-  <script src="js/db.js?v=100"></script>
-  <script src="js/utils.js?v=100"></script>
-  <script src="js/sharepoint.js?v=100"></script>
-  <script src="js/graph.js?v=100"></script>
-  <script src="js/data.js?v=100"></script>
-  <script src="js/charts.js?v=100"></script>
-  <script src="js/scorecards.js?v=100"></script>
-  <script src="js/reports.js?v=100"></script>
-  <script src="js/complaints.js?v=100"></script>
-  <script src="js/documents.js?v=100"></script>
-  <script src="js/template-builder.js?v=100"></script>
-  <script src="js/audits.js?v=100"></script>
-  <script src="js/tracker_defaults.js?v=100"></script>
-  <script src="js/tracker.js?v=100"></script>
-  <script src="js/awards.js?v=100"></script>
-  <script src="js/audit-perform.js?v=100"></script>
-  <script src="js/app.js?v=100"></script>
+  <script src="js/db.js?v=112"></script>
+  <script src="js/utils.js?v=112"></script>
+  <script src="js/data.js?v=112"></script>
+  <script src="js/charts.js?v=112"></script>
+  <script src="js/scorecards.js?v=112"></script>
+  <script src="js/reports.js?v=112"></script>
+  <script src="js/complaints.js?v=112"></script>
+  <script src="js/documents.js?v=112"></script>
+  <script src="js/template-builder.js?v=112"></script>
+  <script src="js/audits.js?v=112"></script>
+  <script src="js/tracker_defaults.js?v=112"></script>
+  <script src="js/tracker.js?v=112"></script>
+  <script src="js/awards.js?v=112"></script>
+  <script src="js/audit-perform.js?v=112"></script>
+  <script src="js/overview.js?v=112"></script>
+  <script src="js/app.js?v=112"></script>
   <script>
     // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
     var _activeTab = 'sales';
@@ -210,11 +177,6 @@
 
     // Settings modal helpers
     async function doRefresh() {
-      var isCloud = window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
-      if (!isCloud) {
-        alert('Not connected to SharePoint. Please sign in.');
-        return;
-      }
       const btn = document.getElementById('syncBtn');
       const origText = btn.innerHTML;
       btn.innerHTML = '&#x21bb; Syncing...';
@@ -236,47 +198,6 @@
         btn.classList.remove('opacity-50','cursor-not-allowed');
       }
     }
-    // TEMP ADMIN LOGIN — REMOVE BEFORE DEPLOYMENT
-    window.showTempAdminLogin = function() {
-      document.getElementById('tempAdminModal').classList.remove('hidden');
-      document.getElementById('tempAdminUser').value = '';
-      document.getElementById('tempAdminPass').value = '';
-      document.getElementById('tempAdminError').classList.add('hidden');
-      document.getElementById('tempAdminUser').focus();
-    };
-    window.closeTempAdminLogin = function() {
-      document.getElementById('tempAdminModal').classList.add('hidden');
-    };
-    window.doTempAdminLogin = function() {
-      var u = document.getElementById('tempAdminUser').value.trim();
-      var p = document.getElementById('tempAdminPass').value;
-      if (u === 'admin' && p === '2468') {
-        window.__tempAdmin = true;
-        document.getElementById('tempAdminModal').classList.add('hidden');
-        document.getElementById('signInOverlay').classList.add('hidden');
-        document.getElementById('userBadge').textContent = 'Admin (Temp)';
-        document.getElementById('userBadge').classList.remove('hidden');
-        document.getElementById('folderStatus').textContent = 'Status: Temp Admin Mode';
-        window.isAdmin = function() { return true; };
-        if (typeof syncData === 'function') syncData();
-      } else {
-        document.getElementById('tempAdminError').classList.remove('hidden');
-      }
-    };
-    // END TEMP ADMIN LOGIN
-
-    window.doSignIn = async function() {
-      var errorEl = document.getElementById('signInError');
-      errorEl.classList.add('hidden');
-      try { await GraphAPI.acquireToken(); } catch(e) { errorEl.textContent = 'Sign-in failed: ' + e.message; errorEl.classList.remove('hidden'); return; }
-      if (GraphAPI.isAuthenticated()) {
-        document.getElementById('signInOverlay').classList.add('hidden');
-        document.getElementById('userBadge').classList.remove('hidden');
-        document.getElementById('signOutBtn').classList.remove('hidden');
-        document.getElementById('folderStatus').textContent = 'Status: Connected to SharePoint';
-        try { await syncData(); } catch(e) { console.warn('[Sync] Initial sync failed:', e); }
-      }
-    };
     async function clearAllData() {
       if (!confirm('This will delete ALL stored data. Continue?')) return;
       if (!db) { alert('Database not ready.'); return; }
@@ -287,7 +208,7 @@
       await idbClear('complaints');
       storeMap.clear(); originalStoreNames.clear();
       window.ComplaintsData = null;
-      document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">Data Cleared</h2><p class="text-slate-500 mb-6">Refresh to reload data from SharePoint.</p></div>';
+      document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">Data Cleared</h2><p class="text-slate-500 mb-6">Refresh to reload data from your folder.</p></div>';
     }
 
     // Boot: auto-sync from local folder on load
@@ -298,9 +219,9 @@
       }
     })();
 
-    // Diagnostic: Test xlsx write to SharePoint (removed — cloud-only)
+    // Diagnostic: Test xlsx write
     window.testXlsxWrite = async function() {
-      alert('Local folder write is no longer supported. Sign in to SharePoint to save.');
+      alert('Local folder write not yet implemented.');
     };
   </script>
   <script>
@@ -308,16 +229,39 @@
     (function() { var img = new Image(); img.onload = function() { window.__pdfLogo = img; }; img.src = 'logo.png'; })();
   </script>
   <script>
-    // Register fresh service worker after all scripts loaded
-    window.addEventListener('load', function() {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').then(function(reg) {
-          console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? reg.active.scriptURL : 'unknown'), 'scope:', reg.scope);
-        }).catch(function(err) {
-          console.warn('[SW] Registration failed:', err);
+    // Force SW update: when new SW installs, send SKIP_WAITING and reload
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js?v=112').then(function(reg) {
+        function promptUpdate() {
+          if (reg.waiting) {
+            console.log('[SW] New SW waiting, sending SKIP_WAITING');
+            reg.waiting.postMessage({type: 'SKIP_WAITING'});
+          }
+        }
+        promptUpdate();
+        reg.addEventListener('updatefound', function() {
+          if (reg.installing) {
+            reg.installing.addEventListener('statechange', function() {
+              if (reg.installing && reg.installing.state === 'installed') {
+                promptUpdate();
+              }
+            });
+          }
         });
-      }
-    });
+        console.log('[SW] Registered ' + (reg.installing ? 'installing' : reg.active ? 'active' : 'unknown'), 'scope:', reg.scope);
+      }).catch(function(err) {
+        console.warn('[SW] Registration failed:', err);
+      });
+      // Auto-reload when new SW takes control
+      var _swReloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (!_swReloading) {
+          _swReloading = true;
+          console.log('[SW] New controller, reloading...');
+          window.location.reload();
+        }
+      });
+    }
   </script>
 </body>
 </html>
