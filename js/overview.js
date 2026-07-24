@@ -119,7 +119,8 @@ function renderOverviewFresh(bAvgs, pAvgs, ehoData, allActions, auditMap, effect
       if(!inspDate) return;
       var parsed = parseUKDate(inspDate);
       if(!parsed || isNaN(parsed.getTime())) return;
-      ehoList.push({store: d.StoreId, rating: d.ehoRating||'', date: parsed, dateStr: inspDate});
+      var dd = ('0'+parsed.getDate()).slice(-2)+'/'+('0'+(parsed.getMonth()+1)).slice(-2)+'/'+parsed.getFullYear();
+      ehoList.push({store: d.StoreId, rating: d.ehoRating||'', date: parsed, dateStr: dd});
     });
     ehoList.sort(function(a,b){return b.date-a.date;});
     ehoList.slice(0,5).forEach(function(r){

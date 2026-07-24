@@ -344,6 +344,16 @@ window._setPassFail = function(btn) {
     container.querySelector('input[type="hidden"]').value = btn.getAttribute('data-val');
 };
 
+window._setTableCellScore = function(btn) {
+    var td = btn.closest('td');
+    var scType = btn.classList.contains('form-tpl-rag') ? 'rag' : btn.classList.contains('form-tpl-ync') ? 'pf' : 'score';
+    var cls = scType === 'rag' ? 'form-tpl-rag' : scType === 'pf' ? 'form-tpl-ync' : 'form-tpl-score';
+    td.querySelectorAll('.' + cls).forEach(function(b) { b.classList.remove('ring-2', 'ring-offset-1'); });
+    btn.classList.add('ring-2', 'ring-offset-1');
+    var hidden = td.querySelector('input[type="hidden"]');
+    if (hidden) hidden.value = btn.getAttribute('data-val');
+};
+
 function _tplCollectValues(tmpl) {
     var values = {};
     tmpl.fields.forEach(function(f) {

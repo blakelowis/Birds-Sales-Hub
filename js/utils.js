@@ -144,8 +144,17 @@ window.BirdsCore = {
         if(!value)
             return null;
 
-        const p =
-            String(value).split('/');
+        var str = String(value).trim();
+
+        // Handle Excel serial date numbers
+        if(/^\d+(\.\d+)?$/.test(str)){
+            var n = Number(str);
+            if(n >= 1 && n <= 100000){
+                return new Date((n - 25569) * 86400000);
+            }
+        }
+
+        const p = str.split('/');
 
         if(p.length !== 3)
             return null;

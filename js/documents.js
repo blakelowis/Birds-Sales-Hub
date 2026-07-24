@@ -728,18 +728,7 @@ function _gatherFormTemplateFields(templateId) {
                 values[f.id] = el ? el.value : '';
             }
         });
-        // Validate required fields
-        var missing = [];
-        tmpl.fields.forEach(function(f) {
-            if (!f.required) return;
-            if (f.answerType === 'header' || f.answerType === 'divider' || f.answerType === 'pagebreak' || f.answerType === 'signoff') return;
-            var val = values[f.id] || '';
-            if (!val.trim()) missing.push(f.label || 'Unnamed field');
-        });
-        if (missing.length) {
-            alert('Required fields missing:\n\n' + missing.map(function(m, i) { return (i + 1) + '. ' + m; }).join('\n'));
-            return null;
-        }
+        // Required fields are visual only — no save blocking
         return { templateId: templateId, templateName: tmpl.name, values: values };
     });
 }
@@ -1461,7 +1450,6 @@ async function saveDocumentRecord() {
     // Gather form template fields
     if (formTemplateId) {
         var formData = await _gatherFormTemplateFields(formTemplateId);
-        if (formData === null) return; // validation failed
         if (formData) {
             data.formTemplateId = formTemplateId;
             data.formTemplateName = formData.templateName;
