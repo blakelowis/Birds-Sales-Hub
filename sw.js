@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v112';
+const CACHE_NAME = 'birds-hub-v113';
 
 const ASSETS = [
   './',
