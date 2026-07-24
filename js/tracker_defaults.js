@@ -143,7 +143,7 @@ window._trackerDefaults = {
       "coffee": "93",
       "focus": "57",
       "total": "64",
-      "auditDate": "5/8/2026"
+      "auditDate": "08/05/2026"
     },
     "bingham": {
       "StoreId": "bingham",
@@ -182,7 +182,7 @@ window._trackerDefaults = {
       "coffee": "",
       "focus": "",
       "total": "",
-      "auditDate": ""
+      "auditDate": "20/07/2026"
     },
     "bulwell": {
       "StoreId": "bulwell",
@@ -364,7 +364,7 @@ window._trackerDefaults = {
       "coffee": "100",
       "focus": "",
       "total": "97",
-      "auditDate": "4/10/2026"
+      "auditDate": "10/04/2026"
     },
     "keyworth": {
       "StoreId": "keyworth",
@@ -403,7 +403,7 @@ window._trackerDefaults = {
       "coffee": "93",
       "focus": "71",
       "total": "86",
-      "auditDate": "5/11/2026"
+      "auditDate": "11/05/2026"
     },
     "littleover": {
       "StoreId": "littleover",
@@ -435,14 +435,14 @@ window._trackerDefaults = {
       "StoreId": "loughborough",
       "ehoRating": "5",
       "ehoVisit": "19/06/2024",
-      "food": "75",
+      "food": "77",
       "fire": "97",
       "hs": "100",
       "journey": "100",
       "coffee": "100",
       "focus": "100",
       "total": "86",
-      "auditDate": "8/6/2026"
+      "auditDate": "06/08/2026"
     },
     "Lansdowne Drive": {
       "StoreId": "Lansdowne Drive",
@@ -507,7 +507,7 @@ window._trackerDefaults = {
       "coffee": "92",
       "focus": "100",
       "total": "65",
-      "auditDate": "12/11/2026"
+      "auditDate": "11/12/2026"
     },
     "melbourne": {
       "StoreId": "melbourne",
@@ -650,7 +650,7 @@ window._trackerDefaults = {
       "coffee": "90",
       "focus": "",
       "total": "86",
-      "auditDate": "16/04/2026"
+      "auditDate": "15/04/2026"
     },
     "southwell": {
       "StoreId": "southwell",
@@ -676,7 +676,7 @@ window._trackerDefaults = {
       "coffee": "80",
       "focus": "86",
       "total": "93",
-      "auditDate": "4/5/2026"
+      "auditDate": "05/04/2026"
     },
     "stretton": {
       "StoreId": "stretton",
@@ -702,7 +702,7 @@ window._trackerDefaults = {
       "coffee": "",
       "focus": "",
       "total": "",
-      "auditDate": "4/2/2026"
+      "auditDate": "02/04/2026"
     },
     "suttonlakeside": {
       "StoreId": "suttonlakeside",
@@ -715,7 +715,7 @@ window._trackerDefaults = {
       "coffee": "100",
       "focus": "83",
       "total": "87",
-      "auditDate": "12/6/2026"
+      "auditDate": "06/12/2026"
     },
     "swadlincote": {
       "StoreId": "swadlincote",
@@ -780,7 +780,7 @@ window._trackerDefaults = {
       "coffee": "87",
       "focus": "71",
       "total": "95",
-      "auditDate": "5/11/2026"
+      "auditDate": "11/05/2026"
     },
     "West Bridgford": {
       "StoreId": "West Bridgford",

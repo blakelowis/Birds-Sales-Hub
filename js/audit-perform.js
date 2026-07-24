@@ -284,9 +284,21 @@ function renderAuditMetaView() {
     fetch('./AuditQuestions.json').then(function(r) { return r.json(); }).then(function(data) {
       _auditQB = data;
       console.log('[Audit] Retry fetch succeeded:', Object.keys(data).length, 'sectors');
-      // Re-render the meta view with loaded QB
       if (auditState && auditState.view === 'meta') renderAuditMetaView();
-    }).catch(function(e) { console.warn('[Audit] Retry fetch failed:', e.message); });
+    }).catch(function(e) {
+      console.warn('[Audit] Retry fetch failed:', e.message, '— trying local folder');
+      if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        directoryHandle.getFileHandle('AuditQuestions.json').then(function(fh) {
+          return fh.getFile();
+        }).then(function(file) {
+          return file.text();
+        }).then(function(text) {
+          _auditQB = JSON.parse(text);
+          console.log('[Audit] Loaded from local folder:', Object.keys(_auditQB).length, 'sectors');
+          if (auditState && auditState.view === 'meta') renderAuditMetaView();
+        }).catch(function() {});
+      }
+    });
   }
 
   var qbInfo = _auditQB ? '<span class="text-emerald-600 font-bold">✓ Question bank loaded (' + Object.keys(_auditQB).length + ' sectors)</span>' : '<span class="text-amber-600 font-bold">Loading question bank...</span>';
@@ -312,7 +324,7 @@ function renderAuditMetaView() {
         ${auditState && auditState.sectors && Object.keys(auditState.sectors).length ? '<button onclick="auditGoSectors()" class="text-emerald-500 hover:text-emerald-600 text-sm font-bold">← Back to Sectors</button>' : ''}
         <button onclick="cancelAudit()" class="text-slate-400 hover:text-slate-600 text-sm font-bold">← Back to Hub</button>
         <h2 class="text-2xl font-black outfit birds-green uppercase tracking-tight">New Audit</h2>
-        ${auditState && auditState.isTraining ? '<span class="bg-amber-100 text-amber-700 border border-amber-300 px-3 py-1 rounded-full text-xs font-black uppercase">Training Mode — Not Saved to SharePoint</span>' : ''}
+        ${auditState && auditState.isTraining ? '<span class="bg-amber-100 text-amber-700 border border-amber-300 px-3 py-1 rounded-full text-xs font-black uppercase">Training Mode — Not Saved</span>' : ''}
       </div>
 
       <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6">
@@ -570,7 +582,7 @@ function renderAuditSectorView() {
           Complete Audit
         </button>
         <div class="flex gap-3 w-full max-w-md">
-          <button onclick="auditExportPDFOnly()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-3 rounded-full transition-colors text-sm">
+          <button onclick="auditExportPDFOnly()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 10px 20px; border-radius: 6px; font-weight: 800; font-size: 13px;">
             Export PDF Only
           </button>
           <button onclick="auditSaveOnly()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-3 rounded-full transition-colors text-sm">
@@ -718,15 +730,15 @@ function renderAuditCompleteView() {
         <div class="text-6xl font-black ${auditScoreRag(overall.pct)} mb-4">${overall.pct}%</div>
         <div class="text-sm text-slate-500 mb-4">${overall.totalAnswered} questions answered</div>
         ${overall.totalCritical > 0 ? '<div class="bg-red-50 border border-red-200 rounded-xl px-6 py-3 text-sm font-bold text-red-700 inline-block mb-4">' + overall.totalCritical + ' critical item' + (overall.totalCritical > 1 ? 's' : '') + ' — penalty: -' + overall.totalPenalty + '%</div>' : ''}
-        ${auditState.isTraining ? '<div class="bg-amber-50 border border-amber-200 rounded-xl px-6 py-3 text-sm font-bold text-amber-700 inline-block mb-4">Training Mode — Not synced to SharePoint</div>' : ''}
+        ${auditState.isTraining ? '<div class="bg-amber-50 border border-amber-200 rounded-xl px-6 py-3 text-sm font-bold text-amber-700 inline-block mb-4">Training Mode — Not saved</div>' : ''}
         ${window._lastXlsxResult && !auditState.isTraining ? '<div class="bg-slate-50 border border-slate-200 rounded-xl px-6 py-3 text-sm inline-block mb-4">' + (window._lastXlsxResult.method === 'folder' ? '<span class="text-emerald-600 font-bold">✓ ' + window._lastXlsxResult.count + ' actions queued for Power Automate — pending-actions.json saved</span>' : window._lastXlsxResult.method === 'no_folder' ? '<span class="text-amber-600 font-bold">⚠ Actions saved locally — anchor Data folder for auto-sync</span>' : '<span class="text-amber-600 font-bold">⚠ XLSX write failed — ' + escapeHtml(window._lastXlsxResult.error || 'check folder permissions') + '</span>') + '</div>' : ''}
       </div>
 
       <div class="flex gap-4 justify-center flex-wrap">
-        <button onclick="auditCompleteAndDownload()" class="bg-emerald-500 hover:bg-emerald-600 text-white font-black px-8 py-4 rounded-full text-lg shadow-lg transition-colors">
+        <button onclick="auditCompleteAndDownload()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 14px 32px; border-radius: 6px; font-weight: 900; font-size: 16px;">
           Save & Download PDF
         </button>
-        <button onclick="auditExportPDFOnly()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 py-4 rounded-full transition-colors">
+        <button onclick="auditExportPDFOnly()" class="btn" style="background: #555B6E; color: white; padding: 14px 32px; border-radius: 6px; font-weight: 800; font-size: 15px;">
           Download PDF Only
         </button>
         <button onclick="auditCompleteAndSave()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 py-4 rounded-full transition-colors">
@@ -1107,15 +1119,6 @@ async function writeAuditActionsToXlsx(state) {
   var actionItems = auditGetActions();
   console.log('[Audit Actions] auditGetActions returned', actionItems.length, 'actions');
 
-  var isCloud = window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
-  console.log('[Audit Actions] Cloud sync:', isCloud);
-
-  if (!isCloud) {
-    console.warn('[Audit Actions] Not connected to SharePoint — cannot save');
-    return { method: 'no_folder', count: actionItems.length };
-  }
-
-  // ===== GRAPH API PATH =====
   try {
     var d = new Date(state.date);
     var year = d.getFullYear();
@@ -1157,43 +1160,45 @@ async function writeAuditActionsToXlsx(state) {
     var fileName = safeStore + '-' + safeDate + '.json';
     var jsonStr = JSON.stringify(payload, null, 2);
 
-    await GraphAPI.uploadFileToFolder('Open', fileName, jsonStr, 'application/json');
-    console.log('[Audit Actions] Cloud write complete — Open/' + fileName + ' saved');
-    return { method: 'sharepoint', count: payload.actions.length };
+    // Save to local storage
+    var saved = JSON.parse(localStorage.getItem('audit_actions') || '[]');
+    saved.push({ fileName: fileName, payload: payload, savedAt: new Date().toISOString() });
+    localStorage.setItem('audit_actions', JSON.stringify(saved));
+    console.log('[Audit Actions] Saved locally — ' + fileName);
+    return { method: 'local', count: payload.actions.length };
   } catch (e) {
-    console.error('[Audit Actions] Cloud write FAILED:', e.message);
+    console.error('[Audit Actions] Save FAILED:', e.message);
     return { method: 'error', count: actionItems.length, error: e.message };
   }
 }
 
 async function readJsonFolder(folderName) {
-  var isCloud = window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated();
-
-  if (!isCloud) {
-    console.log('[Audit Actions] Not connected to SharePoint');
+  // TEST MODE — read from local folder handle
+  if (!directoryHandle) {
+    console.log('[Audit Actions] No folder handle available');
     return [];
   }
 
   try {
-    var files = await GraphAPI.listFilesInFolder(folderName);
+    var subHandle = await directoryHandle.getDirectoryHandle(folderName);
     var results = [];
-    for (var i = 0; i < files.length; i++) {
-      var f = files[i];
-      if (f.name.endsWith('.json')) {
+    for await (var entry of subHandle.values()) {
+      if (entry.kind === 'file' && entry.name.endsWith('.json')) {
         try {
-          var text = await GraphAPI.downloadFileAsTextFromFolder(folderName, f.name);
+          var file = await entry.getFile();
+          var text = await file.text();
           var data = JSON.parse(text);
-          data._fileName = f.name;
+          data._fileName = entry.name;
           results.push(data);
         } catch (e) {
-          console.warn('[Audit Actions] Cloud read failed for ' + folderName + '/' + f.name + ':', e.message);
+          console.warn('[Audit Actions] Read failed for ' + folderName + '/' + entry.name + ':', e.message);
         }
       }
     }
-    console.log('[Audit Actions] Cloud read: ' + results.length + ' JSON files from ' + folderName);
+    console.log('[Audit Actions] Read ' + results.length + ' JSON files from ' + folderName);
     return results;
   } catch (e) {
-    console.log('[Audit Actions] Cloud folder ' + folderName + ' not accessible');
+    console.log('[Audit Actions] Folder ' + folderName + ' not found in data folder');
     return [];
   }
 }
@@ -1362,7 +1367,7 @@ async function auditGeneratePDF() {
   // ============================
   // PAGE 1 — Scorecard
   // ============================
-  fill(0, 168, 142); doc.rect(0, 0, W, 32, 'F');
+  fill(135, 157, 130); doc.rect(0, 0, W, 32, 'F');
   color(255, 255, 255); size(20); bold();
   text('Retail Audit Report', x0, 14);
   size(10); normal();
@@ -1394,13 +1399,13 @@ async function auditGeneratePDF() {
   // Overall score card
   var overall = auditOverallMetrics();
   checkPage(32);
-  fill(240, 253, 250); doc.roundedRect(x0, y, CW, 26, 3, 3, 'F');
-  size(28); bold(); color(0, 168, 142);
+  fill(251, 250, 246); doc.roundedRect(x0, y, CW, 26, 3, 3, 'F');
+  size(28); bold(); color(135, 157, 130);
   text(overall.pct + '%', x0 + 6, y + 18);
   size(10); color(100, 100, 100); normal();
   text('Overall Score (' + overall.totalMax + ' max pts)', x0 + 52, y + 11);
   if (overall.totalCritical > 0) {
-    color(200, 50, 50); bold(); size(9);
+    color(164, 119, 114); bold(); size(9);
     var cl = overall.totalCritical + ' critical items, penalty -' + overall.totalPenalty + '%';
     text(cl, x0 + 52, y + 19);
   }
@@ -1415,7 +1420,7 @@ async function auditGeneratePDF() {
   var sw = CW / Math.min(ansSectors.length, 6) - 2;
   ansSectors.forEach(function(s, si) {
     var sx = x0 + si * (sw + 2);
-    var rgb = s.metrics.failed ? [255, 200, 200] : s.metrics.penalisedPct >= 95 ? [209, 250, 229] : s.metrics.penalisedPct >= 90 ? [220, 252, 231] : s.metrics.penalisedPct >= 80 ? [254, 243, 199] : [254, 226, 226];
+    var rgb = s.metrics.failed ? [164, 119, 114] : s.metrics.penalisedPct >= 95 ? [96, 117, 95] : s.metrics.penalisedPct >= 90 ? [96, 117, 95] : s.metrics.penalisedPct >= 80 ? [193, 127, 78] : [164, 119, 114];
     fill(rgb[0], rgb[1], rgb[2]); doc.roundedRect(sx, y, sw, 18, 2, 2, 'F');
     size(11); bold(); color(60, 60, 60);
     text(s.metrics.penalisedPct + '%', sx + sw / 2, y + 8, { align: 'center' });
@@ -1436,7 +1441,7 @@ async function auditGeneratePDF() {
   if (critActs.length > 0) {
     checkPage(12);
     doc.addPage(); y = M;
-    fill(200, 50, 50); doc.rect(0, 0, W, 14, 'F');
+    fill(164, 119, 114); doc.rect(0, 0, W, 14, 'F');
     color(255, 255, 255); size(12); bold();
     text('Critical Actions (' + critActs.length + ')', x0, 10);
     y = 22;
@@ -1450,8 +1455,8 @@ async function auditGeneratePDF() {
       var cardH = infoH + photoH + 10;
       checkPage(cardH + 4);
 
-      fill(254, 226, 226); doc.roundedRect(x0, y, CW, cardH, 2, 2, 'F');
-      fill(220, 38, 38); doc.roundedRect(x0, y, 4, cardH, 1, 1, 'F');
+      fill(251, 250, 246); doc.roundedRect(x0, y, CW, cardH, 2, 2, 'F');
+      fill(164, 119, 114); doc.roundedRect(x0, y, 4, cardH, 1, 1, 'F');
       var cy = y + 4;
       size(8); bold(); color(60, 60, 60);
       var hd = item.sector + ' > ' + item.category;
@@ -1482,7 +1487,7 @@ async function auditGeneratePDF() {
   // Non-critical actions
   if (nonCritActs.length > 0) {
     doc.addPage(); y = M;
-    fill(245, 158, 11); doc.rect(0, 0, W, 14, 'F');
+    fill(193, 127, 78); doc.rect(0, 0, W, 14, 'F');
     color(255, 255, 255); size(12); bold();
     text('Action Items (' + nonCritActs.length + ')', x0, 10);
     y = 22;
@@ -1496,7 +1501,7 @@ async function auditGeneratePDF() {
       var ncardH = ninfoH + nphotoH + 10;
       checkPage(ncardH + 4);
 
-      fill(255, 251, 235); doc.roundedRect(x0, y, CW, ncardH, 2, 2, 'F');
+      fill(251, 250, 246); doc.roundedRect(x0, y, CW, ncardH, 2, 2, 'F');
       var ncy = y + 4;
       size(8); bold(); color(60, 60, 60);
       var nhd = nitem.sector + ' > ' + nitem.category;
@@ -1531,7 +1536,7 @@ async function auditGeneratePDF() {
 
   if (comments.withPhotos.length > 0) {
     doc.addPage(); y = M;
-    fill(0, 140, 120); doc.rect(0, 0, W, 14, 'F');
+    fill(135, 157, 130); doc.rect(0, 0, W, 14, 'F');
     color(255, 255, 255); size(12); bold();
     text('Comments & Evidence (' + comments.withPhotos.length + ')', x0, 10);
     y = 22;
@@ -1545,9 +1550,9 @@ async function auditGeneratePDF() {
       var cCardH = ctextH + cphotoH + 8;
       checkPage(cCardH + 4);
 
-      fill(248, 250, 252); doc.roundedRect(x0, y, CW, cCardH, 2, 2, 'F');
+      fill(251, 250, 246); doc.roundedRect(x0, y, CW, cCardH, 2, 2, 'F');
       var ccy = y + 4;
-      size(7); bold(); color(0, 140, 120);
+      size(7); bold(); color(135, 157, 130);
       text(cv.sector + ' > ' + cv.category, x0 + 6, ccy); ccy += 4;
       size(6); normal(); color(80, 80, 80);
       text(cv.question.substring(0, 100), x0 + 6, ccy); ccy += 4;
@@ -1572,7 +1577,7 @@ async function auditGeneratePDF() {
   // Notes without photos
   if (comments.withoutPhotos.length > 0) {
     doc.addPage(); y = M;
-    fill(100, 100, 100); doc.rect(0, 0, W, 14, 'F');
+    fill(126, 137, 128); doc.rect(0, 0, W, 14, 'F');
     color(255, 255, 255); size(12); bold();
     text('Notes (' + comments.withoutPhotos.length + ')', x0, 10);
     y = 22;
@@ -1582,8 +1587,8 @@ async function auditGeneratePDF() {
       var ntLines = nt.comment ? wrap(nt.comment, CW - 12) : [];
       var ntcH = 12 + ntLines.length * 3;
       checkPage(ntcH + 3);
-      fill(248, 250, 252); doc.roundedRect(x0, y, CW, ntcH, 2, 2, 'F');
-      size(7); bold(); color(0, 140, 120);
+      fill(251, 250, 246); doc.roundedRect(x0, y, CW, ntcH, 2, 2, 'F');
+      size(7); bold(); color(135, 157, 130);
       text(nt.sector + ' > ' + nt.category, x0 + 6, y + 4);
       size(6); normal(); color(80, 80, 80);
       text(nt.question.substring(0, 80), x0 + 6, y + 8);
@@ -1599,7 +1604,7 @@ async function auditGeneratePDF() {
   // PAGE — All Questions
   // ============================
   doc.addPage(); y = M;
-  fill(0, 168, 142); doc.rect(0, 0, W, 14, 'F');
+  fill(135, 157, 130); doc.rect(0, 0, W, 14, 'F');
   color(255, 255, 255); size(12); bold();
   text('All Questions', x0, 10);
   y = 22;
@@ -1621,8 +1626,8 @@ async function auditGeneratePDF() {
       head: [['Sector', 'Category', 'Question', 'Ans', 'Wt']],
       body: tRows,
       styles: { fontSize: 7, cellPadding: 1.5 },
-      headStyles: { fillColor: [0, 168, 142], fontSize: 7, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
+      headStyles: { fillColor: [135, 157, 130], fontSize: 7, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [251, 250, 246] },
       margin: { left: M, right: M },
       columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 30 }, 2: { cellWidth: 75 }, 3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' } }
     });
@@ -1632,7 +1637,7 @@ async function auditGeneratePDF() {
   var pgCount = doc.internal.getNumberOfPages();
   for (var pg = 1; pg <= pgCount; pg++) {
     doc.setPage(pg);
-    size(7); color(150, 150, 150); normal();
+    size(7); color(126, 137, 128); normal();
     text('Birds Bakery — Retail Audit — ' + new Date().toLocaleString('en-GB'), x0, H - 8);
     text('Page ' + pg + ' of ' + pgCount, x1, H - 8, { align: 'right' });
   }
@@ -1856,15 +1861,41 @@ window.importMobileAuditZIP = async function(event) {
       _auditQB = data;
       console.log('[Audit] Loaded bundled AuditQuestions.json (' + Object.keys(data).length + ' sectors)');
       updateQBStatusUI();
-      // Cache it for next time
       if (typeof idbPut === 'function' && typeof db !== 'undefined' && db) {
         idbPut('questionBank', { id: 'current', data: _auditQB, loadedAt: new Date().toISOString(), fileName: 'AuditQuestions.json (bundled)' });
       }
     }
   }).catch(function(e) {
-    console.warn('[Audit] Fetch failed:', e.message, '— trying IndexedDB cache');
-    // Fetch failed, try IndexedDB
-    if (typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
+    console.warn('[Audit] Fetch failed:', e.message, '— trying local folder then IndexedDB');
+    // Try reading from local folder handle (file:// CORS workaround)
+    if (typeof directoryHandle !== 'undefined' && directoryHandle && !_auditQB) {
+      directoryHandle.getFileHandle('AuditQuestions.json').then(function(fh) {
+        return fh.getFile();
+      }).then(function(file) {
+        return file.text();
+      }).then(function(text) {
+        var data = JSON.parse(text);
+        if (!_auditQB) {
+          _auditQB = data;
+          console.log('[Audit] Loaded AuditQuestions.json from local folder (' + Object.keys(data).length + ' sectors)');
+          updateQBStatusUI();
+          if (typeof idbPut === 'function' && typeof db !== 'undefined' && db) {
+            idbPut('questionBank', { id: 'current', data: _auditQB, loadedAt: new Date().toISOString(), fileName: 'AuditQuestions.json (local folder)' });
+          }
+        }
+      }).catch(function() {
+        // Local folder also failed, try IndexedDB
+        if (typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
+          idbGet('questionBank', 'current').then(function(rec) {
+            if (rec && rec.data && !_auditQB) {
+              _auditQB = rec.data;
+              console.log('[Audit] Loaded cached question bank from', rec.fileName || 'IndexedDB');
+              updateQBStatusUI();
+            }
+          }).catch(function() {});
+        }
+      });
+    } else if (!_auditQB && typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
       idbGet('questionBank', 'current').then(function(rec) {
         if (rec && rec.data && !_auditQB) {
           _auditQB = rec.data;

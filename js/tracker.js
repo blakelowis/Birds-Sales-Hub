@@ -9,7 +9,90 @@ var _trackerSort = { col: 'name', dir: 'asc' };
 var _trackerDataCache = {};
 window._trackerLocked = false;
 
+function toUKDate(d) {
+    if (!d) return '';
+    if (typeof d === 'string') {
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d;
+        var parsed = new Date(d);
+        if (!isNaN(parsed.getTime())) d = parsed;
+        else return d;
+    }
+    if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    return dd + '/' + mm + '/' + yyyy;
+}
+
+var _trackerDateFields = ['ehoVisit', 'inspectionDate', 'nextDue', 'auditDate'];
+
+function excelSerialToDate(serial) {
+    if (typeof serial === 'string') serial = Number(serial);
+    if (!Number.isFinite(serial) || serial < 1 || serial > 100000) return null;
+    return new Date((serial - 25569) * 86400000);
+}
+
+function trackerNormalizeDates(rec) {
+    if (!rec || typeof rec !== 'object') return rec;
+    // Universal date normalizer: handles Excel serials, ISO strings, raw numbers
+    function _normDateVal(v) {
+        if (v === null || v === undefined || v === '') return v;
+        // Already a UK date string
+        if (typeof v === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(v.trim())) return v;
+        // Excel serial number (number or numeric string)
+        var n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v.trim()) : NaN);
+        if (Number.isFinite(n) && n > 25569 && n < 80000) {
+            var d = excelSerialToDate(n);
+            if (d && !isNaN(d.getTime())) return toUKDate(d);
+        }
+        // ISO date string
+        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+            var d2 = new Date(v);
+            if (d2 && !isNaN(d2.getTime())) return toUKDate(d2);
+        }
+        // DD-MM-YYYY or other separator
+        if (typeof v === 'string' && /^\d{2}[-.]\d{2}[-.]\d{4}$/.test(v.trim())) {
+            var parts = v.trim().split(/[-.]/);
+            var d3 = new Date(parts[2], parts[1]-1, parts[0]);
+            if (d3 && !isNaN(d3.getTime())) return toUKDate(d3);
+        }
+        return v;
+    }
+    // Process all known date fields
+    _trackerDateFields.forEach(function(f) {
+        if (!rec[f]) return;
+        rec[f] = _normDateVal(rec[f]);
+    });
+    // Also scan all other fields for stray Excel serial dates
+    Object.keys(rec).forEach(function(f) {
+        if (_trackerDateFields.indexOf(f) !== -1) return;
+        var v = rec[f];
+        if (v === null || v === undefined || v === '') return;
+        var n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d{4,6}(\.\d+)?$/.test(v.trim()) ? Number(v.trim()) : NaN);
+        if (Number.isFinite(n) && n > 25569 && n < 80000) {
+            var d = excelSerialToDate(n);
+            if (d && !isNaN(d.getTime())) rec[f] = toUKDate(d);
+        }
+    });
+    return rec;
+}
+
 // === RAG Helpers ===
+function trackerNormalizeDataKeys(data) {
+    var out = {};
+    Object.keys(data).forEach(function(k) {
+        var cid = canonicalStoreId(k);
+        var rec = Object.assign({}, data[k]);
+        rec.StoreId = cid;
+        if (!out[cid]) out[cid] = rec;
+        else {
+            Object.keys(rec).forEach(function(f) {
+                if (rec[f] !== '' && rec[f] !== null && rec[f] !== undefined) out[cid][f] = rec[f];
+            });
+        }
+    });
+    return out;
+}
 function trackerEhoRag(rating) {
     var r = parseInt(rating) || 0;
     if (r === 5) return 'bg-emerald-100 text-emerald-700 border-emerald-300';
@@ -44,11 +127,28 @@ function trackerNextDueBadge(visitStr) {
     nextDue.setFullYear(nextDue.getFullYear() + 1);
     var now = new Date();
     var days = Math.ceil((nextDue - now) / 86400000);
-    var dueStr = nextDue.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    var dueStr = nextDue.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     if (days < 0) return '<span class="text-[10px] font-black text-red-600">' + dueStr + '</span>';
     if (days < 30) return '<span class="text-[10px] font-black text-amber-600">' + dueStr + '</span>';
     if (days < 90) return '<span class="text-[10px] font-bold text-blue-600">' + dueStr + '</span>';
     return '<span class="text-[10px] font-bold text-emerald-600">' + dueStr + '</span>';
+}
+
+function trackerFindData(saved, storeId, storeName) {
+    if (!saved) return {};
+    if (saved[storeId]) return saved[storeId];
+    var cid = canonicalStoreId(storeId);
+    if (saved[cid]) return saved[cid];
+    if (storeName) {
+        var cid2 = canonicalStoreId(storeName);
+        if (saved[cid2]) return saved[cid2];
+        if (saved[storeName]) return saved[storeName];
+    }
+    var lo = (storeId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (var k in saved) {
+        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === lo) return saved[k];
+    }
+    return {};
 }
 
 var _trackerColDef = [
@@ -88,13 +188,13 @@ function buildStoresFromEhoData(saved) {
     var seen = {};
     Object.keys(saved).forEach(function(storeId) {
         var d = saved[storeId];
-        var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(storeId)) || storeId;
-        var am = (typeof storeMap !== 'undefined' && storeMap.get(storeId)) || 'Unassigned';
+        var cid = d.StoreId || canonicalStoreId(storeId);
+        var displayName = (typeof originalStoreNames !== 'undefined' && originalStoreNames.get(cid)) || originalStoreNames.get(storeId) || cid;
+        var am = (typeof storeMap !== 'undefined' && (storeMap.get(cid) || storeMap.get(storeId))) || 'Unassigned';
         if (am === 'Training') return;
-        var cid = canonicalStoreId(displayName);
         if (!seen[cid]) {
             seen[cid] = true;
-            s.push({ id: storeId, name: displayName, am: am });
+            s.push({ id: cid, name: displayName, am: am });
         }
     });
     s.sort(function(a, b) { return a.name.localeCompare(b.name); });
@@ -138,7 +238,7 @@ function _doRenderTracker() {
 
     var headerCells = _trackerColDef.map(function(col) {
         var arrow = '';
-        if (_trackerSort.col === col.key) arrow = _trackerSort.dir === 'asc' ? ' ▲' : ' ▼';
+        if (_trackerSort.col === col.key) arrow = _trackerSort.dir === 'asc' ? ' (Asc)' : ' (Desc)';
         return '<th class="tracker-th p-3 text-[10px] font-black ' + col.cls + ' uppercase tracking-wider cursor-pointer select-none hover:bg-slate-100 transition-colors sticky top-0 z-20 bg-slate-100" data-col="' + col.key + '" onclick="trackerHeaderSort(\'' + col.key + '\')">' + col.label + arrow + '</th>';
     }).join('');
 
@@ -151,10 +251,11 @@ function _doRenderTracker() {
             <h2 class="text-2xl font-black outfit birds-green uppercase tracking-tight">EHO & Audit Tracker</h2>
             <div class="flex flex-wrap gap-2">
                 <button onclick="trackerToggleLock()" id="trackerLockBtn" class="btn text-xs"></button>
+                <button onclick="trackerManualSave()" id="trackerSaveBtn" class="btn text-xs" style="background:#e8eee5;color:#20231F;border:1px solid #d5ddd0;">Save to Folder</button>
                 <button onclick="trackerRefreshFromFolder()" class="btn-primary text-xs">Refresh from Folder</button>
             </div>
         </div>
-        <div id="trackerSyncStatus" class="text-xs font-bold text-slate-400 mb-2 shrink-0"></div>
+        <div id="trackerSyncStatus" class="text-xs font-bold mb-2 shrink-0" style="color:#7A7A7A;min-height:18px;"></div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm shrink-0">
             <div class="flex flex-wrap gap-3 items-end">
@@ -180,8 +281,8 @@ function _doRenderTracker() {
                     </select>
                 </div>
                 <button onclick="trackerClearFilters()" class="btn text-xs">Clear Filters</button>
-                <button onclick="trackerExportPNG()" class="btn-primary text-xs">Export PNG</button>
-                <button onclick="trackerPrintPDF()" class="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-md hover:bg-rose-700">PDF Export</button>
+                <button onclick="trackerExportPNG()" class="btn" style="background: #555B6E; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 12px;">Export PNG</button>
+                <button onclick="trackerPrintPDF()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 12px;">PDF Export</button>
                 <span id="trackerRowCount" class="text-xs font-bold text-slate-400 ml-auto"></span>
             </div>
         </div>
@@ -196,7 +297,7 @@ function _doRenderTracker() {
                     </thead>
                     <tbody id="trackerTableBody">
                         ${activeStores.map(function(s) {
-                            var d = saved[s.id] || {};
+                            var d = trackerFindData(saved, s.id, s.name);
                             return trackerRowHTML(s.id, s.name, s.am, d);
                         }).join('')}
                     </tbody>
@@ -215,54 +316,95 @@ function _doRenderTracker() {
     // Always render immediately with empty data
     renderTable({});
 
-    // Load data: always read from folder first, merge with IDB by newest timestamp, fall back to defaults
+    // Load data: always load defaults first as baseline, then overlay with local/IDB data
     if (typeof idbGetAll === 'function' && typeof db !== 'undefined' && db) {
-        trackerLoadFromFolder().then(function(folderData) {
-            if (folderData && Object.keys(folderData).length > 0) {
-                // Merge folder data with IDB — keep newer version of each record
-                return idbGetAll('eho_data').then(function(idbRows) {
-                    var idbMap = {};
-                    idbRows.forEach(function(r) { idbMap[r.StoreId] = r; });
-                    var merged = {};
-                    Object.keys(folderData).forEach(function(k) {
-                        var folderRec = folderData[k];
-                        var idbRec = idbMap[k];
-                        if (idbRec && idbRec.updatedAt && folderRec.updatedAt && new Date(idbRec.updatedAt) > new Date(folderRec.updatedAt)) {
-                            merged[k] = idbRec;
-                        } else {
-                            merged[k] = folderRec;
-                        }
-                        delete idbMap[k];
+        // Step 1: Get defaults
+        var getDefaults;
+        if (window._trackerDefaults) {
+            getDefaults = Promise.resolve(window._trackerDefaults);
+        } else {
+            getDefaults = fetch('./tracker_defaults.json').then(function(r) { return r.json(); }).catch(function() { return { stores: {} }; });
+        }
+        getDefaults.then(function(defaults) {
+            var defaultsData = defaults.stores || {};
+            // Step 2: Try local folder, then IDB, then just use defaults
+            return trackerLoadFromFolder().then(function(folderData) {
+                if (folderData && Object.keys(folderData).length > 0) {
+                    return idbGetAll('eho_data').then(function(idbRows) {
+                        var idbMap = {};
+                        idbRows.forEach(function(r) { idbMap[r.StoreId] = r; });
+                        var merged = {};
+                        // Start with defaults as baseline
+                        Object.keys(defaultsData).forEach(function(k) { merged[k] = defaultsData[k]; });
+                        // Overlay IDB data (field-level merge to preserve defaults)
+                        Object.keys(idbMap).forEach(function(k) {
+                            if (!merged[k]) { merged[k] = idbMap[k]; return; }
+                            Object.keys(idbMap[k]).forEach(function(f) {
+                                if (idbMap[k][f] !== undefined && idbMap[k][f] !== null) {
+                                    merged[k][f] = idbMap[k][f];
+                                }
+                            });
+                        });
+                        // Overlay folder data (field-level merge: only overwrite non-empty fields)
+                        Object.keys(folderData).forEach(function(k) {
+                            var folderRec = folderData[k];
+                            if (!merged[k]) { merged[k] = folderRec; return; }
+                            var existing = merged[k];
+                            if (existing.updatedAt && folderRec.updatedAt && new Date(existing.updatedAt) > new Date(folderRec.updatedAt)) {
+                                return; // IDB is newer, keep it
+                            }
+                            Object.keys(folderRec).forEach(function(f) {
+                                if (folderRec[f] !== '' && folderRec[f] !== null && folderRec[f] !== undefined) {
+                                    merged[k][f] = folderRec[f];
+                                }
+                            });
+                        });
+                        // Heal: restore any fields wiped by previous buggy sync from defaults
+                        Object.keys(merged).forEach(function(k) {
+                            if (defaultsData[k]) {
+                                Object.keys(defaultsData[k]).forEach(function(f) {
+                                    if (merged[k][f] === undefined || merged[k][f] === null || merged[k][f] === '') {
+                                        merged[k][f] = defaultsData[k][f];
+                                    }
+                                });
+                            }
+                        });
+                        return Promise.all(Object.keys(merged).map(function(k) { merged[k] = trackerNormalizeDates(merged[k]); return idbPut('eho_data', merged[k]); })).then(function() {
+                            merged = trackerNormalizeDataKeys(merged);
+                            var withData = mergeStoreLists(stores, buildStoresFromEhoData(merged));
+                            return { data: merged, stores: withData };
+                        });
                     });
-                    // Any records only in IDB (from unsaved edits) keep them
-                    Object.keys(idbMap).forEach(function(k) { merged[k] = idbMap[k]; });
-                    return Promise.all(Object.keys(merged).map(function(k) { return idbPut('eho_data', merged[k]); })).then(function() {
+                }
+                // No folder data — merge defaults with IDB
+                return idbGetAll('eho_data').then(function(rows) {
+                    var saved = {};
+                    rows.forEach(function(r) { saved[r.StoreId] = r; });
+                    // Start with defaults, overlay IDB edits (field-level merge)
+                    var merged = {};
+                    Object.keys(defaultsData).forEach(function(k) { merged[k] = defaultsData[k]; });
+                    Object.keys(saved).forEach(function(k) {
+                        if (!merged[k]) { merged[k] = saved[k]; return; }
+                        Object.keys(saved[k]).forEach(function(f) {
+                            if (saved[k][f] !== undefined && saved[k][f] !== null) {
+                                merged[k][f] = saved[k][f];
+                            }
+                        });
+                    });
+                    // Heal: restore any fields wiped by previous buggy sync
+                    Object.keys(merged).forEach(function(k) {
+                        if (defaultsData[k]) {
+                            Object.keys(defaultsData[k]).forEach(function(f) {
+                                if (merged[k][f] === undefined || merged[k][f] === null || merged[k][f] === '') {
+                                    merged[k][f] = defaultsData[k][f];
+                                }
+                            });
+                        }
+                    });
+                    return Promise.all(Object.keys(merged).map(function(k) { merged[k] = trackerNormalizeDates(merged[k]); return idbPut('eho_data', merged[k]); })).then(function() {
+                        merged = trackerNormalizeDataKeys(merged);
                         var withData = mergeStoreLists(stores, buildStoresFromEhoData(merged));
                         return { data: merged, stores: withData };
-                    });
-                });
-            }
-            // No folder data — try IndexedDB
-            return idbGetAll('eho_data').then(function(rows) {
-                var saved = {};
-                rows.forEach(function(r) { saved[r.StoreId] = r; });
-                if (Object.keys(saved).length > 0) {
-                    var withData = mergeStoreLists(stores, buildStoresFromEhoData(saved));
-                    return { data: saved, stores: withData };
-                }
-                // Nothing anywhere — load defaults
-                var loadDefaults;
-                if (window._trackerDefaults) {
-                    loadDefaults = Promise.resolve(window._trackerDefaults);
-                } else {
-                    loadDefaults = fetch('./tracker_defaults.json').then(function(r) { return r.json(); });
-                }
-                return loadDefaults.then(function(defaults) {
-                    var storesData = defaults.stores || {};
-                    return Promise.all(Object.keys(storesData).map(function(k) { return idbPut('eho_data', storesData[k]); })).then(function() {
-                        console.log('[Tracker] Loaded defaults from tracker_defaults.json');
-                        var withData = mergeStoreLists(stores, buildStoresFromEhoData(storesData));
-                        return { data: storesData, stores: withData };
                     });
                 });
             });
@@ -281,9 +423,24 @@ function trackerRowHTML(id, name, am, d) {
     var locked = window._trackerLocked;
     var dis = locked ? ' disabled' : '';
     var ehoCsv = (typeof window._ehoRatings !== 'undefined' && window._ehoRatings.get(name.toLowerCase())) || window._ehoRatings.get(id.toLowerCase()) || null;
+    // Safety-net: normalize any date value before display
+    function _fixDate(v) {
+        if (!v) return '';
+        if (typeof v === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(v.trim())) return v;
+        var n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v.trim()) : NaN);
+        if (Number.isFinite(n) && n > 25569 && n < 80000) {
+            var d2 = excelSerialToDate(n);
+            if (d2 && !isNaN(d2.getTime())) return toUKDate(d2);
+        }
+        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+            var d3 = new Date(v);
+            if (d3 && !isNaN(d3.getTime())) return toUKDate(d3);
+        }
+        return v;
+    }
     var rating = d.ehoRating || (ehoCsv ? String(ehoCsv.rating) : '');
-    var visit = d.ehoVisit || '';
-    var inspectionDate = d.inspectionDate || (ehoCsv ? ehoCsv.inspectionDate : '') || '';
+    var visit = _fixDate(d.ehoVisit) || '';
+    var inspectionDate = _fixDate(d.inspectionDate) || (ehoCsv ? _fixDate(ehoCsv.inspectionDate) : '') || '';
     var food = d.food !== undefined && d.food !== null ? d.food : '';
     var fire = d.fire !== undefined && d.fire !== null ? d.fire : '';
     var hs = d.hs !== undefined && d.hs !== null ? d.hs : '';
@@ -291,22 +448,22 @@ function trackerRowHTML(id, name, am, d) {
     var coffee = d.coffee !== undefined && d.coffee !== null ? d.coffee : '';
     var focus = d.focus !== undefined && d.focus !== null ? d.focus : '';
     var total = d.total !== undefined && d.total !== null ? d.total : '';
-    var auditDate = d.auditDate || '';
+    var auditDate = _fixDate(d.auditDate) || '';
 
     var ratingOpts = '<option value=""></option>';
     for (var i = 1; i <= 5; i++) {
         ratingOpts += '<option value="' + i + '"' + (String(rating) === String(i) ? ' selected' : '') + '>' + i + ' Star</option>';
     }
 
-    var nextDueVal = d.nextDue || '';
+    var nextDueVal = _fixDate(d.nextDue) || '';
     if (!nextDueVal && ehoCsv && ehoCsv.nextDue) {
-        nextDueVal = ehoCsv.nextDue;
+        nextDueVal = _fixDate(ehoCsv.nextDue);
     } else if (!nextDueVal && visit) {
         var vd = parseUKDate(visit);
         if (vd && !isNaN(vd.getTime())) {
             var nd = new Date(vd);
             nd.setFullYear(nd.getFullYear() + 1);
-            nextDueVal = nd.toISOString().slice(0, 10);
+            nextDueVal = toUKDate(nd);
         }
     }
 
@@ -386,7 +543,7 @@ function _updateTrackerLockBtn() {
 }
 
 window.trackerField = function(storeId, field, value) {
-    var rec = _trackerDataCache[storeId] || { StoreId: storeId };
+    var rec = trackerFindData(_trackerDataCache, storeId, null); if (!rec.StoreId) rec = { StoreId: storeId };
     rec[field] = value;
     rec.updatedAt = new Date().toISOString();
     _trackerDataCache[storeId] = rec;
@@ -407,7 +564,7 @@ window.trackerField = function(storeId, field, value) {
             if (vd && !isNaN(vd.getTime())) {
                 var ndt = new Date(vd);
                 ndt.setFullYear(ndt.getFullYear() + 1);
-                nd = ndt.toISOString().slice(0, 10);
+                nd = toUKDate(ndt);
             }
         }
         row.setAttribute('data-nextdue', nd);
@@ -421,7 +578,7 @@ window.trackerField = function(storeId, field, value) {
             if (vd && !isNaN(vd.getTime())) {
                 var ndt = new Date(vd);
                 ndt.setFullYear(ndt.getFullYear() + 1);
-                nd = ndt.toISOString().slice(0, 10);
+                nd = toUKDate(ndt);
             }
         }
         row.setAttribute('data-nextdue', nd);
@@ -433,30 +590,60 @@ window.trackerField = function(storeId, field, value) {
 function trackerScheduleSave() {
     if (_trackerSaveTimer) clearTimeout(_trackerSaveTimer);
     var statusEl = document.getElementById('trackerSyncStatus');
-    if (statusEl) statusEl.textContent = 'Saving...';
+    if (statusEl) statusEl.textContent = 'Unsaved changes...';
     _trackerSaveTimer = setTimeout(function() { trackerSaveToFolder(); }, 800);
 }
 
-async function trackerSaveToFolder() {
+function _trackerSetSaveStatus(text, color, icon) {
     var statusEl = document.getElementById('trackerSyncStatus');
+    if (!statusEl) return;
+    statusEl.innerHTML = '<span style="color:' + color + ';">' + (icon || '') + ' ' + text + '</span>';
+}
+
+window.trackerManualSave = async function() {
+    var btn = document.getElementById('trackerSaveBtn');
+    if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+    await trackerSaveToFolder();
+    if (btn) { btn.textContent = 'Save to Folder'; btn.disabled = false; }
+};
+
+async function trackerSaveToFolder() {
     try {
         var rows = await idbGetAll('eho_data');
         var data = {};
-        rows.forEach(function(r) { data[r.StoreId] = r; });
+        rows.forEach(function(r) { data[r.StoreId] = trackerNormalizeDates(r); });
         _trackerDataCache = data;
         var exportObj = { version: 1, exportedAt: new Date().toISOString(), stores: data };
         var json = JSON.stringify(exportObj, null, 2);
 
-        if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
-            await GraphAPI.uploadFile('tracker_data.json', json, 'application/json');
-            if (statusEl) statusEl.textContent = 'Saved to SharePoint';
+        // Save to localStorage as fallback
+        try { localStorage.setItem('tracker_data', json); } catch(ex) {}
+
+        // Save to data folder if handle is available
+        if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+            try {
+                var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') perm = await directoryHandle.requestPermission({ mode: 'readwrite' });
+                if (perm === 'granted') {
+                    var fileHandle = await directoryHandle.getFileHandle('tracker_data.json', { create: true });
+                    var writable = await fileHandle.createWritable();
+                    await writable.write(json);
+                    await writable.close();
+                    _trackerSetSaveStatus('\u2713 Saved to data folder', '#2d7a3a', '');
+                } else {
+                    _trackerSetSaveStatus('\u26A0 Saved locally \u2014 no write permission', '#b45309', '');
+                }
+            } catch (folderErr) {
+                console.warn('[Tracker] Could not write to data folder:', folderErr);
+                _trackerSetSaveStatus('\u26A0 Saved locally \u2014 folder write failed', '#b45309', '');
+            }
         } else {
-            if (statusEl) statusEl.textContent = 'Not signed in — data kept locally';
+            _trackerSetSaveStatus('\u26A0 Saved locally only \u2014 no folder connected', '#b45309', '');
         }
         trackerRefreshKpis();
     } catch(e) {
         console.warn('[Tracker] Save failed:', e);
-        if (statusEl) statusEl.textContent = 'Save failed — data kept locally';
+        _trackerSetSaveStatus('\u2717 Save failed \u2014 data kept locally', '#D94F4F', '');
     }
 }
 
@@ -468,16 +655,51 @@ function trackerRefreshKpis() {
 }
 
 async function trackerLoadFromFolder() {
-    if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
-        try {
-            var cloudText = await GraphAPI.downloadFileAsText('tracker_data.json');
-            var importObj = JSON.parse(cloudText);
-            return importObj.stores || importObj;
-        } catch(e) {
-            console.log('[Tracker] Cloud load unavailable:', e.message);
-            return null;
+    try {
+        // Primary source: data folder via directoryHandle
+        if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+            try {
+                var perm = await directoryHandle.queryPermission({ mode: 'read' });
+                if (perm !== 'granted') perm = await directoryHandle.requestPermission({ mode: 'read' });
+                if (perm === 'granted') {
+                    var fileHandle = await directoryHandle.getFileHandle('tracker_data.json');
+                    var file = await fileHandle.getFile();
+                    var text = await file.text();
+                    var importObj = JSON.parse(text);
+                    var stores = importObj.stores || importObj.updates || importObj;
+                    if (typeof stores === 'object' && !Array.isArray(stores)) {
+                        console.log('[Tracker] Loaded', Object.keys(stores).length, 'stores from data folder');
+                        return stores;
+                    }
+                }
+            } catch (folderErr) {
+                console.log('[Tracker] No tracker_data.json in data folder:', folderErr.message);
+            }
         }
-    }
+        // Fallback: IDB (populated by syncData)
+        if (typeof idbGetAll === 'function') {
+            try {
+                var rows = await idbGetAll('eho_data');
+                if (rows && rows.length > 0) {
+                    var fromIdb = {};
+                    rows.forEach(function(r) {
+                        var cid = r.StoreId || canonicalStoreId(r.Branch || '');
+                        if (cid) fromIdb[cid] = r;
+                    });
+                    if (Object.keys(fromIdb).length > 0) {
+                        console.log('[Tracker] Loaded', Object.keys(fromIdb).length, 'stores from IDB');
+                        return fromIdb;
+                    }
+                }
+            } catch (idbErr) {}
+        }
+        // Fallback: localStorage
+        var localJson = localStorage.getItem('tracker_data');
+        if (localJson) {
+            var importObj = JSON.parse(localJson);
+            return importObj.stores || importObj.updates || importObj;
+        }
+    } catch(e) {}
     return null;
 }
 
@@ -493,7 +715,7 @@ window.trackerHeaderSort = function(colKey) {
     document.querySelectorAll('.tracker-th').forEach(function(th) {
         var k = th.getAttribute('data-col');
         var arrow = '';
-        if (k === _trackerSort.col) arrow = _trackerSort.dir === 'asc' ? ' ▲' : ' ▼';
+        if (_trackerSort.col === k) arrow = _trackerSort.dir === 'asc' ? ' (Asc)' : ' (Desc)';
         // Remove label text, re-add with arrow
         var def = _trackerColDef.find(function(c) { return c.key === k; });
         if (def) th.textContent = def.label + arrow;
@@ -503,8 +725,7 @@ window.trackerHeaderSort = function(colKey) {
 
 // === Refresh from shared folder (gentle in-place update) ===
 window.trackerRefreshFromFolder = async function() {
-    var statusEl = document.getElementById('trackerSyncStatus');
-    if (statusEl) statusEl.textContent = 'Refreshing from folder...';
+    _trackerSetSaveStatus('Refreshing from folder...', '#555', '');
     try {
         var folderData = await trackerLoadFromFolder();
         if (folderData && Object.keys(folderData).length > 0) {
@@ -518,6 +739,13 @@ window.trackerRefreshFromFolder = async function() {
                 var idbRec = idbMap[k];
                 if (idbRec && idbRec.updatedAt && folderRec.updatedAt && new Date(idbRec.updatedAt) > new Date(folderRec.updatedAt)) {
                     mergedData[k] = idbRec;
+                } else if (idbRec) {
+                    Object.keys(folderRec).forEach(function(f) {
+                        if (folderRec[f] !== '' && folderRec[f] !== null && folderRec[f] !== undefined) {
+                            idbRec[f] = folderRec[f];
+                        }
+                    });
+                    mergedData[k] = idbRec;
                 } else {
                     mergedData[k] = folderRec;
                 }
@@ -527,9 +755,10 @@ window.trackerRefreshFromFolder = async function() {
             _trackerDataCache = mergedData;
             var keys = Object.keys(mergedData);
             for (var i = 0; i < keys.length; i++) {
+                mergedData[keys[i]] = trackerNormalizeDates(mergedData[keys[i]]);
                 await idbPut('eho_data', mergedData[keys[i]]);
             }
-            if (statusEl) statusEl.textContent = 'Refreshed ' + keys.length + ' stores from folder';
+            _trackerSetSaveStatus('\u2713 Refreshed ' + keys.length + ' stores from folder', '#2d7a3a', '');
             // Merge store list — include any stores in tracker data not in storeMap
             var merged = mergeStoreLists(buildStoresFromMap(), buildStoresFromEhoData(mergedData));
             window._trackerStores = merged;
@@ -537,7 +766,7 @@ window.trackerRefreshFromFolder = async function() {
             var tbody = document.getElementById('trackerTableBody');
             if (tbody) {
                 tbody.innerHTML = merged.map(function(s) {
-                    var d = mergedData[s.id] || {};
+                    var d = trackerFindData(mergedData, s.id, s.name);
                     return trackerRowHTML(s.id, s.name, s.am, d);
                 }).join('');
                 trackerRenderKpis(merged, mergedData);
@@ -546,11 +775,11 @@ window.trackerRefreshFromFolder = async function() {
                 renderTracker();
             }
         } else {
-            if (statusEl) statusEl.textContent = 'No data in folder yet';
+            _trackerSetSaveStatus('\u26A0 No data in folder yet', '#b45309', '');
         }
     } catch(e) {
         console.warn('[Tracker] Refresh failed:', e);
-        if (statusEl) statusEl.textContent = 'Refresh failed';
+        _trackerSetSaveStatus('\u2717 Refresh failed', '#D94F4F', '');
     }
 };
 
@@ -631,7 +860,7 @@ function trackerRenderKpis(stores, saved) {
     var now = new Date();
 
     stores.forEach(function(s) {
-        var d = saved[s.id] || {};
+        var d = trackerFindData(saved, s.id, s.name);
         var r = parseInt(d.ehoRating) || 0;
         if (!r && typeof window._ehoRatings !== 'undefined') {
             var ehoCsv = window._ehoRatings.get(s.name.toLowerCase()) || window._ehoRatings.get(s.id.toLowerCase());
@@ -679,7 +908,7 @@ window.trackerSaveToFile = async function() {
     try {
         var rows = await idbGetAll('eho_data');
         var data = {};
-        rows.forEach(function(r) { data[r.StoreId] = r; });
+        rows.forEach(function(r) { data[r.StoreId] = trackerNormalizeDates(r); });
         var exportObj = { version: 1, exportedAt: new Date().toISOString(), stores: data };
         var json = JSON.stringify(exportObj, null, 2);
         var blob = new Blob([json], { type: 'application/json' });
@@ -703,7 +932,7 @@ window.trackerLoadFromFile = async function(e) {
         for (var i = 0; i < keys.length; i++) {
             var rec = stores[keys[i]];
             if (rec && rec.StoreId) {
-                await idbPut('eho_data', rec);
+                await idbPut('eho_data', trackerNormalizeDates(rec));
                 count++;
             }
         }
@@ -724,12 +953,17 @@ window.trackerPrintPDF = function() {
     var { jsPDF } = window.jspdf;
     var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-    var MINT = [0, 168, 142];
-    var CHARCOAL = [55, 55, 55];
-    var LIGHT_GREY = [120, 120, 120];
+    var SAGE = [135, 157, 130];
+    var CHARCOAL = [57, 68, 60];
+    var LIGHT_GREY = [126, 137, 128];
+    var PAPER = [251, 250, 246];
+    var RULE = [213, 221, 208];
+    var SAGE_DARK = [96, 117, 95];
+    var ROSE = [164, 119, 114];
+    var TERRACOTTA = [193, 127, 78];
     var PW = 297, PH = 210, MG = 14;
 
-    doc.setFillColor(...MINT);
+    doc.setFillColor(...SAGE);
     doc.rect(0, 0, PW, 2, 'F');
 
     doc.setFont('helvetica', 'bold');
@@ -742,7 +976,7 @@ window.trackerPrintPDF = function() {
     doc.setTextColor(...LIGHT_GREY);
     doc.text('Generated: ' + new Date().toLocaleDateString('en-GB'), MG, 21);
 
-    doc.setDrawColor(220, 220, 220);
+    doc.setDrawColor(...RULE);
     doc.setLineWidth(0.3);
     doc.line(MG, 24, PW - MG, 24);
 
@@ -802,12 +1036,12 @@ window.trackerPrintPDF = function() {
     // KPI boxes
     var bw = 36, bh = 14;
     var kpis = [
-        { label: 'STORES', value: String(rows.length), bg: [241,245,249], fg: [51,65,85] },
-        { label: '5 STAR', value: String(eho5), bg: [236,253,245], fg: [5,150,105] },
-        { label: '4 STAR', value: String(eho4), bg: [250,252,255], fg: [34,119,247] },
-        { label: '3 & BELOW', value: String(ehoBelow), bg: [255,251,235], fg: [180,83,9] },
-        { label: 'EHO OVERDUE', value: String(overdue), bg: [254,242,242], fg: [190,18,60] },
-        { label: 'AVG TOTAL', value: avgTotal + '%', bg: [236,254,255], fg: [14,116,144] }
+        { label: 'STORES', value: String(rows.length), bg: PAPER, fg: CHARCOAL },
+        { label: '5 STAR', value: String(eho5), bg: PAPER, fg: SAGE_DARK },
+        { label: '4 STAR', value: String(eho4), bg: PAPER, fg: SAGE },
+        { label: '3 & BELOW', value: String(ehoBelow), bg: PAPER, fg: TERRACOTTA },
+        { label: 'EHO OVERDUE', value: String(overdue), bg: [254, 242, 242], fg: ROSE },
+        { label: 'AVG TOTAL', value: avgTotal + '%', bg: PAPER, fg: [20, 116, 148] }
     ];
     var bx = MG;
     kpis.forEach(function(k) {
@@ -834,13 +1068,13 @@ window.trackerPrintPDF = function() {
         var avg = sectorCounts[sk] > 0 ? (sectorTotals[sk] / sectorCounts[sk]).toFixed(1) : 'N/A';
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(100, 116, 139);
+        doc.setTextColor(...LIGHT_GREY);
         doc.text(sectorLabels[idx] + ': ' + avg + '%', sx, y);
         sx += 30;
     });
     y += 6;
 
-    doc.setDrawColor(220, 220, 220);
+    doc.setDrawColor(...RULE);
     doc.setLineWidth(0.3);
     doc.line(MG, y, PW - MG, y);
     y += 3;
@@ -851,8 +1085,8 @@ window.trackerPrintPDF = function() {
         head: [['Store', 'Area', 'EHO', 'Insp. Date', 'Next Due', 'Food', 'Fire', 'H&S', 'Journey', 'Coffee', 'Focus', 'Total', 'Audit Date']],
         body: rows,
         styles: { fontSize: 7, cellPadding: 1.5 },
-        headStyles: { fillColor: MINT, fontSize: 7, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        headStyles: { fillColor: SAGE, fontSize: 7, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: PAPER },
         columnStyles: {
             0: { cellWidth: 28, fontStyle: 'bold' },
             1: { cellWidth: 22 },
@@ -867,30 +1101,30 @@ window.trackerPrintPDF = function() {
             if (hookData.section === 'body' && hookData.column.index === 11) {
                 var val = parseFloat(hookData.cell.raw);
                 if (!isNaN(val)) {
-                    if (val >= 95) hookData.cell.styles.textColor = [5, 150, 105];
-                    else if (val >= 90) hookData.cell.styles.textColor = [180, 83, 9];
-                    else if (val >= 80) hookData.cell.styles.textColor = [234, 88, 12];
-                    else hookData.cell.styles.textColor = [190, 18, 60];
+                    if (val >= 95) hookData.cell.styles.textColor = SAGE_DARK;
+                    else if (val >= 90) hookData.cell.styles.textColor = TERRACOTTA;
+                    else if (val >= 80) hookData.cell.styles.textColor = TERRACOTTA;
+                    else hookData.cell.styles.textColor = ROSE;
                 }
             }
             if (hookData.section === 'body' && hookData.column.index >= 5 && hookData.column.index <= 10) {
                 var val = parseFloat(hookData.cell.raw);
                 if (!isNaN(val)) {
-                    if (val >= 95) hookData.cell.styles.textColor = [5, 150, 105];
-                    else if (val >= 90) hookData.cell.styles.textColor = [14, 116, 144];
-                    else if (val >= 80) hookData.cell.styles.textColor = [180, 83, 9];
-                    else if (val > 0) hookData.cell.styles.textColor = [190, 18, 60];
+                    if (val >= 95) hookData.cell.styles.textColor = SAGE_DARK;
+                    else if (val >= 90) hookData.cell.styles.textColor = [20, 116, 148];
+                    else if (val >= 80) hookData.cell.styles.textColor = TERRACOTTA;
+                    else if (val > 0) hookData.cell.styles.textColor = ROSE;
                 }
             }
         },
         didDrawPage: function(hookData) {
             // Footer on each page
-            doc.setDrawColor(220, 220, 220);
+            doc.setDrawColor(...RULE);
             doc.setLineWidth(0.3);
             doc.line(MG, PH - 10, PW - MG, PH - 10);
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
-            doc.setTextColor(160, 160, 160);
+            doc.setTextColor(...LIGHT_GREY);
             doc.text('Birds Bakery \u2014 EHO & Audit Tracker', MG, PH - 6);
             doc.text('Page ' + hookData.pageNumber, PW - MG, PH - 6, { align: 'right' });
         }
@@ -902,9 +1136,9 @@ window.trackerPrintPDF = function() {
 window.trackerExportPNG = function() {
     if (typeof html2canvas === 'undefined') { alert('html2canvas not loaded'); return; }
 
-    var MINT = '#00A88E';
-    var CHARCOAL = '#373737';
-    var LIGHT_GREY = '#888888';
+    var MINT = '#879d82';
+    var CHARCOAL = '#39443c';
+    var LIGHT_GREY = '#7e8a80';
 
     // Collect data from visible rows
     var rows = [];

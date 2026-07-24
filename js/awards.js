@@ -3,7 +3,8 @@
     const year = currentAwardsYear || new Date().getFullYear();
     const allKpis = await idbGetAll('kpi');
     if(!allKpis || allKpis.length === 0) { alert("No data found. Please click 'Refresh Data' in the top header first."); return; }
-    const yearWeeks = [...new Set(allKpis.map(k=>k.Week))].sort((a,b)=>a-b);
+    const yearKpis = allKpis.filter(k => (k.Year || year) === year);
+    const yearWeeks = [...new Set(yearKpis.map(k=>k.Week))].sort((a,b)=>a-b);
     await idbClear('area_winners_log');
     await idbClear('area_metric_winners_log');
     await idbClear('store_winners_log');
@@ -39,21 +40,12 @@ async function renderHallOfFame(){
       const storeLog = await idbGetAll('store_winners_log');
       const areaLog = await idbGetAll('area_winners_log');
 
-      let periodStores = storeLog.filter(l => l.Year === currentAwardsYear && l.Week >= from && l.Week <= to);
-      let periodAreas = areaLog.filter(l => l.Year === currentAwardsYear && l.Week >= from && l.Week <= to);
+      let periodStores = storeLog.filter(l => l.Year == currentAwardsYear && l.Week >= from && l.Week <= to);
+      let periodAreas = areaLog.filter(l => l.Year == currentAwardsYear && l.Week >= from && l.Week <= to);
 
       if(periodStores.length === 0){
         periodStores = []; periodAreas = [];
       }
-
-      const storeMedals = {};
-      const storeBreakdown = {};
-      periodStores.forEach(l => {
-        if(!l.Branch) return;
-        storeMedals[l.Branch] = (storeMedals[l.Branch] || 0) + 1;
-        if(!storeBreakdown[l.Branch]) storeBreakdown[l.Branch] = {};
-        storeBreakdown[l.Branch][l.Metric] = (storeBreakdown[l.Branch][l.Metric] || 0) + 1;
-      });
 
       const areaWins = periodAreas.reduce((acc, l)=>{ acc[l.Winner] = (acc[l.Winner]||0)+1; return acc; }, {});
       const sortedAreas = Object.entries(areaWins).sort((a,b)=>b[1]-a[1]);
@@ -134,9 +126,9 @@ if (!origName) {
             <div class="text-xs font-bold text-slate-600">${topStore ? topStore[1] + ' medals' : 'No medals yet'}</div>
           </div>
           <div class="card p-4 border-t-4 border-t-birds-green">
-            <div class="text-[10px] font-black text-slate-400 uppercase">Top Area</div>
+            <div class="text-[10px] font-black text-slate-400 uppercase">Top Area (YTD Weekly Wins)</div>
             <div class="text-lg font-black birds-green">${topArea ? topArea[0] : '—'}</div>
-            <div class="text-xs font-bold text-slate-600">${topArea ? topArea[1] + ' weekly wins' : 'No wins yet'}</div>
+            <div class="text-xs font-bold text-slate-600">${topArea ? topArea[1] + ' weekly podium wins' : 'No wins yet'}</div>
           </div>
           <div class="card p-4 border-t-4 border-t-slate-300">
             <div class="text-[10px] font-black text-slate-400 uppercase">Weeks Counted</div>
@@ -190,25 +182,27 @@ if (!origName) {
   }
 }
 
-function buildMonthlyChampions(rawKpis, effectiveWeek){
- const weeks=[...new Set((rawKpis||[]).filter(k=>!k.IsAnomaly).map(k=>k.Week))].sort((a,b)=>a-b).filter(w=>w<=effectiveWeek).slice(-4);
+function buildMonthlyChampions(rawKpis, effectiveWeek, effectiveYear){
+ const weeks=[...new Set((rawKpis||[]).filter(k=>!k.IsAnomaly && (k.Year || effectiveYear) === effectiveYear).map(k=>k.Week))].sort((a,b)=>a-b).filter(w=>w<=effectiveWeek).slice(-4);
  if(weeks.length<2) return [];
  const wk1=weeks[0], wk4=weeks[weeks.length-1];
  const stores=new Map();
- (rawKpis||[]).filter(k=>!k.IsAnomaly).forEach(k=>{
-   const id=canonicalStoreId(k.Branch);
-   if(!stores.has(id)) stores.set(id,{branch:k.Branch,week1:null,week4:null});
-   const s=stores.get(id);
-   if(k.Week===wk1) s.week1=k;
-   if(k.Week===wk4) s.week4=k;
+ (rawKpis||[]).filter(k=>!k.IsAnomaly && (k.Year || effectiveYear) == effectiveYear).forEach(k=>{
+    const id=canonicalStoreId(k.Branch);
+    if(!stores.has(id)) stores.set(id,{branch:k.Branch,week1:null,week4:null});
+    const s=stores.get(id);
+    if(k.Week==wk1) s.week1=k;
+    if(k.Week==wk4) s.week4=k;
  });
  const results=[];
  stores.forEach(store=>{
    if(!store.week1||!store.week4) return;
    const w1=store.week1,w4=store.week4;
-   const gain=(a,b)=>(Number(b||0)-Number(a||0))*100;
-   const inv=(a,b)=>(Number(a||0)-Number(b||0))*100;
-   const salesGain=((Number(w4.Sales||0)-Number(w1.Sales||0))*100).toFixed?Number(((Number(w4.Sales||0)-Number(w1.Sales||0))*100).toFixed(1)):0; const productGain=Number(((Number(w4.Product||0)-Number(w1.Product||0))*100).toFixed(1)); const wasteGain=Number(((Number(w1.Waste||0)-Number(w4.Waste||0))*100).toFixed(1)); const labourGain=Number(((Number(w1.Labour||0)-Number(w4.Labour||0))*100).toFixed(1)); const energyGain=Number(((Number(w1.Energy||0)-Number(w4.Energy||0))/100).toFixed(1));
+   const salesGain=Number(((Number(w4.Sales||0)-Number(w1.Sales||0))*100).toFixed(1));
+   const productGain=Number(((Number(w4.Product||0)-Number(w1.Product||0))*100).toFixed(1));
+   const wasteGain=Number(((Number(w1.Waste||0)-Number(w4.Waste||0))*100).toFixed(1));
+   const labourGain=Number(((Number(w1.Labour||0)-Number(w4.Labour||0))*100).toFixed(1));
+   const energyGain=Number(((Number(w1.Energy||0)-Number(w4.Energy||0))*100).toFixed(1));
    const wins=(window.__areaWinsCache||[]).filter(w=>canonicalStoreId(w.Branch)===canonicalStoreId(store.branch));
    results.push({branch:store.branch,score:salesGain+productGain+wasteGain+labourGain+energyGain,awards:[...new Set(wins.map(w=>w.Metric))],awardCount:wins.length,improvedCount:[salesGain,productGain,wasteGain,labourGain,energyGain].filter(v=>v>0).length,salesGain,productGain,wasteGain,labourGain,energyGain});
  });
@@ -314,7 +308,7 @@ async function renderBandingView(){
       if(!branch) continue;
       const id = canonicalStoreId(branch);
       if(!byStore.has(id)){
-        byStore.set(id, { Branch: branch, AM: k.AM, weeks: 0, salesTotal: 0, salesDiffSum: 0, productSum: 0, wasteSum: 0, labourSum: 0, atvSum: 0, energySum: 0 });
+        byStore.set(id, { Branch: branch, AM: safeGetAM(branch), weeks: 0, salesTotal: 0, salesDiffSum: 0, productSum: 0, wasteSum: 0, labourSum: 0, atvSum: 0, energySum: 0 });
       }
       const s = byStore.get(id);
       s.weeks += 1;
@@ -563,7 +557,8 @@ async function renderChampionsView(){
     const monthlyChampions =
         buildMonthlyChampions(
             rawKpis,
-            effectiveWeek
+            effectiveWeek,
+            currentAwardsYear || new Date().getFullYear()
         );
 
     document.getElementById('mainView').innerHTML = `
@@ -578,7 +573,7 @@ async function renderChampionsView(){
 
             <button
                 onclick="exportAllChampions()"
-                class="btn-primary">
+                class="btn" style="background: #555B6E; color: white; padding: 10px 20px; border-radius: 6px; font-weight: 800; font-size: 13px;">
 
                 Export All Champions
 

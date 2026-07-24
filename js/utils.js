@@ -1,3 +1,9 @@
+/* ─── Lucide-style Trend Icons (inline SVG) ───────────────── */
+const ICON_TREND_UP = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>';
+const ICON_TREND_DOWN = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>';
+
+function trendIcon(diff) { return diff > 0 ? ICON_TREND_UP : diff < 0 ? ICON_TREND_DOWN : ''; }
+
 function canonicalStoreId(name){
   if(!name) return "";
   let s = String(name).toLowerCase().trim();
@@ -46,7 +52,7 @@ function resolveStoreAM(row, branchId){
   storeMap.set(branchId,excelAM);
   idbPut('stores',{BranchId:branchId,originalName:branchId,AM:excelAM});
  }
- return excelAM || storeMap.get(branchId) || 'Unassigned';
+ return storeMap.get(branchId) || 'Unassigned';
 }
 
 function calculateTrendWinner(currArr, prevArr, metric, inverse=false){
@@ -248,7 +254,7 @@ let trendChartInstance = null;
 let archiveWeekOverride = null; 
 
 function openIngestLog() {
-    alert("Ingest details mapped. Advanced log view is managed automatically in v32.");
+    alert("Ingest log viewer coming soon.");
 }
 
 function cleanStoreName(name) {
@@ -418,10 +424,10 @@ async function validateAndCorrectData(weeksTouched){
       fixed.Labour = _fixRatio(rec.Labour, {allowNegative:false});
       fixed.ATV = _fixATV(rec.ATV);
       fixed.Energy = _fixEnergy(rec.Energy);
-      fixed.FilledRolls = _fixRatio(rec.FilledRolls, {allowNegative:true});
-      fixed.Sandwiches = _fixRatio(rec.Sandwiches, {allowNegative:true});
-      fixed.HotRolls = _fixRatio(rec.HotRolls, {allowNegative:true});
-      fixed.HotBev = _fixRatio(rec.HotBev, {allowNegative:true});
+      fixed.FilledRolls = Math.max(0, _finiteOr0(rec.FilledRolls));
+      fixed.Sandwiches = Math.max(0, _finiteOr0(rec.Sandwiches));
+      fixed.HotRolls = Math.max(0, _finiteOr0(rec.HotRolls));
+      fixed.HotBev = Math.max(0, _finiteOr0(rec.HotBev));
       await idbPut('kpi', fixed);
     }
     const audits = await idbGetAll('audits');
@@ -454,14 +460,26 @@ async function flagAnomalies() {
     try {
         const kpis = await idbGetAll('kpi');
         const byBranch = {};
-        
+
         kpis.forEach(k => {
-            if (!byBranch[k.Branch]) byBranch[k.Branch] = [];
-            byBranch[k.Branch].push(k);
+            const key = k.BranchId || k.Branch || 'unknown';
+            if (!byBranch[key]) byBranch[key] = [];
+            byBranch[key].push(k);
+        });
+
+        // Find the global latest week across all data — never flag it
+        let globalLatestWeek = 0;
+        let globalLatestYear = 0;
+        kpis.forEach(k => {
+            const y = k.Year || 0;
+            const w = k.Week || 0;
+            if (y > globalLatestYear || (y === globalLatestYear && w > globalLatestWeek)) {
+                globalLatestWeek = w;
+                globalLatestYear = y;
+            }
         });
 
         for (const branch in byBranch) {
-            // Sort chronologically to simulate timeline
             const stores = byBranch[branch].sort((a,b) => {
                if ((a.Year || 0) !== (b.Year || 0)) return (a.Year || 0) - (b.Year || 0);
                return (a.Week || 0) - (b.Week || 0);
@@ -472,15 +490,21 @@ async function flagAnomalies() {
             for (let i = 0; i < stores.length; i++) {
                const curr = stores[i];
                let isAnomaly = false;
-               
-               // FIXED Rule 1: True closures only. 
-               // Removed the "Labour <= 0" check in case wage data was just missing from the sheet.
-               if (curr.Sales <= -0.90 || curr.__rawSales === 0 || curr.__rawSales === '0') {
+
+               // NEVER flag the latest week — users must always see current data
+               if (curr.Week == globalLatestWeek && (curr.Year || 0) == globalLatestYear) {
+                   curr.IsAnomaly = false;
+                   await idbPut('kpi', curr);
+                   lastValidSales = curr.Sales;
+                   continue;
+               }
+
+               // Rule 1: True closures — __rawSales must be explicitly 0 (not defaulted)
+               // Only flag if we're confident the store was closed: Sales <= -0.90 AND __rawSales is exactly 0
+               if (curr.Sales <= -0.90) {
                    isAnomaly = true;
-               } 
-               // FIXED Rule 2: Relaxed from 30% to 80% drop.
-               // This allows natural sales dips without wiping out the data, 
-               // but still catches a store that had to close for 5 out of 7 days.
+               }
+               // Rule 2: 80%+ drop from last valid baseline
                else if (lastValidSales !== null && (lastValidSales - curr.Sales) >= 0.80) {
                    isAnomaly = true;
                }
@@ -488,8 +512,6 @@ async function flagAnomalies() {
                curr.IsAnomaly = isAnomaly;
                await idbPut('kpi', curr);
 
-               // Rule 3: Baseline Memory Update
-               // Only update the baseline if the week was "normal"
                if (!isAnomaly) {
                    lastValidSales = curr.Sales;
                }
@@ -509,22 +531,24 @@ async function recordPersistentWinnersForWeeks(year, weeks){
 
   for(const week of weeks){
     // Exclude Anomaly weeks from ever winning an award
-    const wkKpis = kpis.filter(k => (k.Year ?? year) === year && k.Week === week &&  !k.IsAnomaly);
+    const wkKpis = kpis.filter(k => (k.Year ?? year) == year && k.Week == week &&  !k.IsAnomaly);
     if(!wkKpis.length) continue;
 
-    const pWk = week === 1 ? 52 : week - 1;
-    const pYr = week === 1 ? year - 1 : year;
+    const pWkResult = getPreviousAvailableWeek(week, year, kpis);
+    const pWk = pWkResult.week;
+    const pYr = pWkResult.year;
     // Exclude anomalies from previous baseline comparisons
-    const prevKpis = kpis.filter(k => (k.Year ?? pYr) === pYr && k.Week === pWk &&  !k.IsAnomaly);
+    const prevKpis = kpis.filter(k => (k.Year ?? pYr) == pYr && k.Week == pWk && !k.IsAnomaly);
 
   try{
     const prevById = new Map(prevKpis.map(p=>[canonicalStoreId(p.Branch), p]));
     let bestMI = null;
     for(const c of wkKpis){
+      const cAm = safeGetAM(c.Branch);
       const p = prevById.get(canonicalStoreId(c.Branch));
       if(!p) continue;
       const delta = (_finiteOr0(c.Sales) - _finiteOr0(p.Sales));
-      if(!bestMI || delta > bestMI.delta) bestMI = { Branch: c.Branch, delta };
+      if(!bestMI || delta > bestMI.delta) bestMI = { Branch: c.Branch, AM: cAm, delta };
     }
     if(bestMI && bestMI.delta > 0){
       await idbPut('store_winners_log', { Year: year, Week: week, Metric: 'Most Improved', Branch: bestMI.Branch });
@@ -537,13 +561,17 @@ async function recordPersistentWinnersForWeeks(year, weeks){
       { id: 'ATV', order: 'desc' }, { id: 'Energy', order: 'asc' }
     ];
 
+    // Enrich each KPI row with the CURRENT canonical AM from storeMap
+    const wkKpisWithAM = wkKpis.map(k => ({ ...k, _am: safeGetAM(k.Branch) }));
+    const prevKpisWithAM = prevKpis.map(k => ({ ...k, _am: safeGetAM(k.Branch) }));
+
     const areaImprovementPoints = {};
     validAMs.forEach(am => areaImprovementPoints[am] = 0);
 
     metrics.forEach(m => {
       const areaDeltas = validAMs.map(am => {
-        const curr = wkKpis.filter(k => k.AM === am);
-        const prev = prevKpis.filter(k => k.AM === am);
+        const curr = wkKpisWithAM.filter(k => k._am === am);
+        const prev = prevKpisWithAM.filter(k => k._am === am);
         if(!curr.length || !prev.length) return { am, gain: -999999 };
         const cAvg = curr.reduce((a,b) => a + (_finiteOr0(b[m.id])), 0) / curr.length;
         const pAvg = prev.reduce((a,b) => a + (_finiteOr0(b[m.id])), 0) / prev.length;
@@ -559,8 +587,8 @@ async function recordPersistentWinnersForWeeks(year, weeks){
 
     for(const am of validAMs){
 
-  const areaStores = wkKpis.filter(k => k.AM === am);
-  const prevStores = prevKpis.filter(k => k.AM === am);
+  const areaStores = wkKpisWithAM.filter(k => k._am === am);
+  const prevStores = prevKpisWithAM.filter(k => k._am === am);
 
   for(const m of metrics){
 
@@ -613,8 +641,22 @@ function _periodWeeks(period, latestWeek){
   return {from:1, to:maxW};
 }
 
+// Resolve metric column: prefer the 'actual' header directly; fall back to base index
+function _metricCol(headers, key, actualKey) {
+  actualKey = actualKey || key;
+  // Try exact containment first
+  const actIdx = headers.findIndex(x => x.includes(actualKey));
+  if (actIdx >= 0) return actIdx;
+  const baseIdx = headers.findIndex(x => x.includes(key));
+  if (baseIdx >= 0) return baseIdx;
+  // Fallback: try prefix match (e.g. 'sandwch' matches 'sandwiches')
+  const shortKey = key.slice(0, 5);
+  const prefIdx = headers.findIndex(x => x.startsWith(shortKey));
+  return prefIdx >= 0 ? prefIdx : -1;
+}
+
 function findCols(rows){
-  for(let r=0; r<Math.min(rows.length, 30); r++){
+  for(let r=0; r<Math.min(rows.length, 50); r++){
     if(!rows[r]) continue;
     let maxCols = Math.max(rows[r].length || 0, (rows[r+1] ? rows[r+1].length : 0) || 0);
     let headers = [];
@@ -631,26 +673,163 @@ function findCols(rows){
           let actS = headers.findIndex(x => x.includes('actualsales') || x === 'sales');
           if(actS !== -1 && headers[actS+1] && headers[actS+1].includes('difference')) idxS = actS + 1;
       }
+      // Fallback: newer templates (Wk19+) removed "Actual Sales" — match sales difference directly
+      if(idxS === -1) {
+          idxS = headers.findIndex(x => x.includes('differencetotarget'));
+      }
           // NEW: capture Actual Sales (£) column for size-based banding
     let idxSA = headers.findIndex(x => String(x||'').includes('actualsales'));
 let idxL = headers.findIndex(x => x.includes('wagesasa%') || x.includes('wagesas') || x.includes('labour%') || x.includes('wages%'));
-      const baseProduct = headers.findIndex(x => x.includes('producttarget'));
-      const baseFR = headers.findIndex(x => x.includes('filledrollsactual') || x.includes('filledrolls'));
-      const baseSW = headers.findIndex(x => x.includes('sandwichesactual') || x.includes('sandwiches'));
-      const baseHR = headers.findIndex(x => x.includes('filledrollhotactual') || x.includes('filledrollhot'));
-      const baseHB = headers.findIndex(x => x.includes('hotbeverageactual') || x.includes('hotbeverage'));
       return {
         hr: hasSubHeader ? r + 1 : r, idxB: idxB, idxS: idxS, idxSA: idxSA,
-        idxP: baseProduct >= 0 ? baseProduct + 2 : -1,
+        idxP: _metricCol(headers, 'producttarget', 'productactual'),
         idxW: headers.findIndex(x => x.includes('waste%') || x.includes('wastage') || x === 'waste'), 
         idxL: idxL, idxA: headers.findIndex(x => x.includes('atv') && !x.includes('target')), 
         idxE: headers.findIndex(x => x.includes('energy') || x.includes('green') || x.includes('kwh')),
-        idxFR: baseFR >= 0 ? baseFR + 2 : -1, idxSW: baseSW >= 0 ? baseSW + 2 : -1,
-        idxHR: baseHR >= 0 ? baseHR + 2 : -1, idxHB: baseHB >= 0 ? baseHB + 2 : -1
+        idxFR: _metricCol(headers, 'filledrolls', 'filledrollsactual'),
+        idxSW: _metricCol(headers, 'sandwiches', 'sandwichesactual'),
+        idxHR: _metricCol(headers, 'filledrollhot', 'filledrollhotactual'),
+        idxHB: _metricCol(headers, 'hotbeverage', 'hotbeverageactual')
+      };
+    }
+  }
+  // Second pass: if we found the branch column but product columns were missing,
+  // try scanning nearby rows for product headers
+  for(let r=0; r<Math.min(rows.length, 50); r++){
+    if(!rows[r]) continue;
+    let maxCols = Math.max(rows[r].length || 0, (rows[r+1] ? rows[r+1].length : 0) || 0);
+    let headers = [];
+    for(let c=0; c<maxCols; c++) {
+      let h1 = String(rows[r][c] || '').toLowerCase().replace(/[^a-z0-9%]+/g, '');
+      let h2 = (rows[r+1] && rows[r+1][c]) ? String(rows[r+1][c] || '').toLowerCase().replace(/[^a-z0-9%]+/g, '') : '';
+      headers.push(h1 + h2);
+    }
+    const idxB = headers.findIndex(x => x === 'branch' || x === 'store' || x === 'shop' || x.includes('branchname') || x === 'name');
+    if(idxB >= 0) {
+      let hasSubHeader = rows[r+1] && rows[r+1].some(x => String(x).toLowerCase().includes('actual') || String(x).toLowerCase().includes('target'));
+      let idxS = headers.findIndex(x => x.includes('salesdifference'));
+      if(idxS === -1) {
+          let actS = headers.findIndex(x => x.includes('actualsales') || x === 'sales');
+          if(actS !== -1 && headers[actS+1] && headers[actS+1].includes('difference')) idxS = actS + 1;
+      }
+      if(idxS === -1) idxS = headers.findIndex(x => x.includes('differencetotarget'));
+      let idxSA = headers.findIndex(x => String(x||'').includes('actualsales'));
+      let idxL = headers.findIndex(x => x.includes('wagesasa%') || x.includes('wagesas') || x.includes('labour%') || x.includes('wages%'));
+      let idxFR = _metricCol(headers, 'filledrolls', 'filledrollsactual');
+      let idxSW = _metricCol(headers, 'sandwiches', 'sandwichesactual');
+      let idxHR = _metricCol(headers, 'filledrollhot', 'filledrollhotactual');
+      let idxHB = _metricCol(headers, 'hotbeverage', 'hotbeverageactual');
+      // Try row r-1, r+2, r+3 for missing product columns
+      for(let adj of [r-1, r+2, r+3]) {
+        if(adj < 0 || adj >= rows.length || !rows[adj]) continue;
+        let adjH = [];
+        for(let c=0; c<maxCols; c++) {
+          adjH.push(String(rows[adj][c] || '').toLowerCase().replace(/[^a-z0-9%]+/g, ''));
+        }
+        if(idxFR === -1) idxFR = _metricCol(adjH, 'filledrolls', 'filledrollsactual');
+        if(idxSW === -1) idxSW = _metricCol(adjH, 'sandwiches', 'sandwichesactual');
+        if(idxHR === -1) idxHR = _metricCol(adjH, 'filledrollhot', 'filledrollhotactual');
+        if(idxHB === -1) idxHB = _metricCol(adjH, 'hotbeverage', 'hotbeverageactual');
+        if(idxSA === -1) idxSA = adjH.findIndex(x => String(x||'').includes('actualsales'));
+      }
+      return {
+        hr: hasSubHeader ? r + 1 : r, idxB: idxB, idxS: idxS, idxSA: idxSA,
+        idxP: _metricCol(headers, 'producttarget', 'productactual'),
+        idxW: headers.findIndex(x => x.includes('waste%') || x.includes('wastage') || x === 'waste'), 
+        idxL: idxL, idxA: headers.findIndex(x => x.includes('atv') && !x.includes('target')), 
+        idxE: headers.findIndex(x => x.includes('energy') || x.includes('green') || x.includes('kwh')),
+        idxFR: idxFR, idxSW: idxSW, idxHR: idxHR, idxHB: idxHB
       };
     }
   }
   return null;
+}
+
+// Find columns starting from a specific row offset (for multi-section sheets)
+function findColsFrom(rows, startRow) {
+  for(let r = startRow; r < Math.min(rows.length, startRow + 5); r++){
+    if(!rows[r]) continue;
+    let maxCols = Math.max(rows[r].length || 0, (rows[r+1] ? rows[r+1].length : 0) || 0);
+    let headers = [];
+    for(let c=0; c<maxCols; c++) {
+      let h1 = String(rows[r][c] || '').toLowerCase().replace(/[^a-z0-9%]+/g, '');
+      let h2 = (rows[r+1] && rows[r+1][c]) ? String(rows[r+1][c] || '').toLowerCase().replace(/[^a-z0-9%]+/g, '') : '';
+      headers.push(h1 + h2);
+    }
+    const idxB = headers.findIndex(x => x === 'branch' || x === 'store' || x === 'shop' || x.includes('branchname') || x === 'name');
+    if(idxB >= 0) {
+      let hasSubHeader = rows[r+1] && rows[r+1].some(x => String(x).toLowerCase().includes('actual') || String(x).toLowerCase().includes('target'));
+      let idxS = headers.findIndex(x => x.includes('salesdifference'));
+      if(idxS === -1) {
+          let actS = headers.findIndex(x => x.includes('actualsales') || x === 'sales');
+          if(actS !== -1 && headers[actS+1] && headers[actS+1].includes('difference')) idxS = actS + 1;
+      }
+      // Fallback: newer templates (Wk19+) removed "Actual Sales" — match sales difference directly
+      if(idxS === -1) {
+          idxS = headers.findIndex(x => x.includes('differencetotarget'));
+      }
+    let idxSA = headers.findIndex(x => String(x||'').includes('actualsales'));
+    let idxL = headers.findIndex(x => x.includes('wagesasa%') || x.includes('wagesas') || x.includes('labour%') || x.includes('wages%'));
+      return {
+        hr: hasSubHeader ? r + 1 : r, idxB: idxB, idxS: idxS, idxSA: idxSA,
+        idxP: _metricCol(headers, 'producttarget', 'productactual'),
+        idxW: headers.findIndex(x => x.includes('waste%') || x.includes('wastage') || x === 'waste'),
+        idxL: idxL, idxA: headers.findIndex(x => x.includes('atv') && !x.includes('target')),
+        idxE: headers.findIndex(x => x.includes('energy') || x.includes('green') || x.includes('kwh')),
+        idxFR: _metricCol(headers, 'filledrolls', 'filledrollsactual'),
+        idxSW: _metricCol(headers, 'sandwiches', 'sandwichesactual'),
+        idxHR: _metricCol(headers, 'filledrollhot', 'filledrollhotactual'),
+        idxHB: _metricCol(headers, 'hotbeverage', 'hotbeverageactual')
+      };
+    }
+  }
+  return null;
+}
+
+// Scan a sheet for multiple week sections.
+// Returns [{week, cols, dataStart, dataEnd}] sorted by dataStart.
+// Each section is bounded by a "Week X" / "Wk X" label row above the column headers.
+function findWeekSections(rows) {
+  const sections = [];
+  const MAX_WK = 53;
+  // Pass 1: find rows that look like week labels
+  const weekLabelRows = [];
+  for (let r = 0; r < rows.length; r++) {
+    if (!rows[r]) continue;
+    for (let c = 0; c < (rows[r].length || 0); c++) {
+      const cell = String(rows[r][c] || '').trim();
+      // Match "Week 1", "Wk 1", "Wk01", "Week45", "WEEK 12", etc.
+      const wkMatch = cell.match(/^(?:Week|Wk)\s*(\d{1,2})$/i);
+      if (wkMatch) {
+        const wk = parseInt(wkMatch[1], 10);
+        if (wk >= 1 && wk <= MAX_WK) {
+          weekLabelRows.push({ row: r, week: wk });
+        }
+      }
+    }
+  }
+  // Pass 2: for each week label, look ahead 1-5 rows for column headers
+  for (const wl of weekLabelRows) {
+    const cols = findColsFrom(rows, wl.row + 1);
+    if (cols) {
+      sections.push({ week: wl.week, cols: cols, headerRow: wl.row });
+    }
+  }
+  // Pass 3: if no week labels found, fall back to single-section with findCols
+  if (sections.length === 0) {
+    const cols = findCols(rows);
+    if (cols) {
+      sections.push({ week: 0, cols: cols, headerRow: -1 });
+    }
+  }
+  // Sort by header row position
+  sections.sort((a, b) => a.headerRow - b.headerRow);
+  // Assign dataEnd: each section's data runs from its dataStart to the next section's headerRow
+  for (let i = 0; i < sections.length; i++) {
+    sections[i].dataStart = sections[i].cols.hr + 1;
+    sections[i].dataEnd = (i + 1 < sections.length) ? sections[i + 1].headerRow : rows.length;
+  }
+  return sections;
 }
 
 function parseDateSafe(val) {
@@ -706,7 +885,7 @@ function getPreviousAvailableWeek(
             allRows
             .filter(r =>
                 (r.Year || currentYear)
-                === currentYear
+                == currentYear
             )
             .map(r => r.Week)
         )]
@@ -753,6 +932,52 @@ async function logIngest(entry){ const e = Object.assign({ts:Date.now()}, entry|
 function computeMissingWeeks(seenByYear){ const missing = {}; Object.keys(seenByYear||{}).forEach(y=>{ const set = seenByYear[y]; const arr = Array.from(set||[]).sort((a,b)=>a-b); const max = arr.length ? arr[arr.length-1] : 0; const miss = []; for(let w=1; w<=max; w++){ if(!set.has(w)) miss.push(w); } if(miss.length) missing[y]=miss; }); return missing; }
 function formatMissingBadge(m){ const years = Object.keys(m||{}); if(!years.length) return ''; return '️ ' + years.map(y=>'Y'+y+': missing '+(m[y]||[]).length+'wk').join(' • '); }
 
+async function renderMissingWeeksReport() {
+    const raw = await idbGetAll('kpi');
+    const byYear = {};
+    raw.forEach(k => {
+        const yr = k.Year || currentAwardsYear || new Date().getFullYear();
+        const wk = k.Week;
+        if (!byYear[yr]) byYear[yr] = new Set();
+        byYear[yr].add(wk);
+    });
+    const seenWeeksByYear = {};
+    for (const [yr, set] of Object.entries(byYear)) seenWeeksByYear[yr] = set;
+    const missing = computeMissingWeeks(seenWeeksByYear);
+    const years = Object.keys(missing).sort((a,b) => b - a);
+    let rows = '';
+    years.forEach(y => {
+        const weeks = missing[y];
+        const expectedMax = Math.max(...[...byYear[y]]);
+        const totalExpected = expectedMax;
+        const totalGot = byYear[y].size;
+        const pct = ((totalGot / totalExpected) * 100).toFixed(0);
+        weeks.forEach(w => {
+            rows += `<tr class="border-b border-birds-border-light"><td class="px-3 py-2 font-bold text-birds-dark">${y}</td><td class="px-3 py-2">Week ${w}</td><td class="px-3 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">Missing</span></td></tr>`;
+        });
+    });
+    const totalMissing = years.reduce((a, y) => a + missing[y].length, 0);
+    document.getElementById('mainView').innerHTML = `
+      <div class="mb-6">
+        <button onclick="setView('overview')" class="text-sm font-bold text-slate-500 hover:text-slate-700 mb-2">&larr; Back to Overview</button>
+        <h2 class="text-[36px] font-black birds-green">Missing Weeks Report</h2>
+        <p class="text-sm text-slate-500 font-bold mt-1">Weeks expected but not found in the KPI data after file ingestion.</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="card p-4 text-center"><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Missing</p><h3 class="text-3xl font-black text-amber-600 mt-1">${totalMissing}</h3></div>
+        <div class="card p-4 text-center"><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Years Affected</p><h3 class="text-3xl font-black text-birds-dark mt-1">${years.length}</h3></div>
+        <div class="card p-4 text-center"><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">KPI Records Loaded</p><h3 class="text-3xl font-black text-birds-green mt-1">${raw.length}</h3></div>
+      </div>
+      ${years.length ? `
+      <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-birds-warmwhite border-b border-birds-border"><th class="px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Year</th><th class="px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Week</th><th class="px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` : '<div class="card p-8 text-center"><p class="text-lg font-black text-birds-green">All expected weeks present</p><p class="text-sm text-slate-500 mt-2">No missing weeks detected in the loaded data.</p></div>'}`;
+}
+window.renderMissingWeeksReport = renderMissingWeeksReport;
+
 function getTrendStr(currVal, prevVal, isInverse=false, format='percent') {
  if(prevVal === undefined || isNaN(prevVal) || currVal === prevVal) return `<div class="trend-wrap"><span class="trend-flat">—</span><div class="spark spark-flat"></div></div>`;
  const diff = currVal - prevVal; const absDiff = Math.abs(diff); let fmt = '';
@@ -772,7 +997,7 @@ function aggregateData(dataArray) {
     const map = new Map();
     // THE NEW FILTER: Exclude anomalous weeks entirely from aggregations
     dataArray.filter(d => !d.IsAnomaly).forEach(d => {
-        const branchId = canonicalStoreId(d.Branch); const am = storeMap.get(branchId) || 'Unassigned'; 
+        const branchId = d.BranchId || canonicalStoreId(d.Branch); const am = storeMap.get(branchId) || 'Unassigned'; 
         if(!map.has(branchId)) map.set(branchId, { Branch: d.Branch, AM: am, count:0, Sales:0, Product:0, Waste:0, Labour:0, ATV:0, Energy:0, FilledRolls:0, Sandwiches:0, HotRolls:0, HotBev:0 });
         let obj = map.get(branchId); obj.count++; obj.Sales += d.Sales || 0; obj.Product += d.Product || 0; obj.Waste += d.Waste || 0; obj.Labour += d.Labour || 0; obj.ATV += d.ATV || 0; obj.Energy += d.Energy || 0; obj.FilledRolls += d.FilledRolls || 0; obj.Sandwiches += d.Sandwiches || 0; obj.HotRolls += d.HotRolls || 0; obj.HotBev += d.HotBev || 0;
     });
@@ -807,7 +1032,7 @@ window.BirdsPDF = {
     }
 };
 
-window.isAdmin = function(){ return true; };
+window.isAdmin = function(){ return false; };
 
 // === safeDownload: reliable cross-browser file download ===
 // Chrome/Edge on localhost require the anchor to be in the DOM before clicking.

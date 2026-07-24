@@ -1,35 +1,21 @@
 async function loadDirectoryHandle() {
-  // Hardcoded Azure AD config for server deployment
-  // IT needs to provide: Client ID (from Entra App Registration)
-  var azureConfig = {
-    id: 'azureConfig',
-    clientId: 'REPLACE_WITH_CLIENT_ID',
-    tenantId: '142a5bb2-e3ee-4675-ac9e-7fd88d3946f9',
-    siteUrl: 'https://birdsofderby.sharepoint.com/sites/RetailAudits',
-    libraryPath: 'Shared Documents/Retail Audits/Data'
-  };
-  window.__azureConfig = azureConfig;
-  if (typeof GraphAPI !== 'undefined' && typeof GraphAPI.init === 'function') {
-    try {
-      await GraphAPI.init(azureConfig);
-      console.log('[Startup] Graph API initialized — waiting for user sign-in');
-      try {
-        await GraphAPI.acquireToken();
-        console.log('[Startup] Graph API authenticated (silent)');
-        document.getElementById('signInOverlay').classList.add('hidden');
-        document.getElementById('userBadge').classList.remove('hidden');
-        document.getElementById('userBadge').textContent = 'Connected';
-        document.getElementById('signOutBtn').classList.remove('hidden');
-        document.getElementById('folderStatus').textContent = 'Status: Connected to SharePoint';
-        try { await syncData(); } catch(syncErr) { console.warn('[Startup] Initial sync failed:', syncErr); }
-      } catch(silentErr) {
-        console.log('[Startup] Silent auth failed — showing sign-in overlay');
-      }
-    } catch(graphErr) {
-      console.warn('[Startup] Graph API init failed:', graphErr);
+  // Try to reuse previously selected folder
+  if (directoryHandle) {
+    var perm = await directoryHandle.queryPermission({ mode: 'read' });
+    if (perm === 'granted') {
+      document.getElementById('folderStatus').textContent = 'Folder connected';
+      return;
     }
-  } else {
-    console.warn('[Startup] GraphAPI module not loaded');
+    directoryHandle = null;
+  }
+
+  // Open folder picker on first load
+  try {
+    directoryHandle = await window.showDirectoryPicker();
+    document.getElementById('folderStatus').textContent = 'Folder connected';
+  } catch (e) {
+    document.getElementById('ingestStatus').innerText = "Select a data folder to begin.";
+    document.getElementById('folderStatus').textContent = '';
   }
 }
 
@@ -47,53 +33,79 @@ window.syncData = async function() {
   window.__complaintsSourceCSV = false;
   document.getElementById('ingestStatus').innerText = "Scanning... Please wait.";
 
-  // ===== GRAPH API PATH (cloud sync) =====
-  if (window.__azureConfig && typeof GraphAPI !== 'undefined' && GraphAPI.isAuthenticated()) {
-    console.log('[Sync] Using Microsoft Graph API for cloud sync');
+  // ===== LOCAL FOLDER PATH =====
+  if (directoryHandle) {
+    var perm = await directoryHandle.queryPermission({ mode: 'read' });
+    if (perm !== 'granted') {
+      perm = await directoryHandle.requestPermission({ mode: 'read' });
+    }
+    if (perm === 'granted') {
+      document.getElementById('ingestStatus').innerText = "Re-syncing from previous folder...";
+    } else {
+      directoryHandle = null;
+    }
+  }
+
+  // Only open picker if we don't have a valid handle
+  if (!directoryHandle) {
+    document.getElementById('ingestStatus').innerText = "Opening folder picker...";
     try {
-      var remoteFiles = await GraphAPI.listFiles();
-      var cachedFiles = [];
-      var trackerJsonText = null;
-
-      for (var i = 0; i < remoteFiles.length; i++) {
-        var f = remoteFiles[i];
-        document.getElementById('ingestStatus').innerText = "Downloading " + (i + 1) + " of " + remoteFiles.length + "... " + f.name;
-        try {
-          if (f.name.toLowerCase().endsWith('.xlsx') || f.name.toLowerCase().endsWith('.csv')) {
-            var buffer = await GraphAPI.downloadFile(f.name);
-            var blob = new Blob([buffer], { type: f.name.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' });
-            var fileObj = new File([blob], f.name, { lastModified: new Date(f.lastModifiedDateTime).getTime() });
-            cachedFiles.push(fileObj);
-          }
-          if (f.name === 'tracker_data.json') {
-            trackerJsonText = await GraphAPI.downloadFileAsText(f.name);
-          }
-        } catch (dlErr) {
-          console.warn('[Sync] Failed to download ' + f.name + ':', dlErr.message);
-        }
-      }
-
-      window.__dataStatus.filesFound = cachedFiles.length + (trackerJsonText ? 1 : 0);
-      if (cachedFiles.length === 0 && !trackerJsonText) {
-        document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in SharePoint library.";
+      directoryHandle = await window.showDirectoryPicker();
+    } catch (pickErr) {
+      if (pickErr.name === 'AbortError') {
+        document.getElementById('ingestStatus').innerText = "Folder selection cancelled.";
         window.__dataStatus.syncOk = false;
         return;
       }
-      if (cachedFiles.length > 0) await processFiles(cachedFiles, 'sharepoint');
-      window.__dataStatus.syncOk = true;
-      window.__dataStatus.ts = Date.now();
-      window.__dataStatus.source = 'sharepoint';
-      return;
-    } catch (syncErr) {
-      console.error('[Sync] Cloud sync failed:', syncErr);
-      document.getElementById('ingestStatus').innerText = "Cloud sync failed: " + syncErr.message;
+      document.getElementById('ingestStatus').innerText = "Folder picker failed: " + pickErr.message;
       window.__dataStatus.syncOk = false;
       return;
     }
   }
 
-  document.getElementById('ingestStatus').innerText = "Not signed in. Please sign in with Microsoft to sync data.";
-  window.__dataStatus.syncOk = false;
+  document.getElementById('ingestStatus').innerText = "Reading files from folder...";
+  var localFiles = [];
+  var trackerJsonText = null;
+  for await (const entry of directoryHandle.values()) {
+    if (entry.kind === 'file') {
+      const file = await entry.getFile();
+      if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.csv')) {
+        localFiles.push(file);
+      }
+      if (file.name === 'tracker_data.json') {
+        trackerJsonText = await file.text();
+      }
+    }
+  }
+
+  window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
+  if (localFiles.length === 0 && !trackerJsonText) {
+    document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in selected folder.";
+    window.__dataStatus.syncOk = false;
+    return;
+  }
+  if (trackerJsonText) {
+    try {
+      const trackerData = JSON.parse(trackerJsonText);
+      const storeObj = trackerData.stores || trackerData.updates || trackerData;
+      const storeEntries = (typeof storeObj === 'object' && !Array.isArray(storeObj))
+        ? Object.entries(storeObj)
+        : (Array.isArray(storeObj) ? storeObj.map(r => [r.StoreId || r.id, r]) : []);
+      if (storeEntries.length > 0) {
+        for (const [storeId, rec] of storeEntries) {
+          if (rec && typeof rec === 'object') {
+            if (!rec.StoreId) rec.StoreId = storeId;
+            await idbPut('eho_data', rec);
+          }
+        }
+        console.log('[Sync] Loaded', storeEntries.length, 'tracker records from local folder');
+      }
+    } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
+  }
+  if (localFiles.length > 0) await processFiles(localFiles, 'local folder');
+  window.__dataStatus.syncOk = true;
+  window.__dataStatus.ts = Date.now();
+  window.__dataStatus.source = 'local folder';
 };
 
 // ===== SHAREPOINT AUTO-SYNC =====
@@ -104,7 +116,9 @@ async function processFiles(cachedFiles, sourceLabel) {
   const weeksTouched = new Set(); const yearsTouched = new Set(); const seenWeeksByYear = {};
   var weeklyCount = 0; var scorecardCount = 0;
   let filesProcessed = 0;
-  for (const file of cachedFiles) {
+  // Sort files alphabetically for deterministic processing order
+  const sortedFiles = [...cachedFiles].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  for (const file of sortedFiles) {
     filesProcessed++;
     document.getElementById('ingestStatus').innerText = `Processing ${sourceLabel} ${filesProcessed} of ${cachedFiles.length}...`;
     await new Promise(r => setTimeout(r, 20));
@@ -168,12 +182,15 @@ async function processFiles(cachedFiles, sourceLabel) {
       let insertedRows = 0;
       if(file.name.toLowerCase().includes('weekly')) {
         weeklyCount++;
-        let weeklySheet = wb.Sheets['Report 1 (Detailed)'] || wb.Sheets['Report 1 (Detailed) (Template)'];
-        if(!weeklySheet) { const possibleName = wb.SheetNames.find(n => n.toLowerCase().includes('report') || n.toLowerCase().includes('detailed')); weeklySheet = possibleName ? wb.Sheets[possibleName] : wb.Sheets[wb.SheetNames[0]]; }
-        const rows = weeklySheet ? XLSX.utils.sheet_to_json(weeklySheet, {header:1}) : []; const cols = findCols(rows);
-        if(cols) {
-          for(let i=cols.hr+1; i<rows.length; i++){
-            const r = rows[i]; if(!r || !r[cols.idxB] || String(r[cols.idxB]).toLowerCase().includes('total')) continue;
+        
+        // Helper: parse one sheet's rows and insert KPI records for a given week
+        async function parseSheetRows(sheetRows, wkNum, yrNum) {
+          const cols = findCols(sheetRows);
+          if (!cols) return 0;
+          let count = 0;
+          for (let i = cols.hr + 1; i < sheetRows.length; i++) {
+            const r = sheetRows[i];
+            if (!r || !r[cols.idxB] || String(r[cols.idxB]).toLowerCase().includes('total')) continue;
             let rawBranch = cleanStoreName(r[cols.idxB]);
             let branchId = canonicalStoreId(rawBranch);
             if (!storeMap.has(branchId)) {
@@ -190,7 +207,7 @@ async function processFiles(cachedFiles, sourceLabel) {
               originalStoreNames.set(branchId, rawBranch);
             }
             await idbPut('kpi', {
-              Branch: rawBranch, Week: fileWk, Year: fileYr, AM: resolveStoreAM(r, branchId),
+              BranchId: branchId, Branch: rawBranch, Week: wkNum, Year: yrNum, AM: resolveStoreAM(r, branchId),
               Sales: cols.idxS >= 0 ? parseVal(r[cols.idxS]) : 0, SalesActual: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : 0, __rawSales: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : undefined, Product: cols.idxP >= 0 ? parseVal(r[cols.idxP]) : 0,
               Waste: cols.idxW >= 0 ? parseVal(r[cols.idxW]) : 0, Labour: cols.idxL >= 0 ? parseVal(r[cols.idxL]) : 0,
               ATV: cols.idxA >= 0 ? parseVal(r[cols.idxA]) : 0, Energy: cols.idxE >= 0 ? parseVal(r[cols.idxE]) : 0,
@@ -198,9 +215,88 @@ async function processFiles(cachedFiles, sourceLabel) {
               HotRolls: cols.idxHR >= 0 ? parseVal(r[cols.idxHR]) : 0, HotBev: cols.idxHB >= 0 ? parseVal(r[cols.idxHB]) : 0,
               IsAnomaly: false
             });
-            insertedRows++;
+            count++;
+          }
+          return count;
+        }
+
+        // Scan ALL sheets for week-numbered sheets (e.g. "W1 26", "W 13 26", "Wk17")
+        let sheetsWithWeekData = 0;
+        for (const sName of wb.SheetNames) {
+          const wkMatch = sName.match(/^W\s*(\d{1,2})\s+\d{2,4}$/i) || sName.match(/^Wk\s*(\d{1,2})$/i);
+          if (wkMatch) {
+            const sheetWeek = parseInt(wkMatch[1], 10);
+            if (sheetWeek < 1 || sheetWeek > 53) continue;
+            const sheetRows = XLSX.utils.sheet_to_json(wb.Sheets[sName], { header: 1 });
+            const count = await parseSheetRows(sheetRows, sheetWeek, fileYr);
+            if (count > 0) {
+              sheetsWithWeekData++;
+              seenWeeksByYear[fileYr].add(sheetWeek);
+              weeksTouched.add(sheetWeek);
+              if (sheetWeek > latestWkGlobal) latestWkGlobal = sheetWeek;
+              insertedRows += count;
+              console.log('[Weekly] Sheet "' + sName + '" -> Wk' + sheetWeek + ':', count, 'rows');
+            }
           }
         }
+
+        // Find the data sheet: prefer non-template, handle typos (Reprt, report, Detailsd)
+        if (fileWk) {
+          let weeklySheet = null;
+          let reportSheetName = null;
+
+          // 1. Try exact name matches (non-template only)
+          const exactNames = ['Report 1 (Detailed)', 'Reprt 1 (Detailed)', 'report 1 (Detailed)', 'Report 1 (Detailsd)'];
+          for (const name of wb.SheetNames) {
+            if (exactNames.includes(name) && !name.includes('(Template)')) {
+              weeklySheet = wb.Sheets[name];
+              reportSheetName = name;
+              break;
+            }
+          }
+
+          // 2. Fuzzy match: find sheets containing 'detailed'/'detailsd' but NOT 'template'
+          if (!weeklySheet) {
+            const fuzzyName = wb.SheetNames.find(n => {
+              const lower = n.toLowerCase().replace(/\s+/g, '');
+              return (lower.includes('detailed') || lower.includes('detailsd') || lower.includes('detaild')) && !lower.includes('template');
+            });
+            if (fuzzyName) { weeklySheet = wb.Sheets[fuzzyName]; reportSheetName = fuzzyName; }
+          }
+
+          // 3. Last resort: any sheet with 'report' or 'reprt' (even template)
+          if (!weeklySheet) {
+            const anyName = wb.SheetNames.find(n => {
+              const lower = n.toLowerCase().replace(/\s+/g, '');
+              return (lower.includes('report') || lower.includes('reprt')) && (lower.includes('detailed') || lower.includes('detailsd'));
+            });
+            if (anyName) { weeklySheet = wb.Sheets[anyName]; reportSheetName = anyName; }
+          }
+
+          // 4. Ultimate fallback: first sheet in workbook
+          if (!weeklySheet && wb.SheetNames.length > 0) {
+            weeklySheet = wb.Sheets[wb.SheetNames[0]];
+            reportSheetName = wb.SheetNames[0];
+          }
+
+          // Skip if this sheet was already parsed as a W<n> sheet
+          const alreadyParsed = reportSheetName && reportSheetName.match(/^W\s*\d{1,2}\s+\d{2,4}$/i);
+          if (weeklySheet && !alreadyParsed) {
+            const rows = XLSX.utils.sheet_to_json(weeklySheet, { header: 1 });
+            const count = await parseSheetRows(rows, fileWk, fileYr);
+            if (count > 0) {
+              seenWeeksByYear[fileYr].add(fileWk);
+              weeksTouched.add(fileWk);
+              if (fileWk > latestWkGlobal) latestWkGlobal = fileWk;
+              insertedRows += count;
+              console.log('[Weekly] Sheet "' + reportSheetName + '" -> Wk' + fileWk + ':', count, 'rows');
+            } else {
+              console.warn('[Weekly] Sheet "' + reportSheetName + '" produced 0 rows for Wk' + fileWk + ' in ' + file.name);
+            }
+          }
+        }
+
+        console.log('[Weekly] ' + file.name + ':', sheetsWithWeekData, 'week sheets + report,', insertedRows, 'total rows');
       }
       await logIngest({ file: file.name, kind: 'weekly', year: fileYr, week: fileWk, rowsInserted: insertedRows });
       if(file.name.toLowerCase().includes('scorecard')) {
@@ -226,12 +322,133 @@ async function processFiles(cachedFiles, sourceLabel) {
         }
         // Actions are read live from Open/ and Closed/ JSON files by the Audit Hub — no xlsx import needed
       }
+      // Handle Hygiene Rating Register XLSX (same logic as CSV path)
+      if(file.name.toLowerCase().includes('hygiene') || file.name.toLowerCase().includes('eho') || file.name.toLowerCase().includes('rating register')) {
+        if (typeof window._ehoRatings === 'undefined') window._ehoRatings = new Map();
+        const allSheetNames = Object.keys(wb.Sheets);
+        for (const sName of allSheetNames) {
+          const ehoRows = XLSX.utils.sheet_to_json(wb.Sheets[sName], { defval: '' });
+          if (!ehoRows.length) continue;
+          const nameKey = Object.keys(ehoRows[0]).find(k => k.toLowerCase().includes('shop name') || k.toLowerCase().includes('store name') || k.toLowerCase().includes('branch'));
+          const ratingKey = Object.keys(ehoRows[0]).find(k => k.toLowerCase().includes('hygiene rating') || k.toLowerCase().includes('rating'));
+          const dateKey = Object.keys(ehoRows[0]).find(k => k.toLowerCase().includes('inspection date'));
+          const nextKey = Object.keys(ehoRows[0]).find(k => k.toLowerCase().includes('next'));
+          const foodKey = Object.keys(ehoRows[0]).find(k => k.toLowerCase().includes('food safety') || k.toLowerCase().includes('food score'));
+          if (nameKey && ratingKey) {
+            ehoRows.forEach(function(r) {
+              var name = String(r[nameKey] || '').trim();
+              var rating = parseInt(r[ratingKey]);
+              if (name && !isNaN(rating)) {
+                window._ehoRatings.set(name.toLowerCase(), {
+                  name: name,
+                  rating: rating,
+                  inspectionDate: dateKey ? String(r[dateKey] || '') : '',
+                  nextDue: nextKey ? String(r[nextKey] || '') : '',
+                  foodScore: foodKey ? String(r[foodKey] || '') : ''
+                });
+              }
+            });
+            console.log('[EHO] Loaded', window._ehoRatings.size, 'hygiene ratings from XLSX:', file.name);
+          }
+        }
+      }
     } catch (innerErr) { console.warn(`Skipping file ${file.name} due to an error:`, innerErr); }
   }
   __missingByYear = computeMissingWeeks(seenWeeksByYear);
   const b = document.getElementById('missingWeeksBadge'); if(b) b.innerText = formatMissingBadge(__missingByYear);
   window.__dataStatus.weeklyFiles = weeklyCount;
   if (window.__dataStatus.complaintsRows === 0 && window.ComplaintsData && window.ComplaintsData.length) window.__dataStatus.complaintsRows = window.ComplaintsData.length;
+  document.getElementById('ingestStatus').innerText = "Rebuilding AM assignments...";
+
+  // POST-PROCESS: Rebuild storeMap from the HIGHEST WEEK for every store.
+  // This ensures AM assignments always reflect the most recent allocation,
+  // regardless of which file was processed first or what DEFAULT_AREA_MAPPING says.
+  {
+    const allKpis = await idbGetAll('kpi');
+    // Group by BranchId, track highest week per store
+    const latestByStore = new Map();
+    for (const k of allKpis) {
+      const cid = k.BranchId || canonicalStoreId(k.Branch);
+      const existing = latestByStore.get(cid);
+      const kYr = k.Year || 0, kWk = k.Week || 0;
+      const eYr = existing ? (existing.Year || 0) : -1, eWk = existing ? (existing.Week || 0) : -1;
+      if (!existing || kYr > eYr || (kYr === eYr && kWk > eWk)) {
+        latestByStore.set(cid, k);
+      }
+    }
+    // Also build a map of ALL AM names found per store across all weeks
+    const allAMsByStore = new Map();
+    for (const k of allKpis) {
+      const cid = k.BranchId || canonicalStoreId(k.Branch);
+      const am = k.AM;
+      if (am && am !== 'Unassigned') {
+        if (!allAMsByStore.has(cid)) allAMsByStore.set(cid, new Map());
+        const amCount = allAMsByStore.get(cid);
+        amCount.set(am, (amCount.get(am) || 0) + 1);
+      }
+    }
+    // For each store: prefer the AM from the highest week; if no AM found,
+    // use the most frequently occurring AM across all weeks; then fall back to DEFAULT_AREA_MAPPING.
+    let updated = 0;
+    for (const [cid, latestKpi] of latestByStore) {
+      let chosenAM = null;
+      // 1. Check the latest week's stored AM
+      if (latestKpi.AM && latestKpi.AM !== 'Unassigned') {
+        chosenAM = latestKpi.AM;
+      }
+      // 2. If latest week has no AM, pick the most frequent AM across all weeks
+      if (!chosenAM && allAMsByStore.has(cid)) {
+        const freqMap = allAMsByStore.get(cid);
+        let bestCount = 0;
+        for (const [am, count] of freqMap) {
+          if (count > bestCount) { bestCount = count; chosenAM = am; }
+        }
+      }
+      // 3. Still nothing? Fall back to DEFAULT_AREA_MAPPING
+      if (!chosenAM) {
+        const rawName = latestKpi.Branch || cid;
+        for (const [am, branches] of Object.entries(DEFAULT_AREA_MAPPING)) {
+          if (branches.some(b => {
+            const bId = canonicalStoreId(b).toLowerCase();
+            return cid.toLowerCase() === bId || cid.toLowerCase().startsWith(bId) || bId.startsWith(cid.toLowerCase());
+          })) { chosenAM = am; break; }
+        }
+      }
+      if (!chosenAM) chosenAM = 'Unassigned';
+      if (chosenAM === 'Tom Henson') chosenAM = 'Thomas Henson';
+      // Update storeMap
+      storeMap.set(cid, chosenAM);
+      originalStoreNames.set(cid, latestKpi.Branch || cid);
+      await idbPut('stores', { BranchId: cid, originalName: latestKpi.Branch || cid, AM: chosenAM });
+      updated++;
+    }
+    // Now rewrite ALL KPI records to use the canonical current AM from storeMap
+    // so every view (YTD, overview, trends, etc.) sees the same AM
+    for (const k of allKpis) {
+      const cid = k.BranchId || canonicalStoreId(k.Branch);
+      const canonicalAM = storeMap.get(cid) || 'Unassigned';
+      if (k.AM !== canonicalAM) {
+        k.AM = canonicalAM;
+        await idbPut('kpi', k);
+      }
+    }
+    console.log('[Sync] Rebuilt AM assignments for', updated, 'stores from latest week data');
+  }
+
+  // Diagnostic: show record counts per week to help identify missing data
+  {
+    const allKpisFinal = await idbGetAll('kpi');
+    const weekCounts = {};
+    for (const k of allKpisFinal) {
+      const key = (k.Year || 0) + '-W' + String(k.Week || 0).padStart(2, '0');
+      weekCounts[key] = (weekCounts[key] || 0) + 1;
+    }
+    const sorted = Object.entries(weekCounts).sort((a, b) => a[0].localeCompare(b[0]));
+    console.log('[Sync] Records per week:', sorted.map(([w, c]) => w + ':' + c).join(', '));
+    const lowWeeks = sorted.filter(([, c]) => c < 10);
+    if (lowWeeks.length) console.warn('[Sync] LOW DATA WEEKS:', lowWeeks.map(([w, c]) => w + '(' + c + ')').join(', '));
+  }
+
   document.getElementById('ingestStatus').innerText = "Last Updated: " + new Date().toLocaleTimeString();
   await validateAndCorrectData(Array.from(weeksTouched));
   await flagAnomalies();

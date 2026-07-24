@@ -14,17 +14,17 @@ if (navigator.storage && navigator.storage.persist) {
 // Delete old database versions to prevent stale data
 indexedDB.databases && indexedDB.databases().then(function(dbs) {
   dbs.forEach(function(dbInfo) {
-    if (dbInfo.name && dbInfo.name !== 'BirdsExecutiveHub_v37') {
+    if (dbInfo.name && dbInfo.name !== 'BirdsExecutiveHub_v38') {
       console.log('[DB] Deleting old database:', dbInfo.name);
       indexedDB.deleteDatabase(dbInfo.name);
     }
   });
 }).catch(function() {});
 
-const req = indexedDB.open('BirdsExecutiveHub_v37', 8);
+const req = indexedDB.open('BirdsExecutiveHub_v38', 1);
 req.onupgradeneeded = e => {
   const d = e.target.result;
-  if(!d.objectStoreNames.contains('kpi')) d.createObjectStore('kpi', { keyPath: ['Branch','Year','Week'] });
+  if(!d.objectStoreNames.contains('kpi')) d.createObjectStore('kpi', { keyPath: ['BranchId','Year','Week'] });
   if(!d.objectStoreNames.contains('audits')) d.createObjectStore('audits', { keyPath: ['Store','Year','Week'] });
   if(!d.objectStoreNames.contains('stores')) d.createObjectStore('stores', { keyPath: 'BranchId' });
   if(!d.objectStoreNames.contains('actions')) d.createObjectStore('actions', { keyPath: 'ActionID' });
@@ -112,8 +112,18 @@ async function checkDataFreshness() {
   } catch (_) {}
 }
 
-const idbGetAll = s => { if (!db) return Promise.resolve([]); try { return new Promise(res => { const r = db.transaction(s).objectStore(s).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); }); } catch(e) { return Promise.resolve([]); } };
-const idbGet = (s, k) => { if (!db) return Promise.resolve(null); try { return new Promise(res => { const r = db.transaction(s).objectStore(s).get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch(e) { return Promise.resolve(null); } };
-const idbAdd = (s, v) => { if (!db) return Promise.resolve(null); try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).add(v); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); } catch(e){ return Promise.resolve(null); }};
-const idbPut = (s, v) => { if (!db) return Promise.resolve(false); try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess = () => res(true); r.onerror = (err) => { console.error('DB Put Error', err); res(false); }; }); } catch(e) { return Promise.resolve(false); } };
-const idbClear = (s) => { if (!db) return Promise.resolve(false); try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).clear(); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { return Promise.resolve(false); } };
+const idbGetAll = s => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve([]); } try { return new Promise(res => { const r = db.transaction(s).objectStore(s).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve([]); } };
+const idbGet = (s, k) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(null); } try { return new Promise(res => { const r = db.transaction(s).objectStore(s).get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(null); } };
+const idbAdd = (s, v) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(null); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).add(v); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(null); } };
+const idbPut = (s, v) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
+const idbClear = (s) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).clear(); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
+
+// Auto-reconnect if DB connection closes (e.g. after SW update)
+function _reconnectDB() {
+  if (db && !db.closed) return;
+  console.log('[DB] Connection lost — reconnecting...');
+  var req2 = indexedDB.open('BirdsExecutiveHub_v38', 1);
+  req2.onsuccess = function(e) { db = e.target.result; console.log('[DB] Reconnected'); };
+  req2.onerror = function() { console.error('[DB] Reconnect failed'); };
+}
+setInterval(_reconnectDB, 5000);

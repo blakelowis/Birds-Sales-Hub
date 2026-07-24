@@ -1,5 +1,5 @@
 function drawSectionHeader(pdf, title, y){
-  pdf.setFillColor(0,168,142);
+    pdf.setFillColor(135,157,130);
   pdf.rect(10, y-6, 190, 8, 'F');
   pdf.setTextColor(255,255,255);
   pdf.setFontSize(11);
@@ -139,9 +139,9 @@ if (!storeName) {
     const storeId = canonicalStoreId(storeName);
     const executiveSummary = [];
 
-    const MINT = [84, 200, 170];
-    const CHARCOAL = [55, 55, 55];
-    const LIGHT_GREY = [120, 120, 120];
+    const MINT = [135, 157, 130];
+    const CHARCOAL = [57, 68, 60];
+    const LIGHT_GREY = [126, 137, 128];
 
     const PAGE_WIDTH = 210;
     const PAGE_CENTER_X = 105;
@@ -176,7 +176,7 @@ if (!storeName) {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(10);
     pdf.setTextColor(...LIGHT_GREY);
-    const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     pdf.text(`Generated: ${dateStr}`, PAGE_CENTER_X, 45, { align: 'center' });
 
     pdf.setDrawColor(225, 225, 225);
@@ -309,19 +309,19 @@ if (!storeName) {
 
             pdf.setFontSize(8);
 
-            pdf.setFillColor(225, 245, 234);
+            pdf.setFillColor(232, 238, 229);
             pdf.roundedRect(17, y + chartHeight + 5, 52, 10, 2, 2, 'F');
-            pdf.setTextColor(0, 140, 90);
+            pdf.setTextColor(96, 117, 95);
             pdf.text((inverse ? 'Below Avg ' : 'Above Avg ') + good + '%', 20, y + chartHeight + 11);
 
-            pdf.setFillColor(225, 236, 255);
+            pdf.setFillColor(239, 238, 229);
             pdf.roundedRect(79, y + chartHeight + 5, 52, 10, 2, 2, 'F');
-            pdf.setTextColor(52, 120, 246);
+            pdf.setTextColor(127, 111, 78);
             pdf.text('Within 1% ' + s.near + '%', 82, y + chartHeight + 11);
 
-            pdf.setFillColor(255, 235, 235);
+            pdf.setFillColor(241, 229, 225);
             pdf.roundedRect(141, y + chartHeight + 5, 52, 10, 2, 2, 'F');
-            pdf.setTextColor(190, 50, 50);
+            pdf.setTextColor(154, 98, 92);
             pdf.text((inverse ? 'Above Avg ' : 'Below Avg ') + bad + '%', 144, y + chartHeight + 11);
 
         } catch (e) {}
@@ -349,70 +349,45 @@ if (!storeName) {
     pdf.setTextColor(...CHARCOAL);
     pdf.text('Executive KPI Summary', PAGE_CENTER_X, 20, { align: 'center' });
 
-    const health = Math.round(
-        executiveSummary.reduce((a, b) => a + b.good, 0) /
-        Math.max(executiveSummary.length, 1)
-    );
+    let sy = 40;
 
-    let rating = 'NEEDS FOCUS';
-    if (health >= 80) rating = 'EXCELLENT';
-    else if (health >= 65) rating = 'STRONG';
-    else if (health >= 50) rating = 'STABLE';
+    // ── Well Done section ──────────────────────────
+    const strengths = executiveSummary.sort((a, b) => b.good - a.good).slice(0, 3);
 
-    const healthBoxWidth = 120;
-    const healthBoxX = (PAGE_WIDTH - healthBoxWidth) / 2;
-
-    pdf.setFillColor(...MINT);
-    pdf.roundedRect(healthBoxX, 35, healthBoxWidth, 40, 5, 5, 'F');
-
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(34);
     pdf.setFont('helvetica', 'bold');
-    pdf.text(String(health) + '%', PAGE_CENTER_X, 55, { align: 'center' });
-
-    pdf.setFontSize(12);
-    pdf.text(rating, PAGE_CENTER_X, 65, { align: 'center' });
-
-    pdf.setFontSize(9);
-    pdf.text('Overall KPI Health', PAGE_CENTER_X, 71, { align: 'center' });
-
-    // Center-Aligned Coaching Text
-    let sy = 100;
-
-    // Top Strengths
+    pdf.setFontSize(16);
     pdf.setTextColor(...CHARCOAL);
-    pdf.setFontSize(14);
-    pdf.text('Top Strengths', PAGE_CENTER_X, sy, { align: 'center' });
+    pdf.text('Well Done', PAGE_CENTER_X, sy, { align: 'center' });
     sy += 10;
 
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'normal');
-    const strengths = executiveSummary.sort((a, b) => b.good - a.good).slice(0, 3);
-    
+
     if (strengths.length > 0) {
         strengths.forEach(x => {
-            pdf.setTextColor(0, 150, 90);
-            pdf.text(`• ${x.metric} - ${x.good}% outperforming company average`, PAGE_CENTER_X, sy, { align: 'center' });
+            pdf.setTextColor(96, 117, 95);
+            let label = ['Waste', 'Labour', 'Energy'].includes(x.metric)
+                ? `${x.metric} below company average in ${x.good}% of weeks`
+                : `${x.metric} above company average in ${x.good}% of weeks`;
+            pdf.text(`• ${label}`, PAGE_CENTER_X, sy, { align: 'center' });
             sy += 8;
         });
     } else {
         pdf.setTextColor(150, 150, 150);
-        pdf.text('No significant strengths identified this period.', PAGE_CENTER_X, sy, { align: 'center' });
+        pdf.text('Performance tracking is building — keep going.', PAGE_CENTER_X, sy, { align: 'center' });
         sy += 8;
     }
 
     sy += 10;
-    
-    // Clean Divider Line
-    pdf.setDrawColor(230, 230, 230);
+    pdf.setDrawColor(213, 221, 208);
     pdf.line(55, sy, 155, sy);
     sy += 15;
 
-    // Priority Focus Areas
-    pdf.setFontSize(14);
+    // ── Areas to Improve section ───────────────────
+    pdf.setFontSize(16);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...CHARCOAL);
-    pdf.text('Priority Focus Areas', PAGE_CENTER_X, sy, { align: 'center' });
+    pdf.text('Areas to Improve', PAGE_CENTER_X, sy, { align: 'center' });
     sy += 10;
 
     pdf.setFontSize(11);
@@ -421,7 +396,7 @@ if (!storeName) {
 
     if (weaknesses.length > 0) {
         weaknesses.forEach(x => {
-            pdf.setTextColor(190, 50, 50);
+            pdf.setTextColor(154, 98, 92);
             let focus = ['Waste', 'Labour', 'Energy'].includes(x.metric)
                 ? `${x.metric} above company average in ${x.bad}% of weeks`
                 : `${x.metric} below company average in ${x.bad}% of weeks`;
@@ -430,7 +405,7 @@ if (!storeName) {
         });
     } else {
         pdf.setTextColor(150, 150, 150);
-        pdf.text('No significant focus areas identified this period.', PAGE_CENTER_X, sy, { align: 'center' });
+        pdf.text('No particular areas to improve this period — great work.', PAGE_CENTER_X, sy, { align: 'center' });
         sy += 8;
     }
 
@@ -491,7 +466,7 @@ if (!storeName) {
 
     if (sortedWeeks.length === 0) {
         // No medals — just show a message
-        let emptyHtml = `<div style="padding: 30px; background: white; width: 850px; font-family: 'Inter', sans-serif; text-align: center; color: #94a3b8; font-style: italic; font-weight: bold; font-size: 16px;">No medals accrued in the available data.</div>`;
+        let emptyHtml = `<div style="padding: 30px; background: #fbfaf6; width: 850px; font-family: 'Merriweather', Georgia, serif; text-align: center; color: #7e8a80; font-style: italic; font-weight: bold; font-size: 16px;">No medals accrued in the available data.</div>`;
         await renderMedalChunk(emptyHtml, 'No Medals');
     } else {
         // Render weeks in small batches (3 weeks per chunk) to avoid overflow
@@ -501,9 +476,9 @@ if (!storeName) {
             let chunkHtml = `<div style="padding: 20px; background: white; width: 850px; font-family: 'Inter', sans-serif; box-sizing: border-box;">
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="background: #f8fafc; text-align: left;">
-                            <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; font-size: 14px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; width: 110px;">Week</th>
-                            <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; font-size: 14px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Medals Awarded</th>
+                        <tr style="background: #e8eee5; text-align: left;">
+                            <th style="padding: 12px 16px; border-bottom: 2px solid #d5ddd0; font-size: 14px; color: #39443c; text-transform: uppercase; letter-spacing: 0.05em; width: 110px;">Week</th>
+                            <th style="padding: 12px 16px; border-bottom: 2px solid #d5ddd0; font-size: 14px; color: #39443c; text-transform: uppercase; letter-spacing: 0.05em;">Medals Awarded</th>
                         </tr>
                     </thead>
                     <tbody>`;
@@ -513,9 +488,9 @@ if (!storeName) {
                     let isImp = m.includes('(Improvement)');
                     let metricName = m.replace(' (Improvement)', '').trim();
                     let badgeStyle = isImp 
-                        ? 'color:#065f46; background:#ecfdf5; border: 1px solid #6ee7b7;' 
-                        : 'color:#92400e; background:#fffbeb; border: 1px solid #fcd34d;';
-                    let impTag = isImp ? `<span style="background: #a7f3d0; color: #064e3b; font-size: 10px; padding: 2px 6px; border-radius: 5px; margin-left: 8px; text-transform: uppercase; font-weight: 900;">Improved</span>` : '';
+                        ? 'color:#60755f; background:#e8eee5; border: 1px solid #879d82;'
+                        : 'color:#927a4e; background:#f1eee2; border: 1px solid #d7c9a8;';
+                    let impTag = isImp ? `<span style="background: #d5e1d1; color: #60755f; font-size: 10px; padding: 2px 6px; border-radius: 5px; margin-left: 8px; text-transform: uppercase; font-weight: 900;">Improved</span>` : '';
                     return `<div style="display: flex; align-items: center; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 800; box-shadow: 0 1px 2px rgba(0,0,0,0.05); ${badgeStyle}">
                                 <span>${metricName}</span>
                                 ${impTag}
@@ -523,8 +498,8 @@ if (!storeName) {
                 }).join('') + `</div>`;
 
                 chunkHtml += `<tr>
-                    <td style="padding: 16px; border-bottom: 1px solid #f1f5f9; color: #334155; font-weight: 900; font-size: 16px; vertical-align: top;">Wk ${week}</td>
-                    <td style="padding: 16px; border-bottom: 1px solid #f1f5f9; vertical-align: top;">${medalsListHtml}</td>
+                    <td style="padding: 16px; border-bottom: 1px solid #e3e8df; color: #39443c; font-weight: 900; font-size: 16px; vertical-align: top;">Wk ${week}</td>
+                    <td style="padding: 16px; border-bottom: 1px solid #e3e8df; vertical-align: top;">${medalsListHtml}</td>
                 </tr>`;
             });
 
@@ -533,22 +508,22 @@ if (!storeName) {
         }
 
         // Medal Totals — render separately so it can start on a new page if needed
-        let totalsHtml = `<div style="padding: 20px; background: white; width: 850px; font-family: 'Inter', sans-serif; box-sizing: border-box;">
-            <h3 style="color: #0f172a; font-size: 18px; font-weight: 900; margin-bottom: 16px; text-transform: uppercase; padding-left: 4px;">Medal Totals</h3>
+        let totalsHtml = `<div style="padding: 20px; background: #fbfaf6; width: 850px; font-family: 'Merriweather', Georgia, serif; box-sizing: border-box;">
+            <h3 style="color: #39443c; font-size: 18px; font-weight: 900; margin-bottom: 16px; text-transform: uppercase; padding-left: 4px;">Medal Totals</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 14px;">`;
 
         for (let m in totals) {
             let isImp = m.includes('(Improvement)');
             let metricName = m.replace(' (Improvement)', '').trim();
-            let impTagTotal = isImp ? `<span style="color: #059669; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px;">Improved</span>` : ``; 
-            totalsHtml += `<div style="background: ${isImp ? '#ecfdf5' : '#fffbeb'}; border: 1px solid ${isImp ? '#6ee7b7' : '#fcd34d'}; padding: 14px 20px; border-radius: 10px; color: #1e293b; display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 200px; max-width: 280px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            let impTagTotal = isImp ? `<span style="color: #60755f; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px;">Improved</span>` : ``;
+            totalsHtml += `<div style="background: ${isImp ? '#e8eee5' : '#f1eee2'}; border: 1px solid ${isImp ? '#879d82' : '#d7c9a8'}; padding: 14px 20px; border-radius: 10px; color: #39443c; display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 200px; max-width: 280px; box-shadow: 0 1px 3px rgba(71,88,72,0.08);">
                 <div style="display: flex; flex-direction: column; justify-content: center;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 15px; font-weight: 900;">${metricName}</span>
                     </div>
                     ${impTagTotal}
                 </div>
-                <span style="font-size: 28px; font-weight: 900; color: ${isImp ? '#047857' : '#b45309'}; margin-left: 16px;">${totals[m]}</span>
+                <span style="font-size: 28px; font-weight: 900; color: ${isImp ? '#60755f' : '#927a4e'}; margin-left: 16px;">${totals[m]}</span>
             </div>`;
         }
         totalsHtml += `</div></div>`;
@@ -632,7 +607,7 @@ window.exportCurrentViewPNG = async function(){
                 <strong>Area:</strong> ${area}<br>
                 <strong>Sector:</strong> ${sector}<br>
                 <strong>Generated:</strong>
-                ${new Date().toLocaleString()}
+                ${new Date().toLocaleString('en-GB')}
             </div>
         </div>
     `;
@@ -816,7 +791,7 @@ window.renderStoreReports = async function(){
             <button
                 id="btn-generate-store-report"
                 onclick="exportFullStoreReport()"
-                class="btn-primary">
+                class="btn" style="background: #555B6E; color: white; padding: 10px 20px; border-radius: 6px; font-weight: 800; font-size: 13px;">
 
                 Generate Store Report
 
@@ -841,7 +816,7 @@ function rpAvg(arr, fn){ const vals=arr.map(fn).map(Number).filter(Number.isFini
 function rpCountBy(arr, fn){ const m=new Map(); arr.forEach(x=>{const k=fn(x)||'Unknown'; m.set(k,(m.get(k)||0)+1);}); return Array.from(m.entries()).sort((a,b)=>b[1]-a[1] || String(a[0]).localeCompare(String(b[0]))); }
 function rpStoreId(name){ return canonicalStoreId(name || ''); }
 function rpAreaFromStore(store){ return BirdsCore.getArea(store); }
-function rpAreaOfKpi(k){ const am = k.AM || rpAreaFromStore(k.Branch); return am==='Tom Henson'?'Thomas Henson':am; }
+function rpAreaOfKpi(k){ const am = safeGetAM(k.Branch) || rpAreaFromStore(k.Branch); return am==='Tom Henson'?'Thomas Henson':am; }
 function rpStoreNameAction(a){ return cleanStoreName(a.Store || a.StoreName || a['Store Name'] || (a.StoreEmail ? String(a.StoreEmail).split('@')[0] : '') || 'Unknown Store'); }
 function rpAreaAction(a){ let am = a.AreaManager || a.AM || rpAreaFromStore(rpStoreNameAction(a)); if(am==='Area Manager') am = rpAreaFromStore(rpStoreNameAction(a)); return am==='Tom Henson'?'Thomas Henson':am; }
 function rpStatus(a){ if(typeof normalizeActionStatus==='function') return normalizeActionStatus(a.Status); return String(a.Status||'').toLowerCase().includes('closed')?'Closed':'Open'; }
@@ -876,7 +851,7 @@ function rpAggStores(kpis, audits){
   return Array.from(m.values()).map(s=>{
     const avg=(f)=>rpAvg(s.rows,r=>r[f]); const aud=(f)=>rpAvg(s.auditRows,r=>r[f]);
     const obj={Branch:s.Branch,AM:s.AM,Sales:avg('Sales'),Product:avg('Product'),Waste:avg('Waste'),Labour:avg('Labour'),ATV:avg('ATV'),Energy:avg('Energy'),SalesActual:rpAvg(s.rows,r=>r.SalesActual || r.__rawSales || 0),AuditScore:aud('Score'),Food:aud('Food'),Fire:aud('Fire'),HandS:aud('HandS'),Journey:aud('Journey'),Coffee:aud('Coffee'),Focus:aud('Focus')};
-    obj.Score = typeof calculateStoreScore==='function' ? calculateStoreScore(obj) : (obj.Sales*100 + obj.Product*100 - obj.Waste*100 - obj.Labour*100);
+    obj.Score = typeof calculateStoreScore==='function' ? calculateStoreScore(obj) : (obj.Sales*100 + obj.Product*100 - obj.Waste*100 - obj.Labour*100 - (obj.Energy||0)/100);
     return obj;
   });
 }
@@ -884,7 +859,7 @@ function rpKpi(label, value, sub='', colour='birds-green'){
   return `<div class="card p-5 border-t-4 ${colour==='red'?'border-t-red-500':colour==='amber'?'border-t-amber-400':'border-t-birds-green'}"><div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${label}</div><div class="text-3xl font-black ${colour==='red'?'text-red-600':colour==='amber'?'text-amber-600':'birds-green'}">${value}</div><div class="text-xs font-bold text-slate-500 mt-1">${sub}</div></div>`;
 }
 function rpTrend(label, curr, prev, inverse=false, format='pct'){
-  const diff = curr - prev; const good = inverse ? diff < 0 : diff > 0; const arrow = diff===0?'—':diff>0?'▲':'▼';
+  const diff = curr - prev; const good = inverse ? diff < 0 : diff > 0; const arrow = diff===0?'—':diff>0?'Up':'Down';
   const fmt = format==='money' ? '£'+Math.abs(diff).toFixed(2) : format==='whole' ? Math.abs(diff).toFixed(0) : (Math.abs(diff)*100).toFixed(1)+'%';
   return `<div class="card p-4"><div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${label}</div><div class="text-2xl font-black text-slate-800">${format==='money'?rpMoney(curr):format==='whole'?Math.round(curr):rpPct(curr)}</div><div class="text-xs font-black ${diff===0?'text-slate-400':good?'text-emerald-600':'text-red-600'}">${arrow} ${diff===0?'No change':fmt} vs previous</div></div>`;
 }
@@ -908,7 +883,9 @@ function rpBreakdown(title, pairs){ return `<div class="card p-5"><h3 class="fon
 function rpOpenClosed(title, rows){ return `<div class="card p-5"><h3 class="font-black outfit text-sm uppercase tracking-widest text-slate-400 mb-4">${title}</h3>${rows.length?rows.map(x=>`<div class="mb-3"><div class="flex justify-between text-xs font-black"><span>${escapeHtml(x.name)}</span><span>${x.open} open / ${x.closed} closed</span></div><div class="progress-bar"><div class="progress-fill-warn" style="width:${x.total?x.open/x.total*100:0}%"></div></div></div>`).join(''):'<p class="text-slate-400 italic">No data.</p>'}</div>`; }
 function rpOpenClosedRows(actions, fn){ const m=new Map(); actions.forEach(a=>{const k=fn(a)||'Unknown'; if(!m.has(k))m.set(k,{name:k,open:0,closed:0,total:0}); const o=m.get(k); o.total++; if(rpClosed(a))o.closed++; else o.open++;}); return Array.from(m.values()).sort((a,b)=>b.open-a.open||b.total-a.total).slice(0,12); }
 function rpBandStores(allStores, scopeStores){
-  const sorted=allStores.filter(s=>s.SalesActual>0).sort((a,b)=>b.SalesActual-a.SalesActual); const n=sorted.length||1; const bandMap=new Map();
+  const sorted=allStores.filter(s=>s.SalesActual>0).sort((a,b)=>b.SalesActual-a.SalesActual);
+  if(sorted.length===0) return scopeStores.map(s=>({...s,Band:'No Actual Sales data'})).sort((a,b)=>(b.Sales||0)-(a.Sales||0));
+  const n=sorted.length; const bandMap=new Map();
   sorted.forEach((s,i)=>{ const p=(i+1)/n; const band=p<=0.25?'A - High Sales':p<=0.5?'B - Upper Mid':p<=0.75?'C - Lower Mid':'D - Developing'; bandMap.set(rpStoreId(s.Branch),band); });
   return scopeStores.map(s=>({...s,Band:bandMap.get(rpStoreId(s.Branch)) || 'No sales actual'})).sort((a,b)=>b.SalesActual-a.SalesActual);
 }
@@ -923,10 +900,10 @@ const _qsDef = [
   { name:'Labour',       field:'Labour',      type:'pct', inverse:true  },
   { name:'ATV',          field:'ATV',         type:'val', inverse:false },
   { name:'Energy',       field:'Energy',      type:'val', inverse:true  },
-  { name:'Hot Drinks',   field:'HotBev',      type:'pct', inverse:false },
-  { name:'Hot Food',     field:'HotRolls',    type:'pct', inverse:false },
-  { name:'Filled Rolls', field:'FilledRolls', type:'pct', inverse:false },
-  { name:'Sandwiches',   field:'Sandwiches',  type:'pct', inverse:false }
+  { name:'Hot Drinks',   field:'HotBev',      type:'count', inverse:false },
+  { name:'Hot Food',     field:'HotRolls',    type:'count', inverse:false },
+  { name:'Filled Rolls', field:'FilledRolls', type:'count', inverse:false },
+  { name:'Sandwiches',   field:'Sandwiches',  type:'count', inverse:false }
 ];
 
 const _qsQtrWk = {
@@ -939,12 +916,14 @@ function _qsAvg(rows, f){ const v=rows.filter(r=>!r.IsAnomaly).map(r=>r[f]).filt
 function _qsFmt(val, type){
   if(val==null) return '—';
   if(type==='val') return '£'+val.toFixed(2);
+  if(type==='count') return Math.round(val).toLocaleString();
   return (val*100).toFixed(1)+'%';
 }
 
 function _qsDeltaFmt(diff, type){
   if(diff==null) return '';
   if(type==='val') return '£'+Math.abs(diff).toFixed(2);
+  if(type==='count') return Math.abs(Math.round(diff)).toLocaleString();
   return Math.abs(diff*100).toFixed(1)+'%';
 }
 
@@ -957,7 +936,7 @@ function _qsWidget(m, firstAvg, lastAvg, firstWk, lastWk){
   let dCls='text-slate-400';
   if(delta!=null){
     const tiny=Math.abs(delta)<(m.type==='val'?0.005:0.005);
-    const arrow=tiny?'—':delta>0?'▲':'▼';
+    const arrow=tiny?'—':delta>0?'Up':'Down';
     dCls=tiny?'text-slate-400':good?'text-emerald-600':'text-red-600';
     const dFmt=_qsDeltaFmt(delta,m.type);
     deltaHtml=`<span class="text-sm font-black ${dCls}">${arrow} ${dFmt} Wk${firstWk}→${lastWk}</span>`;
@@ -1004,7 +983,7 @@ window.renderQuarterlySummary = async function(){
           <select id="qsArea" class="input-chip text-sm">${areaOpts}</select>
           <select id="qsStore" class="input-chip text-sm">${storeOpts}</select>
           <select id="qsQuarter" class="input-chip text-sm">${qOpts}</select>
-          <button onclick="exportQSPDF()" class="btn-secondary">PDF Export</button>
+          <button onclick="exportQSPDF()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 13px;">PDF Export</button>
         </div>
       </div>
       <div id="qsContext" class="text-xs font-bold text-slate-400"></div>
@@ -1034,7 +1013,7 @@ async function _qsRefresh(){
   const latestYear=Math.max(1,...kAll.map(k=>k.Year||0).filter(Boolean));
 
   let data=kAll.filter(k=>(k.Year||latestYear)===latestYear);
-  if(area) data=data.filter(k=>normAM(k.AM||rpAreaFromStore(k.Branch)).toLowerCase()===area.toLowerCase());
+  if(area) data=data.filter(k=>normAM(safeGetAM(k.Branch)||rpAreaFromStore(k.Branch)).toLowerCase()===area.toLowerCase());
   if(store) data=data.filter(k=>k.Branch===store);
 
   const qw=quarter==='YTD'?{from:1,to:latestWeek}:_qsQtrWk[quarter];
@@ -1078,7 +1057,7 @@ window.exportQSPDF = async function(){
   function normAM(n){ return (n||'').trim()==='Tom Henson'?'Thomas Henson':(n||'').trim(); }
 
   let data=kAll.filter(k=>(k.Year||latestYear)===latestYear);
-  if(area) data=data.filter(k=>normAM(k.AM||rpAreaFromStore(k.Branch)).toLowerCase()===area.toLowerCase());
+  if(area) data=data.filter(k=>normAM(safeGetAM(k.Branch)||rpAreaFromStore(k.Branch)).toLowerCase()===area.toLowerCase());
   if(store) data=data.filter(k=>k.Branch===store);
 
   const qw=quarter==='YTD'?{from:1,to:latestWeek}:_qsQtrWk[quarter];
@@ -1094,15 +1073,15 @@ window.exportQSPDF = async function(){
 
   const label=store||area||'Company';
   const qLabel=quarter==='YTD'?`YTD (Wk 1-${periodTo})`:quarter+' (Wk '+qw.from+'-'+periodTo+')';
-  const today=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  const today=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});
   const stamp=new Date().toISOString().slice(0,10);
 
   // ── Header ──
-  pdf.setFillColor(0,128,0);
+    pdf.setFillColor(135,157,130);
   pdf.rect(0,0,pw,2,'F');
   pdf.setFont('helvetica','bold');
   pdf.setFontSize(22);
-  pdf.setTextColor(0,100,0);
+    pdf.setTextColor(96,117,95);
   pdf.text('Quarterly Summary',pw/2,18,{align:'center'});
   pdf.setFontSize(14);
   pdf.setTextColor(40,40,40);
@@ -1129,22 +1108,22 @@ window.exportQSPDF = async function(){
 
   metrics.forEach((m,i)=>{
     if(i>0 && i%cols===0){ x=mg; y+=boxH+gap; }
-    if(y+boxH>ph-mg){ pdf.addPage(); y=mg; pdf.setFillColor(0,128,0); pdf.rect(0,0,pw,2,'F'); }
+    if(y+boxH>ph-mg){ pdf.addPage(); y=mg; pdf.setFillColor(135,157,130); pdf.rect(0,0,pw,2,'F'); }
 
     // box background
-    pdf.setFillColor(248,250,252);
-    pdf.setDrawColor(220,220,220);
+    pdf.setFillColor(251,250,246);
+    pdf.setDrawColor(213,221,208);
     pdf.roundedRect(x,y,boxW,boxH,2,2,'FD');
 
     // colored top bar
-    const barClr=m.good===null?[200,200,200]:m.good?[16,185,129]:[239,68,68];
+    const barClr=m.good===null?[190,194,187]:m.good?[135,157,130]:[164,111,104];
     pdf.setFillColor(...barClr);
     pdf.rect(x,y,boxW,2,'F');
 
     // metric name
     pdf.setFont('helvetica','bold');
     pdf.setFontSize(8);
-    pdf.setTextColor(100,116,139);
+    pdf.setTextColor(96,108,98);
     pdf.text(m.name.toUpperCase(),x+3,y+7);
 
     // delta arrow (ASCII only for PDF)
@@ -1152,7 +1131,7 @@ window.exportQSPDF = async function(){
       const tiny=Math.abs(m.delta)<0.005;
       const arrow=tiny?'':m.delta>0?'+':'-';
       const dFmt=m.type==='val'?'£'+Math.abs(m.delta).toFixed(2):Math.abs(m.delta*100).toFixed(1)+'%';
-      const dClr=m.good===null?[100,100,100]:m.good?[16,148,89]:[220,38,38];
+    const dClr=m.good===null?[100,108,100]:m.good?[96,117,95]:[154,98,92];
       pdf.setFontSize(7);
       pdf.setTextColor(...dClr);
       const deltaText=(arrow?arrow+' ':'')+dFmt+' Wk'+firstWk+'-'+lastWk;
@@ -1173,7 +1152,7 @@ window.exportQSPDF = async function(){
     // last value large
     pdf.setFont('helvetica','bold');
     pdf.setFontSize(13);
-    const vClr=m.good===null?[40,40,40]:m.good?[6,95,70]:[153,27,27];
+    const vClr=m.good===null?[57,68,60]:m.good?[96,117,95]:[145,86,80];
     pdf.setTextColor(...vClr);
     pdf.text(lStr,x+boxW-3,y+24,{align:'right'});
 
@@ -1210,7 +1189,7 @@ async function buildRankTimeline(storeName){
         weekMap[w].push(k);
     });
 
-    const timeline = [];
+    const weekScores = {};
     Object.keys(weekMap).map(Number).sort((a, b) => a - b).forEach(week => {
         const weekRows = weekMap[week];
         const storeScores = {};
@@ -1224,10 +1203,29 @@ async function buildRankTimeline(storeName){
             const labour = Number(k.Labour) || 0;
             storeScores[branch] += (sales * 100 + product * 100 - waste * 100 - labour * 100);
         });
+        weekScores[week] = storeScores;
+    });
 
-        const sorted = Object.entries(storeScores).sort((a, b) => b[1] - a[1]);
+    const sortedWeeks = Object.keys(weekScores).map(Number).sort((a, b) => a - b);
+    const ROLLING_WINDOW = 4;
+    const timeline = [];
+
+    sortedWeeks.forEach((week, idx) => {
+        const windowStart = Math.max(0, idx - ROLLING_WINDOW + 1);
+        const windowWeeks = sortedWeeks.slice(windowStart, idx + 1);
+
+        const cumulativeScores = {};
+        windowWeeks.forEach(w => {
+            const ws = weekScores[w];
+            Object.entries(ws).forEach(([branch, score]) => {
+                cumulativeScores[branch] = (cumulativeScores[branch] || 0) + score;
+            });
+        });
+
+        const sorted = Object.entries(cumulativeScores).sort((a, b) => b[1] - a[1]);
         const rank = sorted.findIndex(([name]) => canonicalStoreId(name) === canonicalStoreId(storeName)) + 1;
-        timeline.push({ week, rank, total: sorted.length, score: storeScores[canonicalStoreId(storeName)] || 0 });
+        const storeId = canonicalStoreId(storeName);
+        timeline.push({ week, rank, total: sorted.length, score: cumulativeScores[storeId] || 0 });
     });
 
     return timeline;
@@ -1244,9 +1242,9 @@ async function drawRankMovementChart(storeName, canvasId){
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, 900, 550);
 
-    const MINT = '#00A88E';
-    const CHARCOAL = '#373737';
-    const LIGHT_GREY = '#e2e8f0';
+    const MINT = '#879d82';
+    const CHARCOAL = '#39443c';
+    const LIGHT_GREY = '#d5ddd0';
     const PAD = { top: 70, right: 40, bottom: 60, left: 60 };
     const chartW = 900 - PAD.left - PAD.right;
     const chartH = 550 - PAD.top - PAD.bottom;
@@ -1316,7 +1314,7 @@ async function drawRankMovementChart(storeName, canvasId){
     ctx.lineTo(PAD.left + chartW, PAD.top + chartH);
     ctx.lineTo(PAD.left, PAD.top + chartH);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(0, 168, 142, 0.08)';
+    ctx.fillStyle = 'rgba(135, 157, 130, 0.14)';
     ctx.fill();
 
     // Dots + labels

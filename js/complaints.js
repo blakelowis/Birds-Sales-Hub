@@ -224,10 +224,10 @@ function avgDaysCloseTime(data) {
     if(document.getElementById('complaint-detail-modal')) return;
     document.body.insertAdjacentHTML('beforeend', `
     <div id="complaint-detail-modal" class="fixed inset-0 bg-black/50 z-[200] hidden items-start justify-center overflow-y-auto p-6 pt-[10vh]" onclick="if(event.target===this)closeComplaintModal()">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full mb-10">
-            <div class="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center rounded-t-2xl z-10">
-                <h2 class="text-xl font-black text-slate-800">Complaint Details</h2>
-                <button onclick="closeComplaintModal()" class="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold">Close</button>
+        <div style="background: var(--edwardian-paper)" class="rounded-2xl shadow-2xl max-w-6xl w-full mb-10">
+            <div class="sticky top-0 px-6 py-4 flex justify-between items-center rounded-t-2xl z-10" style="background: var(--edwardian-paper); border-bottom: 1px solid var(--edwardian-rule)">
+                <h2 style="font-family: var(--birds-font-display); color: var(--edwardian-ink)">Complaint Details</h2>
+                <button onclick="closeComplaintModal()" style="background: var(--edwardian-sage); color: white; border: none; font-family: var(--birds-font-display)" class="px-4 py-2 rounded-lg font-bold">Close</button>
             </div>
             <div id="complaint-modal-content" class="p-6"></div>
         </div>
@@ -253,7 +253,7 @@ window.openComplaintModal = function(idx){
     if(!c) return;
     let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">';
     Object.entries(c).forEach(([k,v]) => {
-        html += `<div class="bg-slate-50 border border-slate-200 rounded-xl p-4"><div class="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">${escapeHtml(k)}</div><div class="text-sm text-slate-700 whitespace-pre-wrap break-words">${escapeHtml(String(v || '-'))}</div></div>`;
+        html += `<div style="background: var(--edwardian-sage-pale); border: 1px solid var(--edwardian-rule)" class="rounded-xl p-4"><div style="font-family: var(--birds-font-display); color: var(--birds-text-light)" class="text-xs font-black uppercase tracking-widest mb-2">${escapeHtml(k)}</div><div style="color: var(--edwardian-ink)" class="text-sm whitespace-pre-wrap break-words">${escapeHtml(String(v || '-'))}</div></div>`;
     });
     html += '</div>';
     document.getElementById('complaint-modal-content').innerHTML = html;
@@ -268,17 +268,17 @@ window.renderComplaintsHub = function(){
     const mainView = document.getElementById('mainView');
     mainView.innerHTML = `
     <div id="complaints-hub-view">
-        <h2 class="text-[36px] font-black birds-green mb-6">Customer Complaints Hub</h2>
-        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 flex gap-6 flex-wrap items-end">
+        <h2 class="birds-green mb-6" style="font-family: var(--birds-font-display); font-size: 36px; font-weight: 900">Customer Complaints Hub</h2>
+        <div style="background: var(--edwardian-paper); border: 1px solid var(--edwardian-rule)" class="p-6 rounded-2xl shadow-sm mb-6 flex gap-6 flex-wrap items-end">
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Store / Branch</label>
-                <select id="comp-filter-store" class="border border-slate-300 p-2.5 rounded-lg w-56 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Store / Branch</label>
+                <select id="comp-filter-store" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
                     <option value="ALL">All Stores</option>
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Status</label>
-                <select id="comp-filter-status" class="border border-slate-300 p-2.5 rounded-lg w-48 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Status</label>
+                <select id="comp-filter-status" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
                     <option value="ALL">All Statuses</option>
                     <option value="Unresolved">Unresolved</option>
                     <option value="Awaiting Response">Awaiting Response</option>
@@ -286,8 +286,8 @@ window.renderComplaintsHub = function(){
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Area Manager</label>
-                <select id="comp-filter-am" class="border border-slate-300 p-2.5 rounded-lg w-56 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Area Manager</label>
+                <select id="comp-filter-am" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
                     <option value="ALL">All Areas</option>
                     <option value="Katie Cartwright">Katie Cartwright</option>
                     <option value="Craig White">Craig White</option>
@@ -298,30 +298,30 @@ window.renderComplaintsHub = function(){
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Category</label>
-                <select id="comp-filter-type" class="border border-slate-300 p-2.5 rounded-lg w-48 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Category</label>
+                <select id="comp-filter-type" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
                     <option value="ALL">All Categories</option>
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Voucher</label>
-                <select id="comp-filter-voucher" class="border border-slate-300 p-2.5 rounded-lg w-40 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Voucher</label>
+                <select id="comp-filter-voucher" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
                     <option value="ALL">All</option>
                     <option value="YES">Given</option>
                     <option value="NO">None</option>
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Date From</label>
-                <input type="date" id="comp-filter-date-from" class="border border-slate-300 p-2.5 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Date From</label>
+                <input type="date" id="comp-filter-date-from" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Date To</label>
-                <input type="date" id="comp-filter-date-to" class="border border-slate-300 p-2.5 rounded-lg text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Date To</label>
+                <input type="date" id="comp-filter-date-to" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
             </div>
             <div>
-                <label class="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Sort By</label>
-                <select id="comp-sort" class="border border-slate-300 p-2.5 rounded-lg w-48 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" onchange="window.renderComplaintsTable()">
+                <label style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="block text-[10px] font-bold uppercase tracking-wider mb-2">Sort By</label>
+                <select id="comp-sort" style="border-color: var(--edwardian-rule); color: var(--edwardian-ink); background: var(--birds-warm-white)" class="border rounded px-2 py-1.5 text-xs font-bold" onchange="window.renderComplaintsTable()">
                     <option value="date-desc">Date (Newest First)</option>
                     <option value="date-asc">Date (Oldest First)</option>
                     <option value="store-asc">Store (A-Z)</option>
@@ -329,35 +329,35 @@ window.renderComplaintsHub = function(){
                 </select>
             </div>
             <div class="ml-auto flex items-center gap-3">
-                <div class="flex items-center bg-blue-50 px-4 py-2 rounded-lg border border-blue-100">
+                <div style="background: var(--edwardian-sage-pale); border: 1px solid var(--edwardian-rule)" class="flex items-center px-4 py-2 rounded-lg">
                     <div class="flex flex-col">
-                        <span class="text-xs font-black text-blue-800 uppercase tracking-wider">Total Filtered</span>
-                        <span id="comp-total-count" class="text-lg font-black text-blue-600 leading-none">0</span>
+                        <span style="color: var(--birds-text-light); font-family: var(--birds-font-display)" class="text-[10px] font-bold uppercase tracking-wider">Total Filtered</span>
+                        <span id="comp-total-count" style="color: var(--edwardian-sage-dark)" class="text-lg font-black leading-none">0</span>
                     </div>
                 </div>
-                <div id="comp-data-source" class="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-500"></div>
-                <button onclick="generateComplaintsPDF()" class="bg-rose-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-rose-700"> PDF Summary</button>
-                <button onclick="generateComplaintsDetailedPDF()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700"> Detailed Report</button>
+                <div id="comp-data-source" class="text-[10px] font-bold px-3 py-1 rounded-full" style="background: var(--edwardian-sage-pale); color: var(--birds-text-light)"></div>
+                <button onclick="generateComplaintsPDF()" class="btn" style="background: var(--edwardian-rose); color: white"> PDF Summary</button>
+                <button onclick="generateComplaintsDetailedPDF()" class="btn" style="background: #555B6E; color: white"> Detailed Report</button>
             </div>
         </div>
         <div id="complaints-kpi-row" class="grid grid-cols-3 md:grid-cols-7 gap-3 mb-6"></div>
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div style="background: var(--edwardian-paper); border: 1px solid var(--edwardian-rule)" class="rounded-2xl shadow-sm overflow-hidden">
             <table class="w-full text-left border-collapse">
-                <thead class="bg-slate-100 text-slate-500 text-xs uppercase tracking-widest font-black">
+                <thead style="background: var(--edwardian-sage-pale)">
                     <tr>
-                        <th class="p-4 border-b border-slate-200">DETAILS</th>
-                        <th class="p-4 border-b border-slate-200">Date</th>
-                        <th class="p-4 border-b border-slate-200">Store</th>
-                        <th class="p-4 border-b border-slate-200">Responsible Person</th>
-                        <th class="p-4 border-b border-slate-200">Customer Info</th>
-                        <th class="p-4 border-b border-slate-200">Category</th>
-                        <th class="p-4 border-b border-slate-200">Complaint Details</th>
-                        <th class="p-4 border-b border-slate-200">Voucher</th>
-                        <th class="p-4 border-b border-slate-200">Status</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">DETAILS</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Date</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Store</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Responsible Person</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Customer Info</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Category</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Complaint Details</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Voucher</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Status</th>
                     </tr>
                 </thead>
                 <tbody id="comp-table-body">
-                    <tr><td colspan="7" class="p-10 text-center text-slate-400 font-bold italic text-lg">No complaints loaded. Ensure your data folder is anchored and contains the complaints CSV.</td></tr>
+                    <tr><td colspan="9" style="color: var(--birds-text-light)" class="p-10 text-center font-bold italic text-lg">No complaints loaded. Ensure your data folder is anchored and contains the complaints CSV.</td></tr>
                 </tbody>
             </table>
         </div>
@@ -375,7 +375,7 @@ window.renderComplaintsHub = function(){
         const info = document.getElementById('complaints-kpi-row');
         if(info) info.innerHTML = '';
         const tbody = document.getElementById('comp-table-body');
-        if(tbody) tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-slate-400 font-bold italic text-lg">No complaints loaded. Ensure your data folder is anchored and contains the complaints CSV.</td></tr>';
+        if(tbody) tbody.innerHTML = '<tr><td colspan="9" style="color: var(--birds-text-light)" class="p-10 text-center font-bold italic text-lg">No complaints loaded. Ensure your data folder is anchored and contains the complaints CSV.</td></tr>';
     }
 };
 
@@ -409,7 +409,7 @@ window.loadComplaintsFromSheet = function(rows){
     window.ComplaintsData.sort((a,b) => parseUKDate(b['Date of complaint']) - parseUKDate(a['Date of complaint']));
     var src = (window.__dataStatus && window.__dataStatus.source === 'folder') ? 'Data Folder' : (window.__dataStatus && window.__dataStatus.source === 'cache') ? 'Cached' : 'Loaded';
     var badge = document.getElementById('comp-data-source');
-    if(badge){ badge.innerText = rows.length + ' records from ' + src; badge.className = 'text-[10px] font-bold px-3 py-1 rounded-full ' + (src === 'Data Folder' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'); }
+    if(badge){ badge.innerText = rows.length + ' records from ' + src; badge.className = 'text-[10px] font-bold px-3 py-1 rounded-full'; badge.style.background = src === 'Data Folder' ? 'var(--edwardian-sage-pale)' : '#fef9ee'; badge.style.color = src === 'Data Folder' ? 'var(--edwardian-sage-dark)' : 'var(--birds-terracotta)'; }
     const stores = [...new Set(window.ComplaintsData.map(x => x['Shop bought from']))].filter(Boolean).sort();
     const statuses = [...new Set(window.ComplaintsData.map(x => x['Status']))].filter(Boolean).sort();
     const types = [...new Set(window.ComplaintsData.map(x => cleanBrackets(x['Type of complaint'])))].filter(Boolean).sort();
@@ -490,20 +490,20 @@ window.renderComplaintsTable = function() {
     if(kpiRow){
         let voucherActive = fVoucher === 'YES';
         kpiRow.innerHTML = `
-        <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm"><div class="text-[10px] uppercase font-black text-slate-500">Total</div><div class="text-2xl font-black text-blue-600">${filtered.length}</div></div>
-        <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm"><div class="text-[10px] uppercase font-black text-slate-500">Unresolved</div><div class="text-2xl font-black text-rose-600">${openCount}</div></div>
-        <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm"><div class="text-[10px] uppercase font-black text-slate-500">Awaiting</div><div class="text-2xl font-black text-amber-500">${awaitingCount}</div></div>
-        <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm"><div class="text-[10px] uppercase font-black text-slate-500">Resolved</div><div class="text-2xl font-black text-emerald-600">${resolvedCount}</div></div>
-        <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm"><div class="text-[10px] uppercase font-black text-slate-500">Resolution %</div><div class="text-2xl font-black text-indigo-600">${resolutionRate}%</div></div>
-        <div onclick="window.toggleVoucherFilter()" class="rounded-xl border p-3 shadow-sm cursor-pointer transition-all hover:scale-[1.03] ${voucherActive ? 'bg-violet-100 border-violet-400' : 'bg-white border-slate-200'}"><div class="text-[10px] uppercase font-black text-slate-500">Total Voucher Cost</div><div class="text-2xl font-black ${voucherActive ? 'text-violet-700' : 'text-violet-600'}">${formatVoucherTotal(totalVoucherCost)}</div><div class="text-[9px] font-bold text-slate-400 mt-0.5">${voucherActive ? 'Click to clear filter' : 'Click to show vouchers only'}</div></div>
-        <div class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm"><div class="text-[10px] uppercase font-black text-slate-500">Avg Close Time</div><div class="text-2xl font-black text-cyan-600">${avgCloseText}</div><div class="text-[9px] font-bold text-slate-400 mt-0.5">${resolvedCount} resolved</div></div>`;
+        <div class="bracket-rag rounded-lg p-3" style="--bracket-color: var(--edwardian-sage)"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Total</div><div style="font-size:1.45rem; font-weight:800; color: var(--edwardian-sage-dark)">${filtered.length}</div></div>
+        <div class="bracket-rag rounded-lg p-3" style="--bracket-color: var(--edwardian-rose)"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Unresolved</div><div style="font-size:1.45rem; font-weight:800; color: var(--edwardian-rose)">${openCount}</div></div>
+        <div class="bracket-rag rounded-lg p-3" style="--bracket-color: var(--birds-terracotta)"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Awaiting</div><div style="font-size:1.45rem; font-weight:800; color: var(--birds-terracotta)">${awaitingCount}</div></div>
+        <div class="bracket-rag rounded-lg p-3" style="--bracket-color: var(--edwardian-sage-dark)"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Resolved</div><div style="font-size:1.45rem; font-weight:800; color: var(--edwardian-sage-dark)">${resolvedCount}</div></div>
+        <div class="bracket-rag rounded-lg p-3" style="--bracket-color: #555B6E"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Resolution %</div><div style="font-size:1.45rem; font-weight:800; color: #555B6E">${resolutionRate}%</div></div>
+        <div onclick="window.toggleVoucherFilter()" class="bracket-rag rounded-lg p-3 cursor-pointer transition-all hover:scale-[1.03]" style="--bracket-color: #8a7a9a; ${voucherActive ? 'background: #f3f0ff' : ''}"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Total Voucher Cost</div><div style="font-size:1.45rem; font-weight:800; color: #8a7a9a">${formatVoucherTotal(totalVoucherCost)}</div><div style="font-size:9px; font-weight:700; color: var(--birds-text-light)">${voucherActive ? 'Click to clear filter' : 'Click to show vouchers only'}</div></div>
+        <div class="bracket-rag rounded-lg p-3" style="--bracket-color: #147490"><div style="font-size:10px; text-transform:uppercase; font-weight:700; color: var(--birds-text-light); font-family: var(--birds-font-display)">Avg Close Time</div><div style="font-size:1.45rem; font-weight:800; color: #147490">${avgCloseText}</div><div style="font-size:9px; font-weight:700; color: var(--birds-text-light)">${resolvedCount} resolved</div></div>`;
     }
 
     let tbody = document.getElementById('comp-table-body');
     if(!tbody) return;
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-slate-400 font-bold italic text-lg">No complaints match the selected filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="color: var(--birds-text-light)" class="p-10 text-center font-bold italic text-lg">No complaints match the selected filters.</td></tr>';
         return;
     }
 
@@ -519,30 +519,30 @@ window.renderComplaintsTable = function() {
         try{
             const complaintAge = Math.floor((new Date() - parseUKDate(c['Date of complaint'])) / 86400000);
             if(!isResolved){
-                if(complaintAge >= 30) severityBadge = '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-black">OVER 30 DAYS</span>';
-                else if(complaintAge >= 14) severityBadge = '<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-black">OVER 14 DAYS</span>';
+                if(complaintAge >= 30) severityBadge = '<span style="background: #fef2f2; color: var(--edwardian-rose); border: 1px solid var(--edwardian-rose)" class="px-2 py-1 rounded text-xs font-black">OVER 30 DAYS</span>';
+                else if(complaintAge >= 14) severityBadge = '<span style="background: #fef9ee; color: var(--birds-terracotta); border: 1px solid var(--birds-terracotta)" class="px-2 py-1 rounded text-xs font-black">OVER 14 DAYS</span>';
             }
         }catch(e){}
         let statusBadge = isResolved
-            ? '<span class="bg-emerald-50 text-slate-800 border border-emerald-200 px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider">Resolved</span>'
+            ? '<span style="background: var(--edwardian-sage-pale); color: var(--edwardian-sage-dark); border: 1px solid var(--edwardian-sage)" class="px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider">Resolved</span>'
             : isAwaiting
-            ? '<span class="bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider">Awaiting Response</span>'
-            : '<span class="bg-rose-50 text-rose-700 border border-rose-200 px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider">Unresolved</span>';
+            ? '<span style="background: #fef9ee; color: var(--birds-terracotta); border: 1px solid var(--birds-terracotta)" class="px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider">Awaiting Response</span>'
+            : '<span style="background: #fef2f2; color: var(--edwardian-rose); border: 1px solid var(--edwardian-rose)" class="px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider">Unresolved</span>';
         let voucherBadge = voucherAmt > 0
-            ? '<span class="bg-violet-100 text-violet-700 border border-violet-200 px-2 py-0.5 rounded text-xs font-black">£' + voucherAmt.toFixed(2) + '</span>'
-            : '<span class="text-slate-300 text-xs font-bold">-</span>';
-        let bgClass = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50';
+            ? '<span style="background: #f3f0ff; color: #8a7a9a; border: 1px solid #8a7a9a" class="px-2 py-0.5 rounded text-xs font-black">\u00a3' + voucherAmt.toFixed(2) + '</span>'
+            : '<span style="color: var(--edwardian-rule)" class="text-xs font-bold">-</span>';
+        let rowBg = idx % 2 === 0 ? 'var(--edwardian-paper)' : '#f5f4f0';
 
-        return `<tr class="${bgClass} hover:bg-slate-100 transition-colors group">
-            <td class="p-4 border-b border-slate-100 align-top"><button class="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black hover:bg-emerald-700" onclick="openComplaintModal(${idx})"> View</button></td>
-            <td class="p-4 border-b border-slate-100 text-sm font-bold text-slate-700 whitespace-nowrap align-top">${formatComplaintDate(c['Date of complaint'])}</td>
-            <td class="p-4 border-b border-slate-100 text-sm font-black text-slate-800 align-top">${escapeHtml(c['Shop bought from'] || 'Unknown')}</td>
-            <td class="p-2 border-b border-slate-100 text-xs font-bold text-slate-700 align-top">${escapeHtml(c['Responsible person'] || '-')}</td>
-            <td class="p-2 border-b border-slate-100 text-sm text-slate-600 align-top w-40"><div class="font-bold text-slate-800 mb-1">${escapeHtml(c['Customer full name'] || 'Anonymous')}</div><div class="text-xs break-all opacity-80">${escapeHtml(c['Contact Details'] || '')}</div></td>
-            <td class="p-4 border-b border-slate-100 align-top"><div class="flex flex-col gap-1 items-start">${typeClean ? '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-xs font-bold">'+escapeHtml(typeClean)+'</span>' : ''}${prodClean ? '<span class="bg-indigo-50 text-slate-800 border border-indigo-100 px-2 py-0.5 rounded text-xs font-bold">'+escapeHtml(prodClean)+'</span>' : ''}</div></td>
-            <td class="p-4 border-b border-slate-100 align-top"><div class="text-sm font-medium text-slate-700 max-w-[320px]">${typeClean || prodClean ? (escapeHtml(typeClean) + (prodClean ? ' \u2022 ' + escapeHtml(prodClean) : '')) : 'Complaint Logged'}</div></td>
-            <td class="p-4 border-b border-slate-100 align-top">${voucherBadge}</td>
-            <td class="p-4 border-b border-slate-100 align-top"><div class="flex flex-col gap-2">${statusBadge}${severityBadge}</div></td>
+        return `<tr style="background: ${rowBg}" onmouseover="this.style.background='var(--edwardian-sage-pale)'" onmouseout="this.style.background='${rowBg}'" class="transition-colors group">
+            <td style="border-bottom: 1px solid var(--edwardian-rule)" class="p-4 align-top"><button class="btn" style="background: var(--edwardian-sage); color: white" onclick="openComplaintModal(${idx})"> View</button></td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-4 text-sm font-bold whitespace-nowrap align-top">${formatComplaintDate(c['Date of complaint'])}</td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-4 text-sm font-black align-top">${escapeHtml(c['Shop bought from'] || 'Unknown')}</td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-2 text-xs font-bold align-top">${escapeHtml(c['Responsible person'] || '-')}</td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-2 text-sm align-top w-40"><div class="font-bold mb-1" style="color: var(--edwardian-ink)">${escapeHtml(c['Customer full name'] || 'Anonymous')}</div><div class="text-xs break-all opacity-80">${escapeHtml(c['Contact Details'] || '')}</div></td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule)" class="p-4 align-top"><div class="flex flex-col gap-1 items-start">${typeClean ? '<span style="background: var(--edwardian-sage-pale); color: var(--edwardian-sage-dark)" class="px-2 py-0.5 rounded text-xs font-bold">'+escapeHtml(typeClean)+'</span>' : ''}${prodClean ? '<span style="background: var(--edwardian-sage-pale); color: var(--edwardian-sage-dark); border: 1px solid var(--edwardian-rule)" class="px-2 py-0.5 rounded text-xs font-bold">'+escapeHtml(prodClean)+'</span>' : ''}</div></td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-4 align-top"><div class="text-sm font-medium max-w-[320px]">${typeClean || prodClean ? (escapeHtml(typeClean) + (prodClean ? ' \u2022 ' + escapeHtml(prodClean) : '')) : 'Complaint Logged'}</div></td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule)" class="p-4 align-top">${voucherBadge}</td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule)" class="p-4 align-top"><div class="flex flex-col gap-2">${statusBadge}${severityBadge}</div></td>
         </tr>`;
     }).join('');
 };
@@ -554,9 +554,14 @@ async function generateComplaintsDetailedPDF() {
     const data = window._compDataCache || window.ComplaintsData || [];
     if (data.length === 0) { alert("No complaints data to export!"); return; }
 
-    const MINT = [0, 168, 142];
-    const CHARCOAL = [55, 55, 55];
-    const LIGHT_GREY = [120, 120, 120];
+    const SAGE = [135, 157, 130];
+    const CHARCOAL = [57, 68, 60];
+    const LIGHT_GREY = [126, 137, 128];
+    const PAPER = [251, 250, 246];
+    const RULE = [213, 221, 208];
+    const SAGE_DARK = [96, 117, 95];
+    const ROSE = [164, 119, 114];
+    const TERRACOTTA = [193, 127, 78];
     const PW = 297, PH = 210, MG = 14;
 
     function findComplaintDetail(row) {
@@ -568,9 +573,9 @@ async function generateComplaintsDetailedPDF() {
     }
 
     const STATUS_COLORS = {
-        'Resolved':         { border: [5, 150, 105],  bg: [236, 253, 245], badgeBg: [236, 253, 245], badgeFg: [5, 120, 80] },
-        'Awaiting Response':{ border: [180, 83, 9],   bg: [255, 251, 235], badgeBg: [255, 251, 235], badgeFg: [180, 83, 9] },
-        'Unresolved':       { border: [190, 18, 60],  bg: [254, 242, 242], badgeBg: [254, 242, 242], badgeFg: [190, 18, 60] }
+        'Resolved':         { border: SAGE_DARK, bg: PAPER, badgeBg: [236, 253, 245], badgeFg: SAGE_DARK },
+        'Awaiting Response':{ border: TERRACOTTA, bg: [255, 251, 235], badgeBg: [255, 251, 235], badgeFg: TERRACOTTA },
+        'Unresolved':       { border: ROSE, bg: [254, 242, 242], badgeBg: [254, 242, 242], badgeFg: ROSE }
     };
 
     let openCount = data.filter(c => normaliseComplaintStatus(c['Status']) !== 'Resolved').length;
@@ -582,7 +587,7 @@ async function generateComplaintsDetailedPDF() {
     let avgCloseText = avgClose !== null ? avgClose.toFixed(1) + 'd' : 'N/A';
 
     function drawPageHeader(pageNum) {
-        doc.setFillColor(...MINT);
+        doc.setFillColor(...SAGE);
         doc.rect(0, 0, PW, 2, 'F');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(16);
@@ -594,20 +599,20 @@ async function generateComplaintsDetailedPDF() {
         doc.text('Generated: ' + new Date().toLocaleString('en-GB') + '  |  ' + data.length + ' complaints (filtered)', MG, 20);
 
         let y = 24;
-        doc.setDrawColor(220, 220, 220);
+        doc.setDrawColor(...RULE);
         doc.setLineWidth(0.3);
         doc.line(MG, y, PW - MG, y);
         y += 4;
 
         const bw = 38, bh = 12;
         const boxes = [
-            { label: 'TOTAL', value: String(data.length), bg: [241,245,249], fg: [51,65,85] },
-            { label: 'UNRESOLVED', value: String(openCount), bg: [254,242,242], fg: [190,18,60] },
-            { label: 'AWAITING', value: String(awaitingCount), bg: [255,251,235], fg: [180,83,9] },
-            { label: 'RESOLVED', value: String(resolvedCount), bg: [236,253,245], fg: [5,150,105] },
-            { label: 'RESOLUTION %', value: resolutionRate + '%', bg: [238,242,255], fg: [55,53,147] },
-            { label: 'VOUCHER TOTAL', value: formatVoucherTotal(totalVoucherCost), bg: [245,243,255], fg: [124,58,237] },
-            { label: 'AVG CLOSE', value: avgCloseText, bg: [236,254,255], fg: [14,116,144] }
+            { label: 'TOTAL', value: String(data.length), bg: PAPER, fg: CHARCOAL },
+            { label: 'UNRESOLVED', value: String(openCount), bg: [254, 242, 242], fg: ROSE },
+            { label: 'AWAITING', value: String(awaitingCount), bg: [255, 251, 235], fg: TERRACOTTA },
+            { label: 'RESOLVED', value: String(resolvedCount), bg: [236, 253, 245], fg: SAGE_DARK },
+            { label: 'RESOLUTION %', value: resolutionRate + '%', bg: PAPER, fg: SAGE_DARK },
+            { label: 'VOUCHER TOTAL', value: formatVoucherTotal(totalVoucherCost), bg: PAPER, fg: [124, 58, 237] },
+            { label: 'AVG CLOSE', value: avgCloseText, bg: PAPER, fg: [20, 116, 148] }
         ];
         let bx = MG;
         boxes.forEach(b => {
@@ -626,12 +631,12 @@ async function generateComplaintsDetailedPDF() {
     }
 
     function drawFooter(p) {
-        doc.setDrawColor(220, 220, 220);
+        doc.setDrawColor(...RULE);
         doc.setLineWidth(0.3);
         doc.line(MG, PH - 10, PW - MG, PH - 10);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-        doc.setTextColor(160, 160, 160);
+        doc.setTextColor(...LIGHT_GREY);
         doc.text('Birds Bakery \u2014 Customer Complaints Report', MG, PH - 6);
         doc.text('Page ' + p, PW - MG, PH - 6, { align: 'right' });
     }
@@ -759,9 +764,14 @@ async function generateComplaintsPDF() {
     const data = window._compDataCache || window.ComplaintsData || [];
     if (data.length === 0) { alert("No complaints data to export!"); return; }
 
-    const MINT = [0, 168, 142];
-    const CHARCOAL = [55, 55, 55];
-    const LIGHT_GREY = [120, 120, 120];
+    const SAGE = [135, 157, 130];
+    const CHARCOAL = [57, 68, 60];
+    const LIGHT_GREY = [126, 137, 128];
+    const PAPER = [251, 250, 246];
+    const RULE = [213, 221, 208];
+    const SAGE_DARK = [96, 117, 95];
+    const ROSE = [164, 119, 114];
+    const TERRACOTTA = [193, 127, 78];
     const PW = 297, PH = 210, MG = 14;
 
     function wrapText(text, maxWidth) {
@@ -782,7 +792,7 @@ async function generateComplaintsPDF() {
     }
 
     function drawPageHeader(pageNum, totalPages) {
-        doc.setFillColor(...MINT);
+        doc.setFillColor(...SAGE);
         doc.rect(0, 0, PW, 2, 'F');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(18);
@@ -792,19 +802,19 @@ async function generateComplaintsPDF() {
         doc.setFontSize(9);
         doc.setTextColor(...LIGHT_GREY);
         doc.text('Generated: ' + new Date().toLocaleString('en-GB') + '  |  ' + data.length + ' complaints', MG, 21);
-        doc.setDrawColor(220, 220, 220);
+        doc.setDrawColor(...RULE);
         doc.setLineWidth(0.3);
         doc.line(MG, 24, PW - MG, 24);
         return 28;
     }
 
     function drawFooter(p, totalP) {
-        doc.setDrawColor(220, 220, 220);
+        doc.setDrawColor(...RULE);
         doc.setLineWidth(0.3);
         doc.line(MG, PH - 10, PW - MG, PH - 10);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-        doc.setTextColor(160, 160, 160);
+        doc.setTextColor(...LIGHT_GREY);
         doc.text('Birds Bakery \u2014 Complaints Summary', MG, PH - 6);
         doc.text('Page ' + p + (totalP ? ' of ' + totalP : ''), PW - MG, PH - 6, { align: 'right' });
     }
@@ -833,13 +843,13 @@ async function generateComplaintsPDF() {
 
     const bw = 38, bh = 14;
     const boxes = [
-        { label: 'TOTAL', value: String(data.length), bg: [241,245,249], fg: [51,65,85] },
-        { label: 'UNRESOLVED', value: String(openCount), bg: [254,242,242], fg: [190,18,60] },
-        { label: 'AWAITING', value: String(awaitingCount), bg: [255,251,235], fg: [180,83,9] },
-        { label: 'RESOLVED', value: String(resolvedCount), bg: [236,253,245], fg: [5,150,105] },
-        { label: 'RESOLUTION %', value: resolutionRate + '%', bg: [238,242,255], fg: [55,53,147] },
-        { label: 'VOUCHER TOTAL', value: formatVoucherTotal(totalVoucherCost), bg: [245,243,255], fg: [124,58,237] },
-        { label: 'AVG RESOLVE', value: avgCloseText, bg: [236,254,255], fg: [14,116,144] }
+        { label: 'TOTAL', value: String(data.length), bg: PAPER, fg: CHARCOAL },
+        { label: 'UNRESOLVED', value: String(openCount), bg: [254, 242, 242], fg: ROSE },
+        { label: 'AWAITING', value: String(awaitingCount), bg: [255, 251, 235], fg: TERRACOTTA },
+        { label: 'RESOLVED', value: String(resolvedCount), bg: [236, 253, 245], fg: SAGE_DARK },
+        { label: 'RESOLUTION %', value: resolutionRate + '%', bg: PAPER, fg: SAGE_DARK },
+        { label: 'VOUCHER TOTAL', value: formatVoucherTotal(totalVoucherCost), bg: PAPER, fg: [124, 58, 237] },
+        { label: 'AVG RESOLVE', value: avgCloseText, bg: PAPER, fg: [20, 116, 148] }
     ];
     let bx = MG;
     boxes.forEach(b => {
@@ -903,8 +913,8 @@ async function generateComplaintsPDF() {
         head: [['Week', 'Total', 'Resolved', 'Unresolved', 'Awaiting', 'Voucher Cost', 'Avg Resolve']],
         body: weekBody,
         styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        headStyles: { fillColor: SAGE, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: PAPER },
         margin: { left: MG, right: MG }
     });
     y = doc.lastAutoTable.finalY + 10;
@@ -929,8 +939,8 @@ async function generateComplaintsPDF() {
             .sort((a, b) => b[1] - a[1])
             .map(([t, n]) => [t, n, ((n / data.length) * 100).toFixed(1) + '%']),
         styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        headStyles: { fillColor: SAGE, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: PAPER },
         margin: { left: MG, right: MG }
     });
     y = doc.lastAutoTable.finalY + 10;
@@ -955,8 +965,8 @@ async function generateComplaintsPDF() {
             .sort((a, b) => b[1] - a[1])
             .map(([s, n]) => [s, n, ((n / data.length) * 100).toFixed(1) + '%']),
         styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        headStyles: { fillColor: SAGE, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: PAPER },
         margin: { left: MG, right: MG }
     });
     y = doc.lastAutoTable.finalY + 10;
@@ -987,8 +997,8 @@ async function generateComplaintsPDF() {
             .sort((a, b) => b[1] - a[1])
             .map(([s, n]) => [s, n, storeResolved[s] || 0, formatVoucherTotal(storeVouchers[s] || 0)]),
         styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: MINT, fontSize: 8, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        headStyles: { fillColor: SAGE, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: PAPER },
         margin: { left: MG, right: MG }
     });
     y = doc.lastAutoTable.finalY + 10;
@@ -1033,8 +1043,8 @@ async function generateComplaintsPDF() {
         head: [['Date', 'Week', 'Store', 'Type', 'Customer', 'Status', 'Resolve Time', 'Voucher']],
         body: detailBody,
         styles: { fontSize: 6.5, cellPadding: 1.5 },
-        headStyles: { fillColor: MINT, fontSize: 7, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        headStyles: { fillColor: SAGE, fontSize: 7, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: PAPER },
         columnStyles: {
             0: { cellWidth: 20 },
             1: { cellWidth: 14 },
@@ -1049,9 +1059,9 @@ async function generateComplaintsPDF() {
         didParseCell: function(hookData) {
             if (hookData.section === 'body' && hookData.column.index === 5) {
                 const val = String(hookData.cell.raw);
-                if (val === 'Resolved') { hookData.cell.styles.textColor = [5, 150, 105]; hookData.cell.styles.fontStyle = 'bold'; }
-                else if (val === 'Unresolved') { hookData.cell.styles.textColor = [190, 18, 60]; hookData.cell.styles.fontStyle = 'bold'; }
-                else if (val === 'Awaiting Response') { hookData.cell.styles.textColor = [180, 83, 9]; hookData.cell.styles.fontStyle = 'bold'; }
+                if (val === 'Resolved') { hookData.cell.styles.textColor = SAGE_DARK; hookData.cell.styles.fontStyle = 'bold'; }
+                else if (val === 'Unresolved') { hookData.cell.styles.textColor = ROSE; hookData.cell.styles.fontStyle = 'bold'; }
+                else if (val === 'Awaiting Response') { hookData.cell.styles.textColor = TERRACOTTA; hookData.cell.styles.fontStyle = 'bold'; }
             }
         }
     });
@@ -1062,7 +1072,7 @@ async function generateComplaintsPDF() {
 
     doc.setFillColor(241, 245, 249);
     doc.roundedRect(MG, summaryY, PW - MG * 2, 42, 3, 3, 'F');
-    doc.setDrawColor(...MINT);
+    doc.setDrawColor(...SAGE);
     doc.setLineWidth(0.8);
     doc.roundedRect(MG, summaryY, PW - MG * 2, 42, 3, 3);
 

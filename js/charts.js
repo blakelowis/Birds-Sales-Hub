@@ -71,9 +71,10 @@ async function renderTrendsPanel() {
                     <option value="Labour">Labour %</option>
                     <option value="ATV">Avg Trans. Val (£)</option>
                     <option value="Energy">Energy (kWh)</option>
-                    <option value="HotBev">Hot Drinks %</option>
-                    <option value="HotRolls">Hot Food %</option>
-                    <option value="FilledRolls">Cold Rolls %</option>
+                    <option value="HotBev">Hot Drinks (count)</option>
+                    <option value="HotRolls">Hot Food (count)</option>
+                    <option value="FilledRolls">Cold Rolls (count)</option>
+                    <option value="Sandwiches">Sandwiches (count)</option>
                     <option value="Audit">Audit Score %</option>
                   </select>
                     <select id="trendScope" onchange="drawTrendChart()" class="input-chip text-sm p-2 w-full md:w-auto">
@@ -84,7 +85,7 @@ async function renderTrendsPanel() {
                       <option value=""> Select a specific store...</option>
                       ${storeOptions}
                   </select>
-                  <button onclick="exportAllTrendsPNGs()" class="btn-secondary">️ Export ALL Trend Graphs</button>
+                  <button onclick="exportAllTrendsPNGs()" class="btn" style="background: #555B6E; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 13px;">Export ALL Trend Graphs</button>
                   <select id="archiveWeekSel" onchange="this.value?setArchiveWeekOverride(this.value):clearArchiveWeekOverride();" class="input-chip text-sm p-2 w-full md:w-auto">
                         <option value="" ${!archiveWeekOverride?'selected':''}>️ Follow Latest</option>
                         ${weeksOptions}
@@ -116,7 +117,7 @@ window.drawTrendChart = async function(storeFilterTriggered = false, exportMode 
   let selKpis = rawKpis.filter(k => (k.Year ?? effectiveYear) === effectiveYear && !k.IsAnomaly); 
   let selAudits = auditsAll.filter(a => (a.Year ?? effectiveYear) === effectiveYear);
   
-  if(scope !== 'Network') selKpis = selKpis.filter(k => k.AM === scope);
+  if(scope !== 'Network') selKpis = selKpis.filter(k => safeGetAM(k.Branch) === scope);
   if(scope === 'Network') selKpis = selKpis;
   if(scope !== 'Network'){ selAudits = selAudits.filter(a => { const branchId = String(a.Store).trim().toLowerCase(); return storeMap.get(branchId) === scope; }); }
   
@@ -130,9 +131,9 @@ window.drawTrendChart = async function(storeFilterTriggered = false, exportMode 
   if(showCompany){ (metric === 'Audit' ? coAudits.map(a=>a.Week) : coKpis.map(k=>k.Week)).forEach(w => weekSet.add(w)); }
   if(!weekSet.size) return;
   const weeks = Array.from(weekSet).filter(w => w!=null).sort((a,b)=>a-b);
-  const pctMetrics = ['Sales','Product','Waste','Labour','HotBev','HotRolls','FilledRolls','Sandwiches'];
+  const pctMetrics = ['Sales','Product','Waste','Labour'];
   const valueForWeek = (arr, week, field) => {
-    const wk = arr.filter(x => x.Week === week); if(!wk.length) return null;
+    const wk = arr.filter(x => x.Week == week); if(!wk.length) return null;
     if(field === '__AUDIT__'){ const avg = wk.reduce((s,x)=> s + (Number(x.Score) || 0), 0) / wk.length; return Number(avg.toFixed(1)); }
     const avg = wk.reduce((s,x)=> s + (Number(x[field]) || 0), 0) / wk.length;
     if(pctMetrics.includes(field)) return Number((avg * 100).toFixed(1)); return Number(avg.toFixed(2));
@@ -227,7 +228,7 @@ trendChartInstance = new Chart(ctx, {
 window.exportAllTrendsPNGs = async function(){
   try{
     if(typeof JSZip === 'undefined'){ alert('JSZip library is still loading, please try again.'); return; }
-    const metrics = [ {id:'Sales', name:'Sales_Growth'}, {id:'Product', name:'Product_Target'}, {id:'Waste', name:'Wastage'}, {id:'Labour', name:'Labour'}, {id:'ATV', name:'ATV'}, {id:'Energy', name:'Energy'}, {id:'HotBev', name:'Hot_Drinks'}, {id:'HotRolls', name:'Hot_Food'}, {id:'FilledRolls', name:'Cold_Rolls'}, {id:'Audit', name:'Audit_Score'} ];
+    const metrics = [ {id:'Sales', name:'Sales_Growth'}, {id:'Product', name:'Product_Target'}, {id:'Waste', name:'Wastage'}, {id:'Labour', name:'Labour'}, {id:'ATV', name:'ATV'}, {id:'Energy', name:'Energy'}, {id:'HotBev', name:'Hot_Drinks'}, {id:'HotRolls', name:'Hot_Food'}, {id:'FilledRolls', name:'Cold_Rolls'}, {id:'Sandwiches', name:'Sandwiches'}, {id:'Audit', name:'Audit_Score'} ];
     const metricSel = document.getElementById('trendMetric'); if(!metricSel){ alert('Trend metric selector not found.'); return; }
     const zip = new JSZip(); const originalMetric = metricSel.value; const waitFrame = () => new Promise(res => requestAnimationFrame(() => res()));
     for(const m of metrics){ metricSel.value = m.id; await drawTrendChart(true, true); await waitFrame(); const canvas = document.getElementById('trendCanvas'); if(!canvas || !canvas.toDataURL) continue; const pngBase64 = canvas.toDataURL('image/png').split(',')[1]; zip.file(`${m.name}.png`, pngBase64, {base64:true}); }
