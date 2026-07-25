@@ -4,6 +4,39 @@ const ICON_TREND_DOWN = '<svg xmlns="http://www.w3.org/2000/svg" width="14" heig
 
 function trendIcon(diff) { return diff > 0 ? ICON_TREND_UP : diff < 0 ? ICON_TREND_DOWN : ''; }
 
+/* ─── Toast Notifications ─────────────────────────────────── */
+var _toastContainer = null;
+function _getToastContainer() {
+    if (_toastContainer && document.body.contains(_toastContainer)) return _toastContainer;
+    _toastContainer = document.createElement('div');
+    _toastContainer.id = 'toast-container';
+    _toastContainer.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:360px;';
+    document.body.appendChild(_toastContainer);
+    return _toastContainer;
+}
+function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration || 3000;
+    var bg = type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : type === 'warning' ? '#f59e0b' : '#334155';
+    var el = document.createElement('div');
+    el.style.cssText = 'pointer-events:auto;background:' + bg + ';color:white;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.25);opacity:0;transform:translateX(20px);transition:all .25s ease;cursor:pointer;word-break:break-word;';
+    el.textContent = message;
+    _getToastContainer().appendChild(el);
+    requestAnimationFrame(function() { el.style.opacity = '1'; el.style.transform = 'translateX(0)'; });
+    var dismiss = function() {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(20px)';
+        setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+    };
+    el.addEventListener('click', dismiss);
+    setTimeout(dismiss, duration);
+    return el;
+}
+
+function _uid(prefix) {
+    return (prefix || '') + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
 function canonicalStoreId(name){
   if(!name) return "";
   let s = String(name).toLowerCase().trim();

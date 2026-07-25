@@ -1262,9 +1262,7 @@ async function drawRankMovementChart(storeName, canvasId){
     ctx.fillStyle = '#888888';
     ctx.fillText('Rank per week (1 = Best)', 450, 50);
 
-    const maxRank = Math.max(...timeline.map(t => t.rank), 1);
-    const minRank = 1;
-    const totalRanks = Math.max(maxRank, 10);
+    const totalRanks = Math.max(...timeline.map(t => t.total), 10);
 
     // Grid lines
     ctx.strokeStyle = LIGHT_GREY;

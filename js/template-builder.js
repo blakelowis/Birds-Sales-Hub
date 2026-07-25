@@ -15,9 +15,10 @@ function _getTplStores() {
 }
 
 var TPL_OBJECTS = [
-    { type: 'titleblock', label: 'Title Block',  icon: 'Aa', desc: 'Section header with sub-title' },
-    { type: 'pagebreak', label: 'Page Breaker',  icon: '\u2014',  desc: 'Visual divider between sections' },
-    { type: 'signoff',   label: 'Sign Off',      icon: '\u270E',  desc: 'Signature, name & date block' }
+    { type: 'docheader', label: 'Document Header', icon: '\uD83D\uDCCB', desc: 'Title + name, date, job title etc.' },
+    { type: 'section',   label: 'Section',         icon: '\u25A0',  desc: 'Section divider with name' },
+    { type: 'pagebreak', label: 'Page Breaker',    icon: '\u2014',  desc: 'Visual page break' },
+    { type: 'signoff',   label: 'Sign Off',        icon: '\u270E',  desc: 'Signature, name & date block' }
 ];
 
 var TPL_QUESTION_TYPES = [
@@ -41,7 +42,7 @@ var TPL_SCORING_TYPES = [
 
 function _tplTypeToAnswerType(type) {
     var map = {
-        'titleblock': 'header', 'pagebreak': 'divider', 'signoff': 'signoff',
+        'docheader': 'header', 'section': 'section', 'pagebreak': 'divider', 'signoff': 'signoff',
         'smalltext': 'text', 'longtext': 'textarea', 'number': 'number',
         'date': 'date', 'yesno': 'yesno', 'multichoice': 'multichoice',
         'checkbox': 'checkbox', 'table': 'table', 'photo': 'image'
@@ -56,7 +57,7 @@ function _tplTypeLabel(type) {
 }
 
 function _answerTypeToLabel(at) {
-    var map = { 'header': 'Title Block', 'divider': 'Page Breaker', 'signoff': 'Sign Off',
+    var map = { 'header': 'Document Header', 'section': 'Section', 'divider': 'Page Breaker', 'signoff': 'Sign Off',
         'text': 'Small Text', 'textarea': 'Long Text', 'number': 'Number',
         'date': 'Date', 'yesno': 'Yes / No', 'multichoice': 'Multi-choice',
         'checkbox': 'Multi-Select', 'table': 'Table', 'image': 'Photo Upload' };
@@ -72,10 +73,10 @@ async function _tplDuplicateTemplate(id) {
     var orig = templates.find(function(t) { return t.id === id; });
     if (!orig) return;
     var dup = JSON.parse(JSON.stringify(orig));
-    dup.id = 'FTPL-' + Date.now();
+    dup.id = _uid('FTPL-');
     dup.name = orig.name + ' (Copy)';
     dup.created = new Date().toISOString().substring(0, 10);
-    dup.fields.forEach(function(f) { f.id = 'field-' + Date.now() + '-' + Math.random().toString(36).substr(2,4); });
+    dup.fields.forEach(function(f) { f.id = _uid('field-'); });
     await _tplSaveTemplate(dup);
 }
 
@@ -98,7 +99,7 @@ window.renderTemplateLibrary = async function() {
     }
 
     var cards = templates.map(function(t) {
-        var qCount = t.fields ? t.fields.filter(function(f) { return ['text','textarea','number','date','yesno','multichoice','checkbox','table','image'].indexOf(f.answerType) !== -1; }).length : 0;
+        var allCount = t.fields ? t.fields.length : 0;
         var scoredCount = t.fields ? t.fields.filter(function(f) { return f.scoringType && f.scoringType !== 'none'; }).length : 0;
         var ragCount = t.fields ? t.fields.filter(function(f) { return f.scoringType === 'rag'; }).length : 0;
         var pfCount = t.fields ? t.fields.filter(function(f) { return f.scoringType === 'passfail'; }).length : 0;
@@ -109,19 +110,19 @@ window.renderTemplateLibrary = async function() {
         if (ragCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded" style="background:rgba(164,119,114,0.12);color:var(--edwardian-rose);border:1px solid rgba(164,119,114,0.25);">' + ragCount + ' RAG</span>';
         if (pfCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">' + pfCount + ' Pass/Fail</span>';
 
-        return '<div class="card p-5 hover:shadow-lg transition-all group cursor-pointer border-t-2 border-t-birds-green" onclick="window._tplFill(\'' + t.id + '\')">' +
+        return '<div class="card p-5 hover:shadow-lg transition-all group cursor-pointer border-t-2 border-t-birds-green" onclick="window._tplEdit(\'' + t.id + '\')">' +
             '<div class="flex items-start justify-between mb-3">' +
             '<div class="flex-1 min-w-0">' +
             '<h3 class="text-lg font-black text-slate-800 truncate">' + escapeHtml(t.name || 'Untitled') + '</h3>' +
             '<p class="text-xs text-slate-400 mt-0.5">' + escapeHtml(t.description || 'No description') + '</p>' +
             '</div>' +
             '<div class="flex gap-1 ml-2">' +
-            '<button onclick="event.stopPropagation();window._tplEdit(\'' + t.id + '\')" class="p-1.5 rounded" style="background:rgba(85,91,110,0.08);color:#555B6E;" title="Edit">\u270f</button>' +
+            '<button onclick="event.stopPropagation();window._tplFill(\'' + t.id + '\')" class="px-2 py-1 rounded text-[10px] font-bold bg-birds-green text-white hover:bg-emerald-800" title="Fill In">\u25B6 Fill</button>' +
             '<button onclick="event.stopPropagation();window._tplDuplicate(\'' + t.id + '\')" class="p-1.5 rounded bg-slate-50 text-slate-600 hover:bg-slate-100 text-xs" title="Duplicate">\u2398</button>' +
             '<button onclick="event.stopPropagation();window._tplDelete(\'' + t.id + '\')" class="p-1.5 rounded bg-red-50 text-red-600 hover:bg-red-100 text-xs" title="Delete">\u2715</button>' +
             '</div></div>' +
             '<div class="flex items-center gap-2 flex-wrap">' +
-            '<span class="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">' + qCount + ' question' + (qCount !== 1 ? 's' : '') + '</span>' +
+            '<span class="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">' + allCount + ' item' + (allCount !== 1 ? 's' : '') + '</span>' +
             typeBadges +
             '<span class="text-[10px] text-slate-400 ml-auto">' + created + '</span>' +
             '</div></div>';
@@ -181,7 +182,7 @@ window.renderTemplateFill = async function() {
     if (!id) { setView('templatelibrary'); return; }
 
     var tmpl = await _getFormTemplate(id);
-    if (!tmpl) { alert('Template not found.'); setView('templatelibrary'); return; }
+    if (!tmpl) { showToast('Template not found.', 'error'); setView('templatelibrary'); return; }
 
     var storeNames = _getTplStores();
     var storeOpts = storeNames.map(function(s) { return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>'; }).join('');
@@ -196,7 +197,23 @@ window.renderTemplateFill = async function() {
         }
 
         if (at === 'header') {
-            return '<div class="my-6 border-b border-emerald-600/20 pb-2"><h3 class="text-xl font-extrabold text-emerald-800 font-serif leading-snug">' + escapeHtml(f.label || 'Section Header') + '</h3>' + (f.subLabel ? '<p class="text-xs text-slate-400 font-medium mt-0.5">' + escapeHtml(f.subLabel) + '</p>' : '') + '</div>';
+            var hc = f.headerConfig || {};
+            var hdrHtml = '<div class="p-5 bg-gradient-to-r from-emerald-50 to-white border-l-4 border-emerald-600 rounded-r-lg mb-2">';
+            hdrHtml += '<h3 class="text-xl font-extrabold text-emerald-800 font-serif leading-snug mb-2">' + escapeHtml(f.label || 'Section Header') + '</h3>';
+            if (f.subLabel) hdrHtml += '<p class="text-xs text-slate-400 font-medium mb-3">' + escapeHtml(f.subLabel) + '</p>';
+            var hfItems = [];
+            if (hc.showName) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Name</label><input type="text" data-tplfield="' + f.id + '" data-hdr="name" class="input-chip rounded-none w-full form-tpl-field" placeholder="Enter name..."></div>');
+            if (hc.showJobTitle) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Job Title</label><input type="text" data-tplfield="' + f.id + '" data-hdr="jobTitle" value="' + escapeHtml(hc.defaultJobTitle || 'Area Manager') + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="e.g. Area Manager"></div>');
+            if (hc.showDate) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Date</label><input type="date" data-tplfield="' + f.id + '" data-hdr="date" value="' + new Date().toISOString().slice(0,10) + '" class="input-chip rounded-none w-full form-tpl-field"></div>');
+            if (hc.showDocRef) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document Ref</label><input type="text" data-tplfield="' + f.id + '" data-hdr="docRef" class="input-chip rounded-none w-full form-tpl-field" placeholder="Auto-generated"></div>');
+            if (hc.showDocId) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document ID</label><input type="text" data-tplfield="' + f.id + '" data-hdr="docId" class="input-chip rounded-none w-full form-tpl-field" placeholder="Auto-generated"></div>');
+            if (hc.showTraining) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Training Document</label><select data-tplfield="' + f.id + '" data-hdr="training" class="input-chip rounded-none w-full form-tpl-field"><option value="No">No</option><option value="Yes">Yes</option></select></div>');
+            if (hfItems.length) hdrHtml += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' + hfItems.join('') + '</div>';
+            hdrHtml += '</div>';
+            return hdrHtml;
+        }
+        if (at === 'section') {
+            return '<div class="my-4 pb-1 border-b-2 border-slate-300"><h3 class="text-lg font-extrabold text-slate-800">' + escapeHtml(f.label || 'Section') + '</h3></div>';
         }
         if (at === 'divider') return '<hr class="border-t border-dashed border-slate-300/80 my-8">';
 
@@ -241,10 +258,11 @@ window.renderTemplateFill = async function() {
             var scoredCols = f.tableScoredCols || [];
             var hasScoring = f.scoringType && f.scoringType !== 'none';
             html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200"><thead><tr>';
+            html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs"></th>';
             for (var c = 0; c < cols; c++) {
                 html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[c] || 'Col ' + (c+1)) + (hasScoring && scoredCols.indexOf(c) !== -1 ? ' \u2605' : '') + '</th>';
             }
-            if (scoredRows.length && hasScoring) html += '<th class="bg-amber-50 border border-slate-200 p-2 text-center font-bold text-amber-700 text-xs" style="min-width:50px">Score</th>';
+            if (hasScoring) html += '<th class="bg-amber-50 border border-slate-200 p-2 text-center font-bold text-amber-700 text-xs" style="min-width:50px">Score</th>';
             html += '</tr></thead><tbody>';
             for (var r = 0; r < rows; r++) {
                 var rowScored = scoredRows.indexOf(r) !== -1 && hasScoring;
@@ -253,6 +271,7 @@ window.renderTemplateFill = async function() {
                 for (var c2 = 0; c2 < cols; c2++) {
                     html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="' + c2 + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field rounded" placeholder=""></td>';
                 }
+                if (hasScoring) {
                 if (rowScored) {
                     var scType = f.scoringType || 'score_1_10';
                     html += '<td class="border border-slate-200 p-1 text-center" style="min-width:120px">';
@@ -265,23 +284,34 @@ window.renderTemplateFill = async function() {
                     } else if (scType === 'passfail') {
                         html += '<div class="flex gap-1 justify-center">';
                         html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">Pass</button>';
-                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">Fail</button>';
+                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-100">Fail</button>';
                         html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
                     } else {
                         html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" min="0" max="10" class="w-12 p-1 text-sm border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
                     }
                     html += '</td>';
+                } else {
+                    html += '<td class="border border-slate-200 p-1 text-center text-slate-300 text-xs" style="min-width:120px"></td>';
+                }
                 }
                 html += '</tr>';
             }
             html += '</tbody></table></div>';
         } else if (at === 'signoff') {
-            html += '<div class="p-5 border-2 border-dashed border-slate-200 rounded-2xl bg-amber-50/50 flex flex-col md:flex-row justify-between items-stretch gap-4">';
-            html += '<div class="flex-grow min-w-[120px]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Role / Title</label><p class="text-sm font-black text-slate-800 font-serif mt-1.5">' + escapeHtml(f.signoffRole || 'Manager') + '</p></div>';
-            html += '<div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Sign-off By *</label><input type="text" data-tplfield="' + f.id + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="Print Name..."></div>';
-            html += '<div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Date Signed *</label><input type="date" data-tplfield="' + f.id + '" class="input-chip rounded-none w-full form-tpl-field" value="' + new Date().toISOString().substring(0, 10) + '"></div>';
-            html += '<div class="flex-grow flex flex-col justify-end min-w-[120px]"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Signature</label>';
-            html += '<button type="button" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-lg transition-colors" onclick="this.textContent=\'Signed\'; this.disabled=true;">Sign Document</button></div></div>';
+            html += '<div class="p-5 border-2 border-dashed border-slate-200 rounded-2xl bg-amber-50/50">';
+            html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">';
+            html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Role / Title</label><input type="text" data-tplfield="' + f.id + '" value="' + escapeHtml(f.signoffRole || 'Manager') + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="e.g. Area Manager"></div>';
+            html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Sign-off By *</label><input type="text" data-tplfield="' + f.id + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="Print Name..."></div>';
+            html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Date Signed *</label><input type="date" data-tplfield="' + f.id + '" class="input-chip rounded-none w-full form-tpl-field" value="' + new Date().toISOString().substring(0, 10) + '"></div>';
+            html += '</div>';
+            html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Signature (sign on screen or use mouse)</label>';
+            html += '<div class="border border-slate-300 rounded-lg bg-white overflow-hidden">';
+            html += '<canvas id="sig-' + f.id + '" width="400" height="150" class="w-full touch-none cursor-crosshair" style="max-height:150px"></canvas>';
+            html += '</div>';
+            html += '<div class="flex gap-2 mt-2">';
+            html += '<button type="button" onclick="window._sigClear(\'' + f.id + '\')" class="text-[10px] font-bold px-3 py-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">Clear</button>';
+            html += '</div>';
+            html += '<input type="hidden" data-tplfield="' + f.id + '" data-sig="true" value="" class="form-tpl-field"></div></div>';
         }
 
         html += _tplBuildScoringHtml(f, f.id);
@@ -309,6 +339,7 @@ window.renderTemplateFill = async function() {
         '<button onclick="window._tplFillSummary(\'' + tmpl.id + '\')" class="btn-secondary rounded-none">Preview Summary</button>' +
         '<button onclick="setView(\'templatelibrary\')" class="bg-red-50 text-red-600 px-5 py-2.5 rounded-none font-bold hover:bg-red-100 transition-colors">Cancel</button>' +
         '</div></div>';
+    setTimeout(function() { window._initSignatures(); }, 50);
 };
 
 /* ─── Fill helpers ──────────────────────────────────────────── */
@@ -354,6 +385,77 @@ window._setTableCellScore = function(btn) {
     if (hidden) hidden.value = btn.getAttribute('data-val');
 };
 
+/* ─── Signature Pad (mouse + touch) ──────────────────────────── */
+window._sigClear = function(fieldId) {
+    var canvas = document.getElementById('sig-' + fieldId);
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var hidden = document.querySelector('input[data-sig="true"][data-tplfield="' + fieldId + '"]');
+    if (hidden) hidden.value = '';
+};
+
+window._initSignatures = function() {
+    document.querySelectorAll('canvas[id^="sig-"]').forEach(function(canvas) {
+        var fieldId = canvas.id.replace('sig-', '');
+        var ctx = canvas.getContext('2d');
+        ctx.strokeStyle = '#1a1a2e';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        var drawing = false;
+        var lastX = 0, lastY = 0;
+
+        function getPos(e) {
+            var rect = canvas.getBoundingClientRect();
+            var scaleX = canvas.width / rect.width;
+            var scaleY = canvas.height / rect.height;
+            var clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+        }
+
+        function startDraw(e) {
+            e.preventDefault();
+            drawing = true;
+            var pos = getPos(e);
+            lastX = pos.x; lastY = pos.y;
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+        }
+
+        function draw(e) {
+            if (!drawing) return;
+            e.preventDefault();
+            var pos = getPos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            lastX = pos.x; lastY = pos.y;
+        }
+
+        function endDraw() {
+            if (!drawing) return;
+            drawing = false;
+            var hidden = document.querySelector('input[data-sig="true"][data-tplfield="' + fieldId + '"]');
+            if (hidden) hidden.value = canvas.toDataURL('image/png');
+        }
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', endDraw);
+        canvas.addEventListener('mouseleave', endDraw);
+        canvas.addEventListener('touchstart', startDraw, { passive: false });
+        canvas.addEventListener('touchmove', draw, { passive: false });
+        canvas.addEventListener('touchend', endDraw);
+        canvas.addEventListener('touchcancel', endDraw);
+    });
+};
+
 function _tplCollectValues(tmpl) {
     var values = {};
     tmpl.fields.forEach(function(f) {
@@ -361,22 +463,47 @@ function _tplCollectValues(tmpl) {
         if (at === 'multichoice') {
             var checked = document.querySelector('.form-tpl-field.form-tpl-radio[data-tplfield="' + f.id + '"]:checked');
             values[f.id] = checked ? checked.value : '';
-        } else if (at === 'yesno' || (f.scoringType && f.scoringType !== 'none')) {
+        } else if (at === 'checkbox') {
+            var cbs = document.querySelectorAll('.form-tpl-field.form-tpl-checkbox[data-tplfield="' + f.id + '"]:checked');
+            var sel = [];
+            cbs.forEach(function(cb) { sel.push(cb.value); });
+            values[f.id] = sel.join(', ');
+        } else if (at === 'yesno') {
             var hidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
             values[f.id] = hidden ? hidden.value : '';
+        } else if (f.scoringType && f.scoringType !== 'none') {
+            var scoreHidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
+            values[f.id] = scoreHidden ? scoreHidden.value : '';
         } else if (at === 'table') {
-            var els = document.querySelectorAll('.form-tpl-field[data-tplfield="' + f.id + '"]');
-            els.forEach(function(el) {
-                var r = el.getAttribute('data-row'), c = el.getAttribute('data-col');
-                if (r !== null && c !== null) values[f.id + '_r' + r + '_c' + c] = el.value;
+            var rows = f.tableRows || 3, cols = f.tableCols || 3;
+            var data = [];
+            for (var r = 0; r < rows; r++) {
+                var row = [];
+                for (var c = 0; c < cols; c++) {
+                    var cell = document.querySelector('.form-tpl-field[data-tplfield="' + f.id + '"][data-row="' + r + '"][data-col="' + c + '"]');
+                    row.push(cell ? cell.value : '');
+                }
+                data.push(row.join(' | '));
+            }
+            values[f.id] = data.join('\n');
+            var scoredRows = f.tableScoredRows || [];
+            scoredRows.forEach(function(ri) {
+                var scoreEl = document.querySelector('.form-tpl-field[data-tplfield="' + f.id + '"][data-row="' + ri + '"][data-col="score"]');
+                values[f.id + '_r' + ri + '_cscore'] = scoreEl ? scoreEl.value : '';
             });
-            values[f.id] = Array.from(els).map(function(el) { return el.value; }).join(' | ');
+        } else if (at === 'header') {
+            var hdrParts = [];
+            var hdrEls = document.querySelectorAll('[data-tplfield="' + f.id + '"][data-hdr]');
+            hdrEls.forEach(function(el) { hdrParts.push(el.value || ''); });
+            values[f.id] = hdrParts.join(' | ');
         } else if (at === 'signoff') {
-            var inputs = document.querySelectorAll('.form-tpl-field[data-tplfield="' + f.id + '"]');
-            values[f.id] = Array.from(inputs).map(function(el) { return el.value; }).join(' | ');
+            var els = document.querySelectorAll('.form-tpl-field[data-tplfield="' + f.id + '"]');
+            var parts = [];
+            els.forEach(function(el) { parts.push(el.value || ''); });
+            values[f.id] = parts.join(' | ');
         } else {
             var els2 = document.querySelectorAll('.form-tpl-field[data-tplfield="' + f.id + '"]');
-            values[f.id] = els2.length > 0 ? Array.from(els2).map(function(el) { return el.value; }).join(' | ') : '';
+            values[f.id] = els2.length > 0 ? els2[0].value : '';
         }
     });
     return values;
@@ -393,22 +520,25 @@ window._tplFillSummary = async function(tmplId) {
 
 window._tplFillSave = async function(tmplId) {
     var store = document.getElementById('fill-store') && document.getElementById('fill-store').value;
-    if (!store) { alert('Select a store.'); return; }
+    if (!store) { showToast('Select a store.', 'warning'); return; }
     var tmpl = await _getFormTemplate(tmplId);
     if (!tmpl) return;
     var values = _tplCollectValues(tmpl);
-    var id = "DOC-" + Date.now();
+    var id = _uid("DOC-");
+    var seq = String(Date.now()).slice(-4);
+    var ref = 'FV-' + new Date().getFullYear() + '-' + seq;
     var data = {
         id: id, name: store + ' \u2014 ' + tmpl.name, title: store + ' \u2014 ' + tmpl.name,
         creator: document.getElementById('fill-am') ? document.getElementById('fill-am').value : '',
         date: document.getElementById('fill-date') ? document.getElementById('fill-date').value : new Date().toISOString().substring(0, 10),
         type: 'Template: ' + tmpl.name, department: '', attentionOf: '', body: '', pin: '',
+        reference: ref,
         status: 'Open', replies: [],
         formTemplateId: tmplId, formTemplateName: tmpl.name, formTemplateValues: values
     };
     await _cloudWriteDoc('Open', id, data);
-    alert('Visit saved: ' + data.name);
-    setView('templatelibrary');
+    showToast('Visit saved successfully.', 'success');
+    openDocumentViewer(id, 'Open', '');
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -422,6 +552,17 @@ window.renderTemplateBuilderPage = async function() {
     var editId = window._tplBuilderEditId || null;
     window._tplBuilderEditId = null;
 
+    /* one-time Ctrl+Z listener for undo */
+    if (!window._bldUndoListenerAdded) {
+        window._bldUndoListenerAdded = true;
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && window._bld && !window._bld.previewMode) {
+                e.preventDefault();
+                window._bldUndoDelete();
+            }
+        });
+    }
+
     var existing = null;
     if (editId) {
         var all = await _tplLoadTemplates();
@@ -429,13 +570,15 @@ window.renderTemplateBuilderPage = async function() {
     }
 
     window._bld = {
+        _sessionId: Date.now(),
         tmpl: existing || {
-            id: 'FTPL-' + Date.now(),
+            id: _uid('FTPL-'),
             name: '',
             description: '',
             fields: [
-                { id: 'hdr-' + Date.now(), label: 'Store Visit Report', answerType: 'header', scoringType: 'none', subLabel: 'Completed by Area Manager' },
-                { id: 'sig-' + Date.now(), label: '', answerType: 'signoff', scoringType: 'none', signoffRole: 'Area Manager' }
+                { id: _uid('hdr-'), label: 'Store Visit Report', answerType: 'header', scoringType: 'none', subLabel: '',
+                  headerConfig: { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' } },
+                { id: _uid('sig-'), label: '', answerType: 'signoff', scoringType: 'none', signoffRole: 'Area Manager' }
             ],
             created: new Date().toISOString().substring(0, 10)
         },
@@ -451,8 +594,9 @@ function _bldRender() {
     var b = window._bld;
     if (!b) return;
     var el = document.getElementById('mainView');
-    var scrollY = window.scrollY;
-    var scrollX = window.scrollX;
+    var savedScrollTop = 0;
+    var canvasEl = document.getElementById('bld-canvas');
+    if (canvasEl) savedScrollTop = canvasEl.scrollTop;
     var tmpl = b.tmpl;
 
     // Canvas
@@ -475,24 +619,24 @@ function _bldRender() {
                 scoringBadge = '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">' + (st2 ? st2.icon + ' ' + st2.label : 'Scored') + '</span>';
             }
             var preview = _bldFieldPreview(f);
-            return '<div class="rounded-xl border border-slate-200 bg-white p-4 transition-all cursor-pointer hover:border-slate-300 ' + ring + '" ' +
+            return '<div class="rounded-lg border border-slate-200 bg-white p-3 transition-all cursor-pointer hover:border-slate-300 ' + ring + '" ' +
                 'onclick="window._bldSelect(' + i + ')" ' +
                 'draggable="true" ondragstart="window._bldDragStart(event,' + i + ')" ondragover="event.preventDefault()" ondrop="window._bldDrop(event,' + i + ')" ondragend="window._bldDragEnd()">' +
-                '<div class="flex items-start gap-3">' +
-                '<div class="flex flex-col items-center gap-1 pt-0.5">' +
-                '<span class="text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing text-sm select-none" title="Drag">\u28FF</span>' +
-                '<button onclick="event.stopPropagation();window._bldMoveField(' + i + ',-1)" class="text-slate-300 hover:text-slate-600 text-xs">\u25B2</button>' +
-                '<button onclick="event.stopPropagation();window._bldMoveField(' + i + ',1)" class="text-slate-300 hover:text-slate-600 text-xs">\u25BC</button>' +
+                '<div class="flex items-start gap-2">' +
+                '<div class="flex flex-col items-center gap-0.5 pt-0.5">' +
+                '<span class="text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing text-xs select-none" title="Drag">\u28FF</span>' +
+                '<button onclick="event.stopPropagation();window._bldMoveField(' + i + ',-1)" class="text-slate-300 hover:text-slate-600 text-[10px]">\u25B2</button>' +
+                '<button onclick="event.stopPropagation();window._bldMoveField(' + i + ',1)" class="text-slate-300 hover:text-slate-600 text-[10px]">\u25BC</button>' +
                 '</div>' +
                 '<div class="flex-1 min-w-0">' +
-                '<div class="flex items-center gap-2 mb-1">' +
-                '<span class="text-xs font-black text-slate-400">' + (['header','divider','signoff'].indexOf(f.answerType) === -1 ? 'Q' + (i+1) : '') + '</span>' +
-                '<span class="text-sm font-bold text-slate-800">' + escapeHtml(f.label || (_answerTypeToLabel(f.answerType))) + '</span>' +
+                '<div class="flex items-center gap-1.5 mb-0.5">' +
+                '<span class="text-[10px] font-black text-slate-400">' + (['header','section','divider','signoff'].indexOf(f.answerType) === -1 ? 'Q' + (i+1) : '') + '</span>' +
+                '<span class="text-xs font-bold text-slate-800 truncate">' + escapeHtml(f.label || (_answerTypeToLabel(f.answerType))) + '</span>' +
                 scoringBadge +
-                '<span class="text-[10px] text-slate-400 ml-auto">' + typeLabel + '</span>' +
+                '<span class="text-[9px] text-slate-400 ml-auto flex-shrink-0">' + typeLabel + '</span>' +
                 '</div>' + preview +
                 '</div>' +
-                '<button onclick="event.stopPropagation();window._bldRemoveField(' + i + ')" class="text-slate-300 hover:text-red-500 text-sm flex-shrink-0 mt-1" title="Remove">\u2715</button>' +
+                '<button onclick="event.stopPropagation();window._bldRemoveField(' + i + ')" class="text-slate-300 hover:text-red-500 text-xs flex-shrink-0 mt-0.5" title="Remove">\u2715</button>' +
                 '</div></div>';
         }).join('');
     }
@@ -502,65 +646,78 @@ function _bldRender() {
     if (b.selectedIdx >= 0 && tmpl.fields[b.selectedIdx] && !b.previewMode) {
         propsHtml = _bldProperties(tmpl.fields[b.selectedIdx]);
     } else if (!b.previewMode) {
-        propsHtml = '<div class="text-center py-12 text-sm text-slate-400">' +
-            '<div class="text-4xl mb-3 opacity-30">\u261D\uFE0F</div>' +
-            'Select a question to<br>edit its properties</div>';
+        propsHtml = '<p class="text-[11px] text-slate-400 text-center py-8">Select a question to edit</p>';
     }
 
     el.innerHTML =
-        '<div class="card p-4 mb-4"><div class="flex items-center gap-4 flex-wrap">' +
-        '<button onclick="setView(\'templatelibrary\')" class="text-sm font-bold text-slate-500 hover:text-slate-700">\u2190 Library</button>' +
-        '<div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">' +
-        '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Form Name</label>' +
-        '<input type="text" id="bld-page-name" value="' + escapeHtml(tmpl.name) + '" class="input-chip rounded-none w-full mt-1" placeholder="e.g. Q3 Store Visit" onchange="window._bldUpdateMeta()"></div>' +
-        '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Description</label>' +
-        '<input type="text" id="bld-page-desc" value="' + escapeHtml(tmpl.description) + '" class="input-chip rounded-none w-full mt-1" placeholder="What this form covers" onchange="window._bldUpdateMeta()"></div>' +
+        // COMPACT TOP BAR — single row
+        '<div class="flex items-center gap-3 py-2 px-3 bg-white border-b border-slate-200">' +
+        '<button onclick="setView(\'templatelibrary\')" class="text-xs font-bold text-slate-500 hover:text-slate-700 flex-shrink-0">\u2190 Library</button>' +
+        '<input type="text" id="bld-page-name" value="' + escapeHtml(tmpl.name) + '" class="input-chip rounded-none text-xs px-2 py-1 w-48 flex-shrink-0" placeholder="Form name" onchange="window._bldUpdateMeta()">' +
+        '<input type="text" id="bld-page-desc" value="' + escapeHtml(tmpl.description) + '" class="input-chip rounded-none text-xs px-2 py-1 flex-1 min-w-0" placeholder="Description" onchange="window._bldUpdateMeta()">' +
+        '<span class="text-[10px] text-slate-400 flex-shrink-0">' + tmpl.fields.length + ' items</span>' +
+        '<button onclick="window._bldTogglePreview()" class="px-3 py-1 rounded text-[11px] font-bold flex-shrink-0 ' + (b.previewMode ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' + (b.previewMode ? '\u2190 Edit' : 'Preview') + '</button>' +
+        '<button onclick="window._bldSave(false)" class="bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1 rounded text-[11px] font-bold flex-shrink-0">Save & Stay</button>' +
+        '<button onclick="window._bldSave(true)" class="btn-primary rounded px-4 py-1 text-[11px] flex-shrink-0">Save & Exit</button>' +
+        '<span id="bld-save-feedback" class="text-xs font-bold text-emerald-600 flex-shrink-0 hidden"></span>' +
         '</div>' +
-        '<div class="flex gap-2">' +
-        '<button onclick="window._bldTogglePreview()" class="px-4 py-2 rounded-none text-sm font-bold ' + (b.previewMode ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' + (b.previewMode ? '\u2190 Edit' : 'Preview') + '</button>' +
-        '<button onclick="window._bldSave()" class="btn-primary rounded-none px-6">Save Form</button>' +
-        '</div></div></div>' +
-        // Main area: left sidebar + canvas + properties
-        '<div class="flex gap-3" style="min-height:calc(100vh - 220px)">' +
-        // LEFT SIDEBAR
-        (!b.previewMode ? '<div class="w-52 flex-shrink-0 card p-3 overflow-y-auto" style="max-height:calc(100vh - 260px)">' +
-        '<div class="mb-4">' +
-        '<h3 class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Objects</h3>' +
-        '<div class="space-y-1">' +
+        // MAIN AREA — full remaining height
+        '<div class="flex gap-0" style="height:calc(100vh - 42px)">' +
+        // LEFT SIDEBAR — narrow, scrollable
+        (!b.previewMode ? '<div class="w-44 flex-shrink-0 border-r border-slate-200 bg-slate-50 overflow-y-auto p-2">' +
+        '<div class="mb-3">' +
+        '<h3 class="text-xs font-black text-slate-500 uppercase tracking-wider mb-1 px-1">Sections</h3>' +
+        '<div class="space-y-0.5">' +
         TPL_OBJECTS.map(function(o) {
-            return '<button onclick="window._bldAdd(\'' + o.type + '\')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-slate-600 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 transition-all">' +
-                '<span class="mr-2">' + o.icon + '</span>' + o.label + '</button>';
+            return '<button onclick="window._bldAdd(\'' + o.type + '\')" class="w-full text-left px-2 py-1.5 rounded text-[11px] font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all">' +
+                '<span class="mr-1">' + o.icon + '</span>' + o.label + '</button>';
         }).join('') +
         '</div></div>' +
-        '<div class="mb-4">' +
-        '<h3 class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Question Types</h3>' +
-        '<div class="space-y-1">' +
+        '<div class="mb-3">' +
+        '<h3 class="text-xs font-black text-slate-500 uppercase tracking-wider mb-1 px-1">Add a Question</h3>' +
+        '<div class="space-y-0.5">' +
         TPL_QUESTION_TYPES.map(function(q) {
-            return '<button onclick="window._bldAdd(\'' + q.type + '\')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-slate-600 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 transition-all">' +
-                '<span class="mr-2">' + q.icon + '</span>' + q.label + '</button>';
+            return '<button onclick="window._bldAdd(\'' + q.type + '\')" class="w-full text-left px-2 py-1.5 rounded text-[11px] font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all">' +
+                '<span class="mr-1">' + q.icon + '</span>' + q.label + '</button>';
         }).join('') +
         '</div></div>' +
         '</div>' : '') +
-        // CANVAS
-        '<div class="flex-1 card p-4 overflow-y-auto" style="max-height:calc(100vh - 260px)" ' +
+        // CANVAS — fills remaining space
+        '<div id="bld-canvas" class="flex-1 overflow-y-auto bg-slate-50/50 p-3" ' +
         (!b.previewMode ? 'ondragover="event.preventDefault()" ondrop="window._bldCanvasDrop(event)"' : '') + '>' +
-        '<div class="flex items-center justify-between mb-4">' +
-        '<h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">' + (b.previewMode ? 'PREVIEW' : 'QUESTIONS') + ' \u2014 ' + tmpl.fields.length + '</h3>' +
-        '</div>' +
-        '<div class="space-y-2">' + canvasHtml + '</div></div>' +
-        // RIGHT PROPERTIES
-        (!b.previewMode ? '<div class="w-72 flex-shrink-0 card p-4 overflow-y-auto" style="max-height:calc(100vh - 260px)">' +
-        '<h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Properties</h3>' +
+        '<div class="space-y-2">' + (canvasHtml || '<div class="text-center py-16 text-slate-400"><div class="text-3xl mb-3">\uD83D\uDCCB</div><p class="text-sm font-bold mb-1">No items yet</p><p class="text-xs">Click a button on the left to add questions, headers, or dividers</p></div>') + '</div></div>' +
+        // RIGHT PROPERTIES — narrow, scrollable
+        (!b.previewMode ? '<div id="bld-props" class="w-64 flex-shrink-0 border-l border-slate-200 bg-white overflow-y-auto p-3">' +
+        '<h3 class="text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Properties</h3>' +
         propsHtml + '</div>' : '') +
         '</div>';
-    window.scrollTo(scrollX, scrollY);
+    if (savedScrollTop) {
+        var newCanvas = document.getElementById('bld-canvas');
+        if (newCanvas) newCanvas.scrollTop = savedScrollTop;
+    }
 }
 
 /* ─── Field preview on canvas card ──────────────────────────── */
 
 function _bldFieldPreview(f) {
     var at = f.answerType;
-    if (at === 'header') return '<div class="mt-1 border-l-4 border-emerald-600 pl-3 py-1"><h4 class="font-extrabold text-sm text-emerald-800 font-serif">' + escapeHtml(f.label || 'Header') + '</h4>' + (f.subLabel ? '<p class="text-[10px] text-slate-400">' + escapeHtml(f.subLabel) + '</p>' : '') + '</div>';
+    if (at === 'header') {
+        var hc = f.headerConfig || {};
+        var hPreview = '<div class="mt-1 border-l-4 border-emerald-600 pl-3 py-1"><h4 class="font-extrabold text-sm text-emerald-800 font-serif">' + escapeHtml(f.label || 'Header') + '</h4>';
+        if (f.subLabel) hPreview += '<p class="text-[10px] text-slate-400">' + escapeHtml(f.subLabel) + '</p>';
+        var hTags = [];
+        if (hc.showName) hTags.push('Name');
+        if (hc.showJobTitle) hTags.push('Job Title');
+        if (hc.showDate) hTags.push('Date');
+        if (hc.showDocRef) hTags.push('Ref');
+        if (hc.showDocId) hTags.push('ID');
+        if (hc.showLogo) hTags.push('Logo');
+        if (hc.showTraining) hTags.push('Training');
+        if (hTags.length) hPreview += '<div class="flex flex-wrap gap-1 mt-1">' + hTags.map(function(t) { return '<span class="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">' + t + '</span>'; }).join('') + '</div>';
+        hPreview += '</div>';
+        return hPreview;
+    }
+    if (at === 'section') return '<div class="mt-1 border-l-4 border-slate-400 pl-3 py-1"><h4 class="font-extrabold text-sm text-slate-700">' + escapeHtml(f.label || 'Section') + '</h4></div>';
     if (at === 'divider') return '<hr class="border-t border-dashed border-slate-300 my-2">';
     if (at === 'signoff') return '<div class="mt-1 p-3 bg-slate-50 border border-slate-200 rounded-lg text-[10px] text-slate-400">Sign-off Block (' + escapeHtml(f.signoffRole || 'Manager') + ')</div>';
     if (at === 'text') return '<div class="mt-1 bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-sm text-slate-400">Text answer...</div>';
@@ -579,7 +736,7 @@ function _bldFieldPreview(f) {
     if (at === 'image') return '<div class="mt-1 p-4 border-2 border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">Photo upload area</div>';
     if (at === 'table') {
         var rows = f.tableRows || 3, cols = f.tableCols || 3;
-        var hdrs = (f.tableHeaders || []).slice(0, cols).map(function(h) { return '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(h) + '</th>'; }).join('');
+        var hdrs = '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500"></th>' + (f.tableHeaders || []).slice(0, cols).map(function(h) { return '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(h) + '</th>'; }).join('');
         var rowHdrs = f.tableRowHeaders || [];
         var cells = '';
         for (var r = 0; r < Math.min(rows, 2); r++) {
@@ -599,18 +756,39 @@ function _bldProperties(f) {
 
     // Question text (not for divider/signoff)
     if (at !== 'divider' && at !== 'signoff') {
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Question Text</label>' +
-            '<textarea id="prop-label" class="w-full p-2 border border-slate-300 rounded-lg text-sm h-16" onchange="window._bldUpdateField()">' + escapeHtml(f.label || '') + '</textarea></div>';
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Question Text</label>' +
+            '<textarea id="prop-label" class="w-full p-2 border border-slate-300 rounded-lg text-sm h-16" placeholder="Type your question here..." oninput="window._bldUpdateField(true)">' + escapeHtml(f.label || '') + '</textarea></div>';
     }
 
     // Type-specific props
     if (at === 'header') {
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Sub-header / Description</label>' +
-            '<input type="text" id="prop-sublabel" value="' + escapeHtml(f.subLabel || '') + '" class="input-chip rounded-none w-full text-xs" onchange="window._bldUpdateField()"></div>';
+        var hc = f.headerConfig || {};
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Subtitle / Description</label>' +
+            '<input type="text" id="prop-sublabel" value="' + escapeHtml(f.subLabel || '') + '" class="input-chip rounded-none w-full text-xs" placeholder="e.g. Completed during visit" onchange="window._bldUpdateField()"></div>';
+        html += '<div class="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-2">';
+        html += '<label class="text-xs font-bold text-slate-600 mb-2 block">Document Header Fields</label>';
+        html += '<p class="text-[10px] text-slate-400 mb-2">Toggle which fields appear in the document header.</p>';
+        var hdrFields = [
+            { key: 'showName', label: 'Name', icon: '\uD83D\uDC64' },
+            { key: 'showJobTitle', label: 'Job Title', icon: '\uD83D\uDCCB' },
+            { key: 'showDate', label: 'Date', icon: '\uD83D\uDCC5' },
+            { key: 'showDocRef', label: 'Document Ref', icon: '\uD83D\uDCC4' },
+            { key: 'showDocId', label: 'Document ID', icon: '\uD83D\uDD11' },
+            { key: 'showLogo', label: 'Logo', icon: '\uD83D\uDDBC\uFE0F' },
+            { key: 'showTraining', label: 'Training Document', icon: '\uD83C\uDF93' }
+        ];
+        hdrFields.forEach(function(hf) {
+            html += '<label class="flex items-center gap-2 text-xs text-slate-600 mb-1 cursor-pointer">' +
+                '<input type="checkbox" class="prop-hdr-cfg" data-key="' + hf.key + '" ' + (hc[hf.key] ? 'checked' : '') + ' onchange="window._bldUpdateField()">' +
+                '<span>' + hf.icon + ' ' + hf.label + '</span></label>';
+        });
+        html += '<div class="mt-2"><label class="text-[10px] font-bold text-slate-500 mb-1 block">Default Job Title</label>' +
+            '<input type="text" id="prop-hdr-defaultjob" value="' + escapeHtml(hc.defaultJobTitle || 'Area Manager') + '" class="input-chip rounded-none w-full text-xs" placeholder="e.g. Area Manager" onchange="window._bldUpdateField()"></div>';
+        html += '</div>';
     }
 
     if (at === 'signoff') {
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Sign-off Role</label>' +
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Sign-off Role</label>' +
             '<input type="text" id="prop-signoffrole" value="' + escapeHtml(f.signoffRole || 'Manager') + '" class="input-chip rounded-none w-full text-xs" placeholder="e.g. Area Manager" onchange="window._bldUpdateField()"></div>';
     }
 
@@ -620,28 +798,28 @@ function _bldProperties(f) {
 
     if (at === 'number') {
         html += '<div class="grid grid-cols-3 gap-2">' +
-            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Min</label>' +
+            '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Min</label>' +
             '<input type="number" id="prop-numbermin" value="' + (f.numberMin !== undefined ? f.numberMin : '') + '" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div>' +
-            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Max</label>' +
+            '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Max</label>' +
             '<input type="number" id="prop-numbermax" value="' + (f.numberMax !== undefined ? f.numberMax : '') + '" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div>' +
-            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Step</label>' +
+            '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Step</label>' +
             '<input type="number" id="prop-numberstep" value="' + (f.numberStep || '1') + '" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div></div>';
     }
 
     if (at === 'multichoice' || at === 'checkbox') {
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Options (one per line)</label>' +
-            '<textarea id="prop-options" class="w-full h-28 p-2 border border-slate-300 rounded-lg text-sm font-mono" onchange="window._bldUpdateField()">' + escapeHtml((f.options || []).join('\n')) + '</textarea></div>';
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Options (one per line)</label>' +
+            '<textarea id="prop-options" class="w-full h-28 p-2 border border-slate-300 rounded-lg text-sm font-mono" oninput="window._bldUpdateField(true)">' + escapeHtml((f.options || []).join('\n')) + '</textarea></div>';
     }
 
     if (at === 'table') {
         html += '<div class="grid grid-cols-2 gap-2">' +
-            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Columns</label>' +
+            '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Columns</label>' +
             '<input type="number" id="prop-tablecols" value="' + (f.tableCols || 3) + '" min="1" max="10" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div>' +
-            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Rows</label>' +
+            '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Rows</label>' +
             '<input type="number" id="prop-tablerows" value="' + (f.tableRows || 3) + '" min="1" max="20" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div></div>';
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Column Headers (one per line)</label>' +
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Column Headers (one per line)</label>' +
             '<textarea id="prop-tableheaders" class="w-full h-20 p-2 border border-slate-300 rounded-lg text-sm font-mono" onchange="window._bldUpdateField()">' + escapeHtml((f.tableHeaders || []).join('\n')) + '</textarea></div>';
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Row Labels (one per line)</label>' +
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Row Labels (one per line)</label>' +
             '<textarea id="prop-tablerowheaders" class="w-full h-20 p-2 border border-slate-300 rounded-lg text-sm font-mono" onchange="window._bldUpdateField()">' + escapeHtml((f.tableRowHeaders || []).join('\n')) + '</textarea></div>';
 
         // Table row/col scoring (only when scoring is attached)
@@ -668,9 +846,10 @@ function _bldProperties(f) {
     }
 
     // ─── SCORING ATTACHMENT (for all question types except objects) ───
-    if (at !== 'header' && at !== 'divider' && at !== 'signoff') {
+    if (at !== 'header' && at !== 'section' && at !== 'divider' && at !== 'signoff') {
         html += '<div class="bg-amber-50 border border-amber-200 rounded-lg p-3">' +
-            '<label class="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-2 block">Attach Scoring</label>' +
+            '<label class="text-xs font-bold text-amber-700 mb-1 block">Score This Question?</label>' +
+            '<p class="text-[10px] text-amber-600 mb-2">Add a score so this question counts towards the total.</p>' +
             '<div class="space-y-1.5">';
         TPL_SCORING_TYPES.forEach(function(st) {
             var checked = (f.scoringType || 'none') === st.value ? 'checked' : '';
@@ -683,7 +862,8 @@ function _bldProperties(f) {
         // Score weight (when scoring is attached)
         if (f.scoringType && f.scoringType !== 'none') {
             html += '<div class="bg-amber-50 border border-amber-200 rounded-lg p-3">' +
-                '<label class="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1 block">Weight (multiplier)</label>' +
+                '<label class="text-xs font-bold text-amber-700 mb-1 block">Importance</label>' +
+                '<p class="text-[10px] text-amber-600 mb-2">How much this question matters. 1 = normal, 2 = double, 0.5 = half.</p>' +
                 '<input type="number" id="prop-scoreweight" value="' + (f.scoreWeight || 1) + '" min="0.1" max="10" step="0.5" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div>';
         }
     }
@@ -692,8 +872,9 @@ function _bldProperties(f) {
     if (at !== 'divider' && at !== 'pagebreak') {
         html += '<div class="bg-slate-50 border border-slate-200 rounded-lg p-3">';
         html += '<label class="flex items-center gap-2 text-xs font-bold text-slate-600 mb-2 cursor-pointer"><input type="checkbox" id="prop-required" ' + (f.required ? 'checked' : '') + ' class="accent-birds-green" onchange="window._bldUpdateField()"><span>Required field</span></label>';
-        html += '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Helper Text (shown below question)</label>';
-        html += '<input type="text" id="prop-helpertext" value="' + escapeHtml(f.helperText || '') + '" class="input-chip rounded-none w-full" placeholder="Optional hint or instruction..." onchange="window._bldUpdateField()"></div>';
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Helper Text</label>';
+        html += '<p class="text-[10px] text-slate-400 mb-1">Optional hint shown below the question</p>';
+        html += '<input type="text" id="prop-helpertext" value="' + escapeHtml(f.helperText || '') + '" class="input-chip rounded-none w-full" placeholder="e.g. Enter a number between 0 and 100" onchange="window._bldUpdateField()"></div>';
         html += '</div>';
     }
 
@@ -703,13 +884,26 @@ function _bldProperties(f) {
 
 /* ─── Canvas interactions ────────────────────────────────────── */
 
-window._bldSelect = function(idx) { window._bld.selectedIdx = idx; _bldRender(); };
+window._bldSelect = function(idx) {
+    var b = window._bld;
+    b.selectedIdx = idx;
+    // Update canvas highlights only (no full rebuild)
+    document.querySelectorAll('#bld-canvas > div.space-y-2 > div').forEach(function(card, i) {
+        if (i === idx) { card.className = card.className.replace(/border-slate-200/g, 'border-birds-green') + ' ring-2 ring-birds-green shadow-md'; }
+        else { card.className = card.className.replace(/ring-2 ring-birds-green shadow-md/g, '').replace(/border-birds-green/g, 'border-slate-200'); }
+    });
+    // Update properties panel only
+    var propsEl = document.getElementById('bld-props');
+    if (propsEl && !b.previewMode) {
+        propsEl.innerHTML = '<h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Properties</h3>' + (idx >= 0 && b.tmpl.fields[idx] ? _bldProperties(b.tmpl.fields[idx]) : '<p class="text-xs text-slate-400">Select a question to edit its properties.</p>');
+    }
+};
 
 window._bldAdd = function(sidebarType) {
     var b = window._bld;
     var answerType = _tplTypeToAnswerType(sidebarType);
     var field = {
-        id: 'field-' + Date.now() + '-' + Math.random().toString(36).substr(2,4),
+        id: _uid('field-'),
         label: '',
         answerType: answerType,
         scoringType: 'none',
@@ -722,7 +916,7 @@ window._bldAdd = function(sidebarType) {
         scoreWeight: undefined
     };
     if (answerType === 'multichoice' || answerType === 'checkbox') field.options = ['Option 1', 'Option 2'];
-    if (answerType === 'header') field.subLabel = '';
+    if (answerType === 'header') { field.subLabel = ''; field.headerConfig = { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' }; }
     if (answerType === 'signoff') field.signoffRole = 'Manager';
     if (answerType === 'table') { field.tableCols = 3; field.tableRows = 3; field.tableHeaders = ['Col 1', 'Col 2', 'Col 3']; field.tableRowHeaders = ['Row 1', 'Row 2', 'Row 3']; }
     b.tmpl.fields.push(field);
@@ -731,11 +925,43 @@ window._bldAdd = function(sidebarType) {
     _bldRender();
 };
 
+/* Undo stack — scoped to current template session */
+var _bldUndoStack = [];
+var _bldUndoTimer = null;
+var _bldUndoSessionId = null;
+
 window._bldRemoveField = function(idx) {
     var b = window._bld;
-    b.tmpl.fields.splice(idx, 1);
+    var removed = b.tmpl.fields.splice(idx, 1)[0];
     if (b.selectedIdx >= b.tmpl.fields.length) b.selectedIdx = b.tmpl.fields.length - 1;
     _bldRender();
+    /* push to undo stack, auto-clear after 8s */
+    _bldUndoStack.push({ field: removed, idx: idx, sessionId: b._sessionId });
+    clearTimeout(_bldUndoTimer);
+    _bldUndoTimer = setTimeout(function() { _bldUndoStack = []; }, 8000);
+    var toastEl = showToast('Field removed', 'info', 8000);
+    /* add undo button inside the toast */
+    var undoBtn = document.createElement('button');
+    undoBtn.textContent = ' Undo';
+    undoBtn.style.cssText = 'color:white;font-weight:800;text-decoration:underline;margin-left:8px;background:none;border:none;cursor:pointer;padding:0;font-size:13px;';
+    undoBtn.onclick = function(e) {
+        e.stopPropagation();
+        window._bldUndoDelete();
+        if (toastEl && toastEl.parentNode) toastEl.style.opacity = '0';
+    };
+    if (toastEl) toastEl.appendChild(undoBtn);
+};
+
+window._bldUndoDelete = function() {
+    if (!_bldUndoStack.length) return;
+    var b = window._bld;
+    var last = _bldUndoStack[_bldUndoStack.length - 1];
+    if (!b || last.sessionId !== b._sessionId) { _bldUndoStack = []; return; }
+    _bldUndoStack.pop();
+    b.tmpl.fields.splice(last.idx, 0, last.field);
+    b.selectedIdx = last.idx;
+    _bldRender();
+    showToast('Field restored', 'success');
 };
 
 window._bldMoveField = function(idx, dir) {
@@ -753,7 +979,7 @@ window._bldUpdateMeta = function() {
     window._bld.tmpl.description = document.getElementById('bld-page-desc') ? document.getElementById('bld-page-desc').value : '';
 };
 
-window._bldUpdateField = function() {
+window._bldUpdateField = function(textOnly) {
     var b = window._bld;
     var idx = b.selectedIdx;
     if (idx < 0 || !b.tmpl.fields[idx]) return;
@@ -784,6 +1010,12 @@ window._bldUpdateField = function() {
     if (f.answerType === 'header') {
         var sl = document.getElementById('prop-sublabel');
         if (sl) f.subLabel = sl.value;
+        var hcChecks = document.querySelectorAll('.prop-hdr-cfg');
+        var hc = f.headerConfig || {};
+        hcChecks.forEach(function(cb) { hc[cb.getAttribute('data-key')] = cb.checked; });
+        var djEl = document.getElementById('prop-hdr-defaultjob');
+        if (djEl) hc.defaultJobTitle = djEl.value;
+        f.headerConfig = hc;
     }
     if (f.answerType === 'signoff') {
         var sr = document.getElementById('prop-signoffrole');
@@ -825,14 +1057,54 @@ window._bldUpdateField = function() {
     }
 
     // Clean incompatible
-    if (f.answerType !== 'header') delete f.subLabel;
+    if (f.answerType !== 'header') { delete f.subLabel; delete f.headerConfig; }
     if (f.answerType !== 'signoff') delete f.signoffRole;
     if (f.answerType !== 'multichoice' && f.answerType !== 'checkbox') delete f.options;
     if (f.answerType !== 'number') { delete f.numberMin; delete f.numberMax; delete f.numberStep; }
     if (f.answerType !== 'table') { delete f.tableCols; delete f.tableRows; delete f.tableHeaders; delete f.tableRowHeaders; delete f.tableScoredCols; delete f.tableScoredRows; }
     if (!f.scoringType || f.scoringType === 'none') { delete f.scoreWeight; delete f.tableScoredCols; delete f.tableScoredRows; }
 
-    _bldRender();
+    // Targeted update: refresh canvas card + rebuild properties panel (needed when scoring type changes show/hide conditional sections)
+    // Regenerate just the selected card's HTML
+    var canvasCards = document.querySelectorAll('#bld-canvas > div.space-y-2 > div');
+    if (canvasCards[idx]) {
+        var active = true;
+        var ring = 'ring-2 ring-birds-green shadow-md';
+        var typeLabel = _answerTypeToLabel(f.answerType);
+        var scoringBadge = '';
+        if (f.scoringType && f.scoringType !== 'none') {
+            var st2 = TPL_SCORING_TYPES.find(function(s) { return s.value === f.scoringType; });
+            scoringBadge = '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">' + (st2 ? st2.icon + ' ' + st2.label : 'Scored') + '</span>';
+        }
+        var preview = _bldFieldPreview(f);
+        canvasCards[idx].outerHTML =
+            '<div class="rounded-lg border border-slate-200 bg-white p-3 transition-all cursor-pointer hover:border-slate-300 ' + ring + '" ' +
+            'onclick="window._bldSelect(' + idx + ')" ' +
+            'draggable="true" ondragstart="window._bldDragStart(event,' + idx + ')" ondragover="event.preventDefault()" ondrop="window._bldDrop(event,' + idx + ')" ondragend="window._bldDragEnd()">' +
+            '<div class="flex items-start gap-2">' +
+            '<div class="flex flex-col items-center gap-0.5 pt-0.5">' +
+            '<span class="text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing text-xs select-none" title="Drag">\u28FF</span>' +
+            '<button onclick="event.stopPropagation();window._bldMoveField(' + idx + ',-1)" class="text-slate-300 hover:text-slate-600 text-[10px]">\u25B2</button>' +
+            '<button onclick="event.stopPropagation();window._bldMoveField(' + idx + ',1)" class="text-slate-300 hover:text-slate-600 text-[10px]">\u25BC</button>' +
+            '</div>' +
+            '<div class="flex-1 min-w-0">' +
+            '<div class="flex items-center gap-1.5 mb-0.5">' +
+                '<span class="text-[10px] font-black text-slate-400">' + (['header','section','divider','signoff'].indexOf(f.answerType) === -1 ? 'Q' + (idx+1) : '') + '</span>' +
+            '<span class="text-xs font-bold text-slate-800 truncate">' + escapeHtml(f.label || (_answerTypeToLabel(f.answerType))) + '</span>' +
+            scoringBadge +
+            '<span class="text-[9px] text-slate-400 ml-auto flex-shrink-0">' + typeLabel + '</span>' +
+            '</div>' + preview +
+            '</div>' +
+            '<button onclick="event.stopPropagation();window._bldRemoveField(' + idx + ')" class="text-slate-300 hover:text-red-500 text-xs flex-shrink-0 mt-0.5" title="Remove">\u2715</button>' +
+            '</div></div>';
+    }
+    // Only rebuild properties panel on structural changes (not text typing) to preserve focus
+    if (!textOnly) {
+        var propsEl2 = document.getElementById('bld-props');
+        if (propsEl2 && !b.previewMode) {
+            propsEl2.innerHTML = '<h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Properties</h3>' + (idx >= 0 && b.tmpl.fields[idx] ? _bldProperties(b.tmpl.fields[idx]) : '<p class="text-xs text-slate-400">Select a question to edit its properties.</p>');
+        }
+    }
 };
 
 window._bldTogglePreview = function() { window._bld.previewMode = !window._bld.previewMode; _bldRender(); };
@@ -864,21 +1136,20 @@ window._bldCanvasDrop = function(e) { e.preventDefault(); };
 
 /* ─── Save ───────────────────────────────────────────────────── */
 
-window._bldSave = async function() {
+window._bldSave = async function(exitAfterSave) {
     var b = window._bld;
     var tmpl = b.tmpl;
     tmpl.name = document.getElementById('bld-page-name') ? document.getElementById('bld-page-name').value.trim() : '';
     tmpl.description = document.getElementById('bld-page-desc') ? document.getElementById('bld-page-desc').value.trim() : '';
-    if (!tmpl.name) { alert('Form name is required.'); return; }
-    if (!tmpl.fields.length) { alert('Add at least one question.'); return; }
-    var empty = tmpl.fields.find(function(f) {
-        if (f.answerType === 'header' || f.answerType === 'divider' || f.answerType === 'signoff') return false;
-        return !f.label || !f.label.trim();
-    });
-    if (empty) { alert('All questions need question text.'); return; }
+    if (!tmpl.name) tmpl.name = 'Untitled Form';
     await _tplSaveTemplate(tmpl);
-    alert('Form saved: ' + tmpl.name);
-    setView('templatelibrary');
+    var fb = document.getElementById('bld-save-feedback');
+    if (fb) {
+        fb.textContent = '\u2713 Saved!';
+        fb.classList.remove('hidden');
+        setTimeout(function() { fb.classList.add('hidden'); }, 2000);
+    }
+    if (exitAfterSave) setView('templatelibrary');
 };
 
 /* ─── Preview ────────────────────────────────────────────────── */
@@ -896,11 +1167,25 @@ function _bldPreview(tmpl) {
     tmpl.fields.forEach(function(f, i) {
         var at = f.answerType;
         if (at === 'header') {
-            html += '<div class="my-6 border-b border-emerald-600/20 pb-2"><h3 class="text-xl font-extrabold text-emerald-800 font-serif">' + escapeHtml(f.label || 'Header') + '</h3>' + (f.subLabel ? '<p class="text-xs text-slate-400 mt-0.5">' + escapeHtml(f.subLabel) + '</p>' : '') + '</div>';
+            var hc = f.headerConfig || {};
+            html += '<div class="p-5 bg-gradient-to-r from-emerald-50 to-white border-l-4 border-emerald-600 rounded-r-lg mb-2">';
+            html += '<h3 class="text-xl font-extrabold text-emerald-800 font-serif mb-2">' + escapeHtml(f.label || 'Section Header') + '</h3>';
+            if (f.subLabel) html += '<p class="text-xs text-slate-400 mb-3">' + escapeHtml(f.subLabel) + '</p>';
+            var hpFields = [];
+            if (hc.showName) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Name</label><input type="text" class="input-chip rounded-none w-full" placeholder="Enter name..." disabled></div>');
+            if (hc.showJobTitle) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Job Title</label><input type="text" class="input-chip rounded-none w-full" value="' + escapeHtml(hc.defaultJobTitle || 'Area Manager') + '" disabled></div>');
+            if (hc.showDate) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Date</label><input type="date" class="input-chip rounded-none w-full" disabled></div>');
+            if (hc.showDocRef) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document Ref</label><input type="text" class="input-chip rounded-none w-full" placeholder="Auto-generated" disabled></div>');
+            if (hc.showDocId) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document ID</label><input type="text" class="input-chip rounded-none w-full" placeholder="Auto-generated" disabled></div>');
+            if (hc.showTraining) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Training Document</label><select class="input-chip rounded-none w-full" disabled><option>No</option><option>Yes</option></select></div>');
+            if (hpFields.length) html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' + hpFields.join('') + '</div>';
+            html += '</div>';
+        } else if (at === 'section') {
+            html += '<div class="my-4 pb-1 border-b-2 border-slate-300"><h3 class="text-lg font-extrabold text-slate-800">' + escapeHtml(f.label || 'Section') + '</h3></div>';
         } else if (at === 'divider') {
             html += '<hr class="border-t border-dashed border-slate-300/80 my-8">';
-        } else if (at === 'signoff') {
-            html += '<div class="p-5 border-2 border-dashed border-slate-200 rounded-2xl bg-amber-50/50 flex gap-4"><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Role</label><p class="text-sm font-black">' + escapeHtml(f.signoffRole || 'Manager') + '</p></div><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Name</label><input type="text" class="input-chip rounded-none w-full" placeholder="Print Name..." disabled></div><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Date</label><input type="date" class="input-chip rounded-none w-full" disabled></div></div>';
+            } else if (at === 'signoff') {
+                html += '<div class="p-5 border-2 border-dashed border-slate-200 rounded-2xl bg-amber-50/50 flex gap-4"><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Role</label><input type="text" value="' + escapeHtml(f.signoffRole || 'Manager') + '" class="input-chip rounded-none w-full" placeholder="e.g. Area Manager" disabled></div><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Name</label><input type="text" class="input-chip rounded-none w-full" placeholder="Print Name..." disabled></div><div class="flex-grow"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Date</label><input type="date" class="input-chip rounded-none w-full" disabled></div></div>';
         } else {
             html += '<div class="bg-white rounded-lg p-4 border border-slate-200">';
             html += '<label class="text-sm font-bold text-slate-700 mb-1.5 block"><span class="text-xs text-slate-400 mr-1">Q' + (i + 1) + '.</span> ' + escapeHtml(f.label || 'Question') + (f.required ? ' <span class="text-red-500">*</span>' : '') + '</label>';
@@ -924,6 +1209,7 @@ function _bldPreview(tmpl) {
                 var rows = f.tableRows || 3, cols = f.tableCols || 3;
                 var rowHdrs = f.tableRowHeaders || [];
                 html += '<table class="w-full text-sm border border-slate-200"><thead><tr>';
+                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-xs font-bold text-slate-600"></th>';
                 for (var c = 0; c < cols; c++) html += '<th class="bg-slate-100 border border-slate-200 p-2 text-xs font-bold text-slate-600">' + escapeHtml((f.tableHeaders||[])[c] || 'Col '+(c+1)) + '</th>';
                 html += '</tr></thead><tbody>';
                 for (var r = 0; r < rows; r++) {
