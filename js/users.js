@@ -146,58 +146,6 @@ window.Users = (function() {
         });
     }
 
-    /* ─── Filesystem helpers (users/ directory) ────────────────── */
-    async function _loadFromFilesystem() {
-        if (!directoryHandle) return [];
-        try {
-            var dir = await directoryHandle.getDirectoryHandle('users');
-            var out = [];
-            for await (var entry of dir.values()) {
-                if (entry.kind === 'file' && entry.name.endsWith('.json')) {
-                    try {
-                        var data = JSON.parse(await (await entry.getFile()).text());
-                        if (data && data.id && data.name) out.push(data);
-                    } catch(e) {}
-                }
-            }
-            return out;
-        } catch(e) { return []; }
-    }
-
-    async function _saveToFilesystem(user) {
-        if (!directoryHandle) return;
-        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
-        try {
-            var dir = await directoryHandle.getDirectoryHandle('users', { create: true });
-            var fh = await dir.getFileHandle(user.id + '.json', { create: true });
-            var w = await fh.createWritable();
-            await w.write(JSON.stringify(user, null, 2));
-            await w.close();
-        } catch(e) { console.warn('[Users] Filesystem save failed:', e); }
-    }
-
-    async function syncAllToFilesystem() {
-        if (!directoryHandle || !_users.length) return;
-        console.log('[Users] Syncing', _users.length, 'users to filesystem...');
-        for (var i = 0; i < _users.length; i++) {
-            /* Only sync users that have a PIN or were created locally (not bundled fallback) */
-            if (_users[i].pin || _users[i].created) {
-                await _saveToFilesystem(_users[i]);
-            }
-        }
-        console.log('[Users] Filesystem sync complete');
-        /* Also reload FROM filesystem in case accounts were created on other machines */
-        await reloadFromFilesystem();
-    }
-
-    async function _deleteFromFilesystem(id) {
-        if (!directoryHandle) return;
-        try {
-            var dir = await directoryHandle.getDirectoryHandle('users');
-            await dir.removeEntry(id + '.json');
-        } catch(e) {}
-    }
-
     /* ─── localStorage ──────────────────────────────────────────── */
     function _getStored() {
         try {
@@ -219,15 +167,32 @@ window.Users = (function() {
         await _initIDB();
         await _loadCustomDepts();
 
-        /* Load users: filesystem first, then IDB, then bundled fallback */
-        var fsUsers = await _loadFromFilesystem();
-        if (fsUsers.length) {
-            _users = fsUsers;
-            for (var i = 0; i < _users.length; i++) {
-                await _idbPut(_users[i]);
-            }
-        } else {
-            _users = await _idbGetAll();
+        /* Load users from IDB first */
+        _users = await _idbGetAll();
+
+        /* v148: Load from Graph (SharePoint) for cross-device users */
+        if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+            try {
+                var graphItems = await GraphClient.listJsonFiles('users');
+                for (var gi = 0; gi < graphItems.length; gi++) {
+                    try {
+                        var text = await GraphClient.readFile('users/' + graphItems[gi].name);
+                        if (text) {
+                            var gUser = JSON.parse(text);
+                            if (gUser && gUser.id && gUser.name) {
+                                var exists = _users.find(function(u) { return u.id === gUser.id; });
+                                if (!exists) {
+                                    _users.push(gUser);
+                                    await _idbPut(gUser);
+                                } else if (gUser.email && !exists.email) {
+                                    exists.email = gUser.email;
+                                    await _idbPut(exists);
+                                }
+                            }
+                        }
+                    } catch(e) {}
+                }
+            } catch(e) { console.warn('[Users] Graph load failed:', e.message); }
         }
 
         /* If still empty, load from bundled users.json */
@@ -250,32 +215,11 @@ window.Users = (function() {
         _currentUser = _getStored();
         if (_currentUser) {
             var found = _users.find(function(u) { return u.id === _currentUser.id; });
-            if (!found) { _currentUser = null; _clearStored(); }
-        }
-    }
-
-    /* Called after folder connects — reloads users from filesystem if we only had bundled/IDB */
-    async function reloadFromFilesystem() {
-        var fsUsers = await _loadFromFilesystem();
-        if (fsUsers.length) {
-            _users = fsUsers;
-            for (var i = 0; i < _users.length; i++) {
-                await _idbPut(_users[i]);
-            }
-            /* Re-verify current user */
-            if (_currentUser) {
-                var found = _users.find(function(u) { return u.id === _currentUser.id; });
-                if (!found) {
-                    /* User might have been created on another machine — try matching by name */
-                    var byName = _users.find(function(u) { return u.name === _currentUser.name; });
-                    if (byName) {
-                        _currentUser = byName;
-                        _setStored(byName);
-                    } else {
-                        _currentUser = null;
-                        _clearStored();
-                    }
-                }
+            if (found) {
+                _currentUser = found;
+                _setStored(found);
+            } else {
+                _currentUser = null; _clearStored();
             }
         }
     }
@@ -297,19 +241,12 @@ window.Users = (function() {
             id: id,
             name: name.trim(),
             department: department,
-            pin: pin || '',
             created: new Date().toISOString().substring(0, 10)
         };
         _users.push(user);
         await _idbPut(user);
-        await _saveToFilesystem(user);
+        await _saveUserToGraph(user);
         return user;
-    }
-
-    function verify(name, pin) {
-        return _users.find(function(u) {
-            return u.name.toLowerCase() === name.toLowerCase() && u.pin === pin;
-        }) || null;
     }
 
     function getCurrentUser() { return _currentUser; }
@@ -335,314 +272,172 @@ window.Users = (function() {
         _loginSelectedUserId = null;
         _loginDeptFilter = '';
 
-        var deptList = getDepartments();
-        var deptPills = deptList.map(function(d) {
-            return '<button onclick="Users._loginFilterDept(\'' + escapeAttr(d) + '\')" class="login-dept-pill" data-dept="' + escapeAttr(d) + '">' + escapeHtml(d) + '</button>';
-        }).join('');
-
         document.getElementById('mainView').innerHTML = `
-        <div style="max-width:700px;margin:20px auto 80px;padding:0 16px;">
-            <div style="text-align:center;margin-bottom:24px;">
-                <img src="logo.png" alt="Birds" style="height:56px;margin-bottom:10px;">
-                <h2 style="font-family:'Merriweather',Georgia,serif;font-size:22px;color:#4A4A4A;margin:0 0 4px;">Welcome to The Hub</h2>
-                <p style="color:#7A7A7A;font-size:12px;margin:0;">Tap your name to sign in</p>
-            </div>
+        <div style="max-width:500px;margin:60px auto;padding:0 16px;text-align:center;">
+            <img src="logo.png" alt="Birds" style="height:64px;margin-bottom:16px;">
+            <h2 style="font-family:'Merriweather',Georgia,serif;font-size:24px;color:#4A4A4A;margin:0 0 6px;">Welcome to The Hub</h2>
+            <p style="color:#7A7A7A;font-size:13px;margin:0 0 32px;">Sign in with your Birds of Derby Microsoft account</p>
 
-            <div id="loginDeptPills" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:20px;">
-                <button onclick="Users._loginFilterDept('')" class="login-dept-pill login-dept-pill-active" data-dept="">All</button>
-                ${deptPills}
-            </div>
+            <button onclick="Users.doEntraLogin()" id="entraLoginBtn" style="display:inline-flex;align-items:center;gap:12px;padding:16px 40px;background:#0078D4;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,120,212,0.25);transition:all .15s;" onmouseover="this.style.background='#106EBE';this.style.boxShadow='0 6px 20px rgba(0,120,212,0.35)'" onmouseout="this.style.background='#0078D4';this.style.boxShadow='0 4px 16px rgba(0,120,212,0.25)'">
+                <svg width="21" height="21" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>
+                Sign in with Microsoft
+            </button>
 
-            <div id="loginTeamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:24px;">
-                ${_renderLoginCards('')}
-            </div>
-
-            <div id="loginPinPanel" style="display:none;max-width:380px;margin:0 auto;">
-                <div class="card" style="padding:24px;text-align:center;">
-                    <div id="loginSelectedName" style="font-size:16px;font-weight:800;color:#4A4A4A;margin-bottom:4px;"></div>
-                    <div id="loginSelectedDept" style="font-size:11px;color:#7A7A7A;margin-bottom:16px;"></div>
-                    <div id="loginPinFields"></div>
-                    <div id="loginError" style="display:none;color:#D94F4F;font-size:12px;font-weight:600;margin:10px 0;"></div>
-                    <button id="loginBtn" onclick="Users.doLogin()" style="width:100%;padding:11px;background:#6E8E6D;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">Sign In</button>
-                    <div style="margin-top:12px;"><a href="#" onclick="Users._loginDeselect();return false;" style="color:#999;font-size:11px;">&larr; Back to team</a></div>
-                </div>
-            </div>
-
-            <div style="text-align:center;margin-top:20px;">
-                <a href="#" onclick="Users.showRegister();return false;" style="color:#6E8E6D;font-size:12px;font-weight:600;text-decoration:none;">New team member? <span style="text-decoration:underline;">Create Account</span></a>
-            </div>
+            <div id="entraLoginError" style="display:none;color:#D94F4F;font-size:12px;font-weight:600;margin-top:16px;"></div>
         </div>`;
-
-        if (!_users.length) {
-            document.getElementById('loginTeamGrid').innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#999;font-size:13px;padding:40px 0;">No accounts yet &mdash; <a href="#" onclick="Users.showRegister();return false;" style="color:#6E8E6D;">create one</a></p>';
-        }
     }
 
-    function _renderLoginCards(deptFilter) {
-        var list = deptFilter ? _users.filter(function(u) { return u.department === deptFilter; }) : _users;
-        var initials = function(name) {
-            var parts = (name || '').trim().split(/\s+/);
-            if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-            return (parts[0] || '?')[0].toUpperCase();
-        };
-        var deptColor = function(dept) {
-            var colors = { 'General':'#6E8E6D','Area Sales Team':'#2563EB','Technical':'#D97706','Training & Development':'#7C3AED','Retail Auditor':'#DC2626','Production Manager':'#059669','Head of Retail':'#DB2777','Project Manager':'#0891B2','Director':'#1E293B' };
-            return colors[dept] || '#6E8E6D';
-        };
-        return list.map(function(u) {
-            var sel = u.id === _loginSelectedUserId;
-            var bg = sel ? deptColor(u.department) : '#f8fafc';
-            var fg = sel ? '#fff' : '#334155';
-            var border = sel ? deptColor(u.department) : '#e2e8f0';
-            var hasPin = !!u.pin;
-            var badge = hasPin ? '' : '<span style="position:absolute;top:4px;right:4px;width:8px;height:8px;background:#F59E0B;border-radius:50%;border:2px solid #fff;"></span>';
-            return '<div onclick="Users._loginSelectUser(\'' + u.id + '\')" style="position:relative;cursor:pointer;padding:14px 10px;border-radius:12px;text-align:center;border:2px solid ' + border + ';background:' + bg + ';color:' + fg + ';transition:all .15s;user-select:none;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,0.1)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">' +
-                badge +
-                '<div style="width:44px;height:44px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;background:' + (sel ? 'rgba(255,255,255,0.2)' : deptColor(u.department) + '20') + ';color:' + deptColor(u.department) + ';">' + initials(u.name) + '</div>' +
-                '<div style="font-size:12px;font-weight:700;line-height:1.3;">' + escapeHtml(u.name) + '</div>' +
-                '<div style="font-size:9px;font-weight:600;opacity:0.6;margin-top:2px;">' + escapeHtml(u.department) + '</div>' +
-                '</div>';
-        }).join('');
-    }
+    /* v148: Entra ID login handler */
+    var _pendingEntraProfile = null;
 
-    function _loginFilterDept(dept) {
-        _loginDeptFilter = dept;
-        _loginSelectedUserId = null;
-        document.getElementById('loginTeamGrid').innerHTML = _renderLoginCards(dept);
-        document.getElementById('loginPinPanel').style.display = 'none';
-        document.querySelectorAll('.login-dept-pill').forEach(function(b) {
-            b.className = 'login-dept-pill' + (b.getAttribute('data-dept') === dept ? ' login-dept-pill-active' : '');
-        });
-    }
-
-    function _loginSelectUser(userId) {
-        _loginSelectedUserId = userId;
-        var user = getById(userId);
-        if (!user) return;
-
-        document.getElementById('loginTeamGrid').innerHTML = _renderLoginCards(_loginDeptFilter);
-        var panel = document.getElementById('loginPinPanel');
-        panel.style.display = 'block';
-        document.getElementById('loginSelectedName').textContent = user.name;
-        document.getElementById('loginSelectedDept').textContent = user.department;
-
-        var fields = document.getElementById('loginPinFields');
-        var errEl = document.getElementById('loginError');
+    async function doEntraLogin() {
+        var errEl = document.getElementById('entraLoginError');
+        var btn = document.getElementById('entraLoginBtn');
         if (errEl) errEl.style.display = 'none';
-
-        if (!user.pin) {
-            fields.innerHTML = '<div style="margin-bottom:10px;"><input type="password" id="loginPinNew" maxlength="8" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;text-align:center;outline:none;" placeholder="Choose a PIN (4+ digits)"></div>' +
-                '<div style="margin-bottom:14px;"><input type="password" id="loginPinConfirm" maxlength="8" onkeydown="if(event.key===\'Enter\')Users.doFirstLogin()" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;text-align:center;outline:none;" placeholder="Confirm PIN"></div>';
-            var btn = document.getElementById('loginBtn');
-            if (btn) { btn.textContent = 'Set PIN & Sign In'; btn.onclick = function() { Users.doFirstLogin(); }; }
-        } else {
-            fields.innerHTML = '<div style="margin-bottom:14px;"><input type="password" id="loginPin" maxlength="8" onkeydown="if(event.key===\'Enter\')Users.doLogin()" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;text-align:center;outline:none;" placeholder="Enter your PIN"></div>';
-            var btn = document.getElementById('loginBtn');
-            if (btn) { btn.textContent = 'Sign In'; btn.onclick = function() { Users.doLogin(); }; }
-            setTimeout(function() { var p = document.getElementById('loginPin'); if (p) p.focus(); }, 100);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span style="display:inline-block;width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;"></span> Signing in...'; }
+        try {
+            var profile = await BirdsAuth.login();
+            await BirdsAuth.resolveSharePointIds();
+            /* Match by email first */
+            var matched = _users.find(function(u) {
+                return u.email && u.email.toLowerCase() === profile.email.toLowerCase();
+            });
+            if (matched) {
+                /* Existing user — auto-login */
+                if (!matched.email) { matched.email = profile.email; await _idbPut(matched); }
+                _currentUser = matched;
+                _setStored(matched);
+                Users.updateHeaderBadge();
+                if (typeof Projects !== 'undefined') await Projects.load();
+                if (typeof window.syncData === 'function') { try { await window.syncData(); } catch(e) {} }
+                renderDashboard();
+                return;
+            }
+            /* No email match — try matching by name (first+last) from Entra profile */
+            var entraFirst = (profile.name || '').split(/\s+/)[0] || '';
+            var entraLast = (profile.name || '').split(/\s+/).slice(1).join(' ') || '';
+            var nameMatched = _users.find(function(u) {
+                var parts = (u.name || '').split(/\s+/);
+                var uFirst = parts[0] || '';
+                var uLast = parts.slice(1).join(' ');
+                return uFirst.toLowerCase() === entraFirst.toLowerCase() && uLast.toLowerCase() === entraLast.toLowerCase();
+            });
+            if (nameMatched) {
+                /* Found by name — link email and auto-login */
+                nameMatched.email = profile.email;
+                await _idbPut(nameMatched);
+                await _saveUserToGraph(nameMatched);
+                _currentUser = nameMatched;
+                _setStored(nameMatched);
+                Users.updateHeaderBadge();
+                if (typeof Projects !== 'undefined') await Projects.load();
+                if (typeof window.syncData === 'function') { try { await window.syncData(); } catch(e) {} }
+                renderDashboard();
+                return;
+            }
+            /* New user — show confirmation screen */
+            _pendingEntraProfile = profile;
+            _renderEntraConfirmScreen(profile);
+        } catch(e) {
+            console.error('[Auth] Entra login failed:', e);
+            if (errEl) { errEl.textContent = e.message || 'Login failed — please try again'; errEl.style.display = 'block'; }
+            if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="21" height="21" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg> Sign in with Microsoft'; }
         }
     }
 
-    function _loginDeselect() {
-        _loginSelectedUserId = null;
-        document.getElementById('loginPinPanel').style.display = 'none';
-        document.getElementById('loginTeamGrid').innerHTML = _renderLoginCards(_loginDeptFilter);
-    }
-
-    /* ─── Register Screen ───────────────────────────────────────── */
-    function renderRegisterScreen() {
-        var depts = getDepartments().map(function(d) {
-            return '<option value="' + d + '">' + d + '</option>';
-        }).join('') + '<option value="__add_custom__">+ Add Custom Department...</option>';
-
+    function _renderEntraConfirmScreen(profile) {
+        var nameParts = (profile.name || '').split(/\s+/);
+        var firstName = nameParts[0] || '';
+        var lastName = nameParts.slice(1).join(' ') || '';
+        var deptHtml = getDeptOptionsHtml('General', false);
         document.getElementById('mainView').innerHTML = `
-        <div style="max-width:440px;margin:40px auto 80px;">
-            <div class="card" style="padding:40px 36px;">
-                <div style="text-align:center;margin-bottom:28px;">
-                    <img src="logo.png" alt="Birds" style="height:56px;margin-bottom:10px;">
-                    <h2 style="font-family:'Merriweather',Georgia,serif;font-size:22px;color:#4A4A4A;margin:0 0 4px;">Create Account</h2>
-                    <p style="color:#7A7A7A;font-size:12px;margin:0;">Set up your profile to get started</p>
+        <div style="max-width:500px;margin:40px auto;padding:0 16px;">
+            <div class="card" style="padding:32px;text-align:center;">
+                <div style="width:56px;height:56px;border-radius:50%;background:#0078D4;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin:0 auto 16px;">
+                    ${firstName[0] || ''}${lastName[0] || ''}
                 </div>
+                <h2 style="font-family:'Merriweather',Georgia,serif;font-size:18px;color:#4A4A4A;margin:0 0 4px;">Welcome to The Hub</h2>
+                <p style="color:#7A7A7A;font-size:12px;margin:0 0 20px;">We don't have an account for <strong>${escapeHtml(profile.email)}</strong> yet.<br>Please confirm your details to get started.</p>
 
-                <div style="margin-bottom:14px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Full Name</label>
-                    <input type="text" id="regName" style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;" placeholder="e.g. John Smith">
+                <div style="text-align:left;margin-bottom:12px;">
+                    <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">First Name</label>
+                    <input type="text" id="entraFirstName" value="${escapeAttr(firstName)}" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;" />
                 </div>
-
-                <div style="margin-bottom:14px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Department</label>
-                    <select id="regDept" onchange="Users._onDeptChange(this)" style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;background:#fff;color:#4A4A4A;outline:none;">
-                        <option value="">Select department...</option>
-                        ${depts}
+                <div style="text-align:left;margin-bottom:12px;">
+                    <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Last Name</label>
+                    <input type="text" id="entraLastName" value="${escapeAttr(lastName)}" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;" />
+                </div>
+                <div style="text-align:left;margin-bottom:20px;">
+                    <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Department</label>
+                    <select id="entraDept" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;background:#fff;box-sizing:border-box;">
+                        ${deptHtml}
                     </select>
                 </div>
 
-                <div style="margin-bottom:14px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">PIN</label>
-                    <input type="password" id="regPin" maxlength="8" style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;" placeholder="Choose a PIN (4-8 digits)">
-                </div>
-
-                <div style="margin-bottom:22px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Confirm PIN</label>
-                    <input type="password" id="regPinConfirm" maxlength="8"
-                        onkeydown="if(event.key==='Enter')Users.doRegister()"
-                        style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;" placeholder="Re-enter your PIN">
-                </div>
-
-                <div id="regError" style="display:none;color:#D94F4F;font-size:12px;font-weight:600;margin-bottom:12px;text-align:center;"></div>
-
-                <button onclick="Users.doRegister()" style="width:100%;padding:11px;background:#6E8E6D;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;"
-                    onmouseover="this.style.background='#5A7A59'" onmouseout="this.style.background='#6E8E6D'">Create Account</button>
-
-                <div style="text-align:center;margin-top:20px;">
-                    <a href="#" onclick="Users.showLogin();return false;" style="color:#6E8E6D;font-size:12px;font-weight:600;text-decoration:none;">&larr; Back to Sign In</a>
-                </div>
+                <div id="entraConfirmError" style="display:none;color:#D94F4F;font-size:12px;font-weight:600;margin-bottom:10px;"></div>
+                <button onclick="Users._confirmEntraUser()" style="width:100%;padding:12px;background:#6E8E6D;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">Confirm &amp; Sign In</button>
+                <div style="margin-top:12px;"><a href="#" onclick="Users._cancelEntraConfirm();return false;" style="color:#999;font-size:11px;">&larr; Back to login</a></div>
             </div>
         </div>`;
+        setTimeout(function() { var f = document.getElementById('entraFirstName'); if (f) f.focus(); }, 100);
     }
 
-    /* ─── Name change: detect first-time users ────────────────────── */
-    function _onNameChange() {
-        var nameSel = document.getElementById('loginName');
-        var area = document.getElementById('loginPinArea');
-        var errEl = document.getElementById('loginError');
-        if (errEl) errEl.style.display = 'none';
-        if (!nameSel || !nameSel.value || !area) return;
-
-        var user = getById(nameSel.value);
-        if (!user) return;
-
-        if (!user.pin) {
-            /* First time — show PIN creation fields */
-            area.innerHTML = `
-                <div style="margin-bottom:14px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Create your PIN</label>
-                    <input type="password" id="loginPinNew" maxlength="8"
-                        style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;"
-                        placeholder="Choose a 4+ digit PIN">
-                </div>
-                <div style="margin-bottom:22px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Confirm PIN</label>
-                    <input type="password" id="loginPinConfirm" maxlength="8"
-                        onkeydown="if(event.key==='Enter')Users.doFirstLogin()"
-                        style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;"
-                        placeholder="Re-enter your PIN">
-                </div>`;
-            var btn = document.getElementById('loginBtn');
-            if (btn) { btn.textContent = 'Set PIN & Sign In'; btn.onclick = function() { Users.doFirstLogin(); }; }
-        } else {
-            /* Normal — show PIN entry */
-            area.innerHTML = `
-                <div style="margin-bottom:22px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">PIN</label>
-                    <input type="password" id="loginPin" maxlength="8"
-                        onkeydown="if(event.key==='Enter')Users.doLogin()"
-                        style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;"
-                        placeholder="Enter your PIN">
-                </div>`;
-            var btn = document.getElementById('loginBtn');
-            if (btn) { btn.textContent = 'Sign In'; btn.onclick = function() { Users.doLogin(); }; }
-        }
-    }
-
-    /* ─── First login: set PIN for pre-created accounts ───────────── */
-    function doFirstLogin() {
-        var errEl = document.getElementById('loginError');
-        var userId = _loginSelectedUserId;
-        if (!userId) { _showErr(errEl, 'Please select your name'); return; }
-
-        var pinNew = document.getElementById('loginPinNew');
-        var pinConfirm = document.getElementById('loginPinConfirm');
-        var pin = pinNew ? pinNew.value : '';
-        var pin2 = pinConfirm ? pinConfirm.value : '';
-
-        if (!pin) { _showErr(errEl, 'Please choose a PIN'); return; }
-        if (pin.length < 4) { _showErr(errEl, 'PIN must be at least 4 digits'); return; }
-        if (pin !== pin2) { _showErr(errEl, 'PINs do not match'); return; }
-
-        var user = getById(userId);
-        if (!user) { _showErr(errEl, 'User not found'); return; }
-
-        user.pin = pin;
-        _idbPut(user);
-        _saveToFilesystem(user);
-
-        setCurrentUser(user);
-        updateHeaderBadge();
-        showToast('PIN set — welcome, ' + user.name + '!', 'success');
+    async function _confirmEntraUser() {
+        var firstName = (document.getElementById('entraFirstName').value || '').trim();
+        var lastName = (document.getElementById('entraLastName').value || '').trim();
+        var dept = document.getElementById('entraDept').value;
+        var errEl = document.getElementById('entraConfirmError');
+        if (!firstName) { if (errEl) { errEl.textContent = 'Please enter your first name'; errEl.style.display = 'block'; } return; }
+        var fullName = firstName + (lastName ? ' ' + lastName : '');
+        var profile = _pendingEntraProfile;
+        var user = {
+            id: 'entra-' + (profile.localAccountId || _uid('user-')),
+            name: fullName,
+            email: profile.email,
+            department: dept || 'General',
+            pin: null,
+            created: new Date().toISOString().substring(0, 10)
+        };
+        _users.push(user);
+        await _idbPut(user);
+        await _saveUserToGraph(user);
+        _pendingEntraProfile = null;
+        _currentUser = user;
+        _setStored(user);
+        Users.updateHeaderBadge();
+        if (typeof Projects !== 'undefined') await Projects.load();
+        if (typeof window.syncData === 'function') { try { await window.syncData(); } catch(e) {} }
         renderDashboard();
     }
 
-    /* ─── Actions ───────────────────────────────────────────────── */
-    async function doLogin() {
-        var errEl = document.getElementById('loginError');
-        var userId = _loginSelectedUserId;
-        if (!userId) {
-            _showErr(errEl, 'Please select your name');
-            return;
+    function _cancelEntraConfirm() {
+        _pendingEntraProfile = null;
+        if (typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+            try { BirdsAuth.logout(); } catch(e) {}
         }
-        var pinInput = document.getElementById('loginPin');
-        if (!pinInput || !pinInput.value) {
-            _showErr(errEl, 'Please enter your PIN');
-            return;
-        }
-
-        var user = getById(userId);
-        if (!user) {
-            _showErr(errEl, 'User not found');
-            return;
-        }
-        if (user.pin !== pinInput.value) {
-            _showErr(errEl, 'Incorrect PIN');
-            pinInput.value = '';
-            pinInput.focus();
-            return;
-        }
-
-        setCurrentUser(user);
-        updateHeaderBadge();
-        if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
-        renderDashboard();
-    }
-
-    function doRegister() {
-        var nameEl = document.getElementById('regName');
-        var deptEl = document.getElementById('regDept');
-        var pinEl = document.getElementById('regPin');
-        var pinConfirmEl = document.getElementById('regPinConfirm');
-        var errEl = document.getElementById('regError');
-
-        var name = (nameEl.value || '').trim();
-        var dept = deptEl.value;
-        var pin = pinEl.value;
-        var pin2 = pinConfirmEl.value;
-
-        if (!name) { _showErr(errEl, 'Please enter your name'); return; }
-        if (name.length < 2) { _showErr(errEl, 'Name must be at least 2 characters'); return; }
-        if (!dept) { _showErr(errEl, 'Please select your department'); return; }
-        if (!pin) { _showErr(errEl, 'Please choose a PIN'); return; }
-        if (pin.length < 4) { _showErr(errEl, 'PIN must be at least 4 digits'); return; }
-        if (pin !== pin2) { _showErr(errEl, 'PINs do not match'); return; }
-
-        /* Check for duplicate name */
-        var dup = _users.find(function(u) { return u.name.toLowerCase() === name.toLowerCase(); });
-        if (dup) { _showErr(errEl, 'An account with this name already exists'); return; }
-
-        create(name, dept, pin).then(function(user) {
-            setCurrentUser(user);
-            updateHeaderBadge();
-            showToast('Account created — welcome, ' + user.name + '!', 'success');
-            renderDashboard();
-        });
-    }
-
-    function doLogout() {
-        clearCurrentUser();
-        updateHeaderBadge();
         renderLoginScreen();
     }
 
-    function showRegister() { renderRegisterScreen(); }
+    /* v148: Save user to Graph (SharePoint) for cross-device access */
+    async function _saveUserToGraph(user) {
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try {
+                await GraphClient.ensureFolder('users');
+                await GraphClient.writeFile('users/' + user.id + '.json', JSON.stringify(user, null, 2));
+            } catch(e) { console.warn('[Users] Graph save failed:', e.message); }
+        }
+    }
+
+    /* ─── Logout ────────────────────────────────────────────────── */
+    function doLogout() {
+        clearCurrentUser();
+        updateHeaderBadge();
+        if (typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+            try { BirdsAuth.logout(); } catch(e) {}
+        }
+        renderLoginScreen();
+    }
+
     function showLogin() { renderLoginScreen(); }
 
     /* ─── Header Badge ──────────────────────────────────────────── */
@@ -661,46 +456,6 @@ window.Users = (function() {
             badge.classList.add('hidden');
             badge.classList.remove('flex');
         }
-    }
-
-    /* ─── Name filter + custom department handler ──────────────────── */
-    function _onDeptChange(deptSel, nameSelId) {
-        if (!deptSel) return;
-        var dept = deptSel.value;
-
-        /* Handle "Add Custom Department..." */
-        if (dept === '__add_custom__') {
-            var newName = prompt('Enter new department name:');
-            if (!newName || !newName.trim()) {
-                deptSel.value = '';
-                return;
-            }
-            addDepartment(newName.trim()).then(function(added) {
-                if (added) {
-                    showToast('Department "' + newName.trim() + '" added', 'success');
-                } else {
-                    showToast('Department already exists', 'warning');
-                }
-                /* Re-render whichever screen we're on */
-                var loginDept = document.getElementById('loginDept');
-                var regDept = document.getElementById('regDept');
-                if (loginDept) renderLoginScreen();
-                else if (regDept) renderRegisterScreen();
-            });
-            return;
-        }
-
-        /* Filter names by department (login screen only) */
-        if (!nameSelId) return;
-        var nameSel = document.getElementById(nameSelId);
-        if (!nameSel) return;
-
-        var filtered = dept ? getByDepartment(dept) : _users;
-        var html = '<option value="">' + (filtered.length ? 'Select your name...' : 'No one in this department') + '</option>';
-        for (var i = 0; i < filtered.length; i++) {
-            html += '<option value="' + filtered[i].id + '">' + escapeHtml(filtered[i].name) + '</option>';
-        }
-        nameSel.innerHTML = html;
     }
 
     /* ─── Helpers ────────────────────────────────────────────────── */
@@ -732,25 +487,15 @@ window.Users = (function() {
         getByDepartment: getByDepartment,
         getById: getById,
         create: create,
-        verify: verify,
         getCurrentUser: getCurrentUser,
         setCurrentUser: setCurrentUser,
         clearCurrentUser: clearCurrentUser,
         renderLoginScreen: renderLoginScreen,
-        renderRegisterScreen: renderRegisterScreen,
         updateHeaderBadge: updateHeaderBadge,
-        doLogin: doLogin,
-        doFirstLogin: doFirstLogin,
-        doRegister: doRegister,
-        syncAllToFilesystem: syncAllToFilesystem,
-        reloadFromFilesystem: reloadFromFilesystem,
+        doEntraLogin: doEntraLogin,
+        _confirmEntraUser: _confirmEntraUser,
+        _cancelEntraConfirm: _cancelEntraConfirm,
         doLogout: doLogout,
-        showRegister: showRegister,
-        showLogin: showLogin,
-        _onDeptChange: _onDeptChange,
-        _onNameChange: _onNameChange,
-        _loginFilterDept: _loginFilterDept,
-        _loginSelectUser: _loginSelectUser,
-        _loginDeselect: _loginDeselect
+        showLogin: showLogin
     };
 })();

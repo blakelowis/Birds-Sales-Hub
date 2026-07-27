@@ -1173,34 +1173,27 @@ async function writeAuditActionsToXlsx(state) {
 }
 
 async function readJsonFolder(folderName) {
-  // TEST MODE — read from local folder handle
-  if (!directoryHandle) {
-    console.log('[Audit Actions] No folder handle available');
-    return [];
-  }
-
-  try {
-    var subHandle = await directoryHandle.getDirectoryHandle(folderName);
-    var results = [];
-    for await (var entry of subHandle.values()) {
-      if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+  // v148: Try Graph first
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    try {
+      var items = await GraphClient.listJsonFiles(folderName);
+      var results = [];
+      for (var item of items) {
         try {
-          var file = await entry.getFile();
-          var text = await file.text();
-          var data = JSON.parse(text);
-          data._fileName = entry.name;
-          results.push(data);
-        } catch (e) {
-          console.warn('[Audit Actions] Read failed for ' + folderName + '/' + entry.name + ':', e.message);
-        }
+          var text = await GraphClient.readFile(folderName + '/' + item.name);
+          if (text) {
+            var data = JSON.parse(text);
+            data._fileName = item.name;
+            results.push(data);
+          }
+        } catch(e) {}
       }
-    }
-    console.log('[Audit Actions] Read ' + results.length + ' JSON files from ' + folderName);
-    return results;
-  } catch (e) {
-    console.log('[Audit Actions] Folder ' + folderName + ' not found in data folder');
-    return [];
+      if (results.length) return results;
+    } catch(e) {}
   }
+  // No data source available
+  console.log('[Audit Actions] No data source available');
+  return [];
 }
 
 window.writeAuditResults = async function(state) {

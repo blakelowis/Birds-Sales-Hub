@@ -109,6 +109,28 @@ async function _localDocsGet(folder) {
 }
 
 async function _masterFolderDocs(folder) {
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        /* v148: Graph API — read from SharePoint */
+        var paths = [
+            'Documents/' + folder,
+            folder
+        ];
+        for (var p of paths) {
+            try {
+                var items = await GraphClient.listJsonFiles(p);
+                if (items.length === 0) continue;
+                var docs = [];
+                for (var item of items) {
+                    try {
+                        var text = await GraphClient.readFile(p + '/' + item.name);
+                        if (text) { var obj = JSON.parse(text); if (obj && obj.id) docs.push(obj); }
+                    } catch(e) {}
+                }
+                if (docs.length) return docs;
+            } catch(e) {}
+        }
+        return [];
+    }
     if (!directoryHandle) return [];
     var paths = [
         'Documents/' + folder,
@@ -148,7 +170,16 @@ async function _localDocsPut(folder, id, data) {
             } catch(e) { resolve(false); }
         });
     }
-    /* Save to filesystem (shared across users) */
+    /* v148: Save to SharePoint via Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        try {
+            var relPath = 'Documents/' + folder + '/' + id + '.json';
+            await GraphClient.ensureFolder('Documents/' + folder);
+            await GraphClient.writeFile(relPath, JSON.stringify(data, null, 2));
+        } catch(e) { console.warn('[Docs] Graph save failed:', e.message); }
+        return;
+    }
+    /* Legacy: save to local filesystem */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
         if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
@@ -163,8 +194,11 @@ async function _localDocsPut(folder, id, data) {
 }
 async function _localDocsDelete(folder, id) {
     if (!window._localDocsConnection) await _localDocsInit();
-    /* Try to also delete from filesystem */
-    if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+    /* v148: Delete from SharePoint via Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        try { await GraphClient.deleteFile('Documents/' + folder + '/' + id + '.json'); } catch(e) {}
+    } else if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        /* Legacy: delete from local filesystem */
         if (typeof ensureWritePermission === 'function') await ensureWritePermission();
         var fsPaths = ['Documents/' + folder, 'Data/Documents/' + folder, 'Master Folder/Data/Documents/' + folder];
         for (var fp of fsPaths) {
@@ -198,6 +232,16 @@ async function _localDocsGetText(path) {
 }
 
 async function _localDocsGetTextFromMasterFolder(paths) {
+    /* v148: Try Graph first */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        for (var p of paths) {
+            try {
+                var text = await GraphClient.readFile(p);
+                if (text !== null) return text;
+            } catch(e) {}
+        }
+        return null;
+    }
     if (!directoryHandle) return null;
     for (var path of paths) {
         var parts = path.split('/').filter(Boolean);
@@ -223,7 +267,16 @@ async function _localDocsPutText(path, text) {
             } catch(e) { resolve(false); }
         });
     }
-    /* Save to filesystem (shared across users) */
+    /* v148: Save to SharePoint via Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        try {
+            var folderPart = path.substring(0, path.lastIndexOf('/'));
+            if (folderPart) await GraphClient.ensureFolder(folderPart);
+            await GraphClient.writeFile(path, text);
+        } catch(e) { console.warn('[Docs] Graph text save failed:', e.message); }
+        return;
+    }
+    /* Legacy: save to local filesystem */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
         if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {

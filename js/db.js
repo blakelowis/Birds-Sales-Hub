@@ -1,5 +1,4 @@
 let db;
-let directoryHandle = null;
 let __anchorMeta = { folderName: null, anchoredAt: null, perm: null, storagePersisted: null };
 
 window.__dataStatus = { syncRan: false, syncOk: false, filesFound: 0, weeklyFiles: 0, complaintsRows: 0, source: 'none', ts: null };
@@ -50,27 +49,51 @@ req.onsuccess = async e => {
     try { await idbClear('complaints'); } catch(e) { console.warn('[DB] complaints clear failed:', e.message); }
     try { await loadStoreMap(); } catch(e) { console.warn('[DB] loadStoreMap failed:', e.message); }
     populateExportDropdown();
-    // v138: Connect folder FIRST — projects/documents need directoryHandle before loading
-    if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
+
+    // v148: Auth-first boot — try silent Entra login, then load via Graph
+    var _authReady = false;
+    if (typeof BirdsAuth !== 'undefined') {
+        try { BirdsAuth.init(); } catch(e) { console.warn('[DB] MSAL init failed:', e.message); }
+        try {
+            await BirdsAuth.loginSilent();
+            await BirdsAuth.resolveSharePointIds();
+            _authReady = true;
+            console.log('[DB] Entra silent login OK');
+        } catch(e) {
+            console.log('[DB] Silent login not available, showing login screen');
+        }
+    }
+
     // Init documents IDB connection so projects/documents can load
     if (typeof _localDocsInit === 'function') { try { await _localDocsInit(); } catch(e) { console.warn('[DB] _localDocsInit failed:', e.message); } }
-    if (typeof Users !== 'undefined') {
-      await Users.init();
-      if (typeof Projects !== 'undefined') await Projects.load();
-      if (Users.getCurrentUser()) {
-        Users.updateHeaderBadge();
-        renderDashboard();
-      } else {
+
+    if (_authReady) {
+        // Logged in — load everything via Graph
+        if (typeof Users !== 'undefined') {
+            await Users.init();
+            if (typeof Projects !== 'undefined') await Projects.load();
+            Users.updateHeaderBadge();
+            renderDashboard();
+        } else {
+            renderDashboard();
+        }
+        // Trigger data sync from SharePoint
+        if (typeof window.syncData === 'function') {
+            try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
+        }
+    } else if (typeof Users !== 'undefined') {
+        // Not logged in — show Entra login screen
+        await Users.init();
         Users.renderLoginScreen();
-      }
     } else {
-      renderDashboard();
+        renderDashboard();
     }
+
     if (window.ComplaintsData && window.ComplaintsData.length) {
-      window.__dataStatus.complaintsRows = window.ComplaintsData.length;
-      console.log('[Startup] Complaints loaded from data folder sync:', window.ComplaintsData.length, 'rows');
+        window.__dataStatus.complaintsRows = window.ComplaintsData.length;
+        console.log('[Startup] Complaints loaded from data folder sync:', window.ComplaintsData.length, 'rows');
     } else {
-      console.log('[Startup] No complaints loaded — sync from data folder required');
+        console.log('[Startup] No complaints loaded — sync from data folder required');
     }
     updateDataStatusUI();
     checkDataFreshness();

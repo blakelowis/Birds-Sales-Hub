@@ -1,59 +1,10 @@
+// v148: File System Access API removed — all storage via Graph API (SharePoint)
+// Kept as no-ops for any legacy callers
 async function loadDirectoryHandle() {
-  // Try to reuse previously selected folder
-  if (directoryHandle) {
-    var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
-    if (perm === 'granted') {
-      document.getElementById('folderStatus').textContent = 'Folder connected';
-      return;
-    }
-    directoryHandle = null;
-  }
-
-  // Try to restore from IDB (avoids full folder picker)
-  try {
-    var stored = await idbGet('settings', 'directoryHandle');
-    if (stored && stored.handle) {
-      directoryHandle = stored.handle;
-      var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') {
-        perm = await directoryHandle.requestPermission({ mode: 'readwrite' });
-      }
-      if (perm === 'granted') {
-        document.getElementById('folderStatus').textContent = 'Folder connected';
-        // Sync any users created before folder was connected
-        if (typeof Users !== 'undefined' && Users.syncAllToFilesystem) Users.syncAllToFilesystem();
-        return;
-      }
-      directoryHandle = null;
-    }
-  } catch (e) {
-    console.warn('[DB] Could not restore directory handle:', e.message);
-  }
-
-  // Open folder picker on first load
-  try {
-    directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    document.getElementById('folderStatus').textContent = 'Folder connected';
-    // Persist handle to IDB so next load skips the full picker
-    try {
-      await idbPut('settings', { id: 'directoryHandle', handle: directoryHandle });
-    } catch (e) {
-      console.warn('[DB] Could not persist directory handle:', e.message);
-    }
-    // Sync any users created before folder was connected
-    if (typeof Users !== 'undefined' && Users.syncAllToFilesystem) Users.syncAllToFilesystem();
-  } catch (e) {
-    document.getElementById('ingestStatus').innerText = "Select a data folder to begin.";
-    document.getElementById('folderStatus').textContent = '';
-  }
+  document.getElementById('folderStatus').textContent = 'Connected via SharePoint';
 }
-
-async function verifyPermission(fileHandle, readWrite) {
-    const options = {}; if (readWrite) options.mode = 'readwrite';
-    if ((await fileHandle.queryPermission(options)) === 'granted') return true;
-    if ((await fileHandle.requestPermission(options)) === 'granted') return true;
-    return false;
-}
+async function ensureWritePermission() { return false; }
+async function verifyPermission() { return false; }
 
 window.syncData = async function() {
   window.__dataStatus.syncRan = true;
@@ -62,109 +13,66 @@ window.syncData = async function() {
   window.__complaintsSourceCSV = false;
   document.getElementById('ingestStatus').innerText = "Scanning... Please wait.";
 
-  // ===== LOCAL FOLDER PATH =====
-  if (directoryHandle) {
-    var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') {
-      perm = await directoryHandle.requestPermission({ mode: 'readwrite' });
-    }
-    if (perm === 'granted') {
-      document.getElementById('ingestStatus').innerText = "Re-syncing from previous folder...";
-    } else {
-      directoryHandle = null;
-    }
-  }
-
-  // Only open picker if we don't have a valid handle
-  if (!directoryHandle) {
-    // Try to restore from IDB first
+  // v148: GRAPH API PATH — read from SharePoint if logged in
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    document.getElementById('ingestStatus').innerText = "Reading files from SharePoint...";
     try {
-      var stored = await idbGet('settings', 'directoryHandle');
-      if (stored && stored.handle) {
-        directoryHandle = stored.handle;
-        var perm2 = await directoryHandle.queryPermission({ mode: 'readwrite' });
-        if (perm2 !== 'granted') {
-          perm2 = await directoryHandle.requestPermission({ mode: 'readwrite' });
+      var items = await GraphClient.listFolder('');
+      var localFiles = [];
+      var trackerJsonText = null;
+      for (var item of items) {
+        if (item.isFolder) continue;
+        var name = item.name;
+        if (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.csv')) {
+          document.getElementById('ingestStatus').innerText = "Downloading " + name + "...";
+          var buffer = await GraphClient.readFileBinary(name);
+          if (buffer) {
+            var blob = new Blob([buffer], { type: name.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' });
+            blob.name = name;
+            localFiles.push(blob);
+          }
         }
-        if (perm2 === 'granted') {
-          document.getElementById('ingestStatus').innerText = "Re-syncing from saved folder...";
-        } else {
-          directoryHandle = null;
+        if (name === 'tracker_data.json') {
+          trackerJsonText = await GraphClient.readFile(name);
         }
       }
-    } catch (e) {
-      console.warn('[DB] Could not restore handle from IDB:', e.message);
-    }
-  }
-
-  // Only open picker if we still don't have a valid handle
-  if (!directoryHandle) {
-    document.getElementById('ingestStatus').innerText = "Opening folder picker...";
-    try {
-      directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      // Persist to IDB so next load skips the picker
-      try {
-        await idbPut('settings', { id: 'directoryHandle', handle: directoryHandle });
-      } catch (e) {
-        console.warn('[DB] Could not persist directory handle:', e.message);
-      }
-      // Sync any users created before folder was connected
-      if (typeof Users !== 'undefined' && Users.syncAllToFilesystem) Users.syncAllToFilesystem();
-    } catch (pickErr) {
-      if (pickErr.name === 'AbortError') {
-        document.getElementById('ingestStatus').innerText = "Folder selection cancelled.";
+      window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
+      if (localFiles.length === 0 && !trackerJsonText) {
+        document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in SharePoint.";
         window.__dataStatus.syncOk = false;
         return;
       }
-      document.getElementById('ingestStatus').innerText = "Folder picker failed: " + pickErr.message;
-      window.__dataStatus.syncOk = false;
-      return;
-    }
-  }
-
-  document.getElementById('ingestStatus').innerText = "Reading files from folder...";
-  var localFiles = [];
-  var trackerJsonText = null;
-  for await (const entry of directoryHandle.values()) {
-    if (entry.kind === 'file') {
-      const file = await entry.getFile();
-      if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.csv')) {
-        localFiles.push(file);
-      }
-      if (file.name === 'tracker_data.json') {
-        trackerJsonText = await file.text();
-      }
-    }
-  }
-
-  window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
-  if (localFiles.length === 0 && !trackerJsonText) {
-    document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in selected folder.";
-    window.__dataStatus.syncOk = false;
-    return;
-  }
-  if (trackerJsonText) {
-    try {
-      const trackerData = JSON.parse(trackerJsonText);
-      const storeObj = trackerData.stores || trackerData.updates || trackerData;
-      const storeEntries = (typeof storeObj === 'object' && !Array.isArray(storeObj))
-        ? Object.entries(storeObj)
-        : (Array.isArray(storeObj) ? storeObj.map(r => [r.StoreId || r.id, r]) : []);
-      if (storeEntries.length > 0) {
-        for (const [storeId, rec] of storeEntries) {
-          if (rec && typeof rec === 'object') {
-            if (!rec.StoreId) rec.StoreId = storeId;
-            await idbPut('eho_data', rec);
+      if (trackerJsonText) {
+        try {
+          const trackerData = JSON.parse(trackerJsonText);
+          const storeObj = trackerData.stores || trackerData.updates || trackerData;
+          const storeEntries = (typeof storeObj === 'object' && !Array.isArray(storeObj))
+            ? Object.entries(storeObj)
+            : (Array.isArray(storeObj) ? storeObj.map(r => [r.StoreId || r.id, r]) : []);
+          if (storeEntries.length > 0) {
+            for (const [storeId, rec] of storeEntries) {
+              if (rec && typeof rec === 'object') {
+                if (!rec.StoreId) rec.StoreId = storeId;
+                await idbPut('eho_data', rec);
+              }
+            }
+            console.log('[Sync] Loaded', storeEntries.length, 'tracker records from SharePoint');
           }
-        }
-        console.log('[Sync] Loaded', storeEntries.length, 'tracker records from local folder');
+        } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
       }
-    } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
+      if (localFiles.length > 0) await processFiles(localFiles, 'SharePoint');
+      window.__dataStatus.syncOk = true;
+      window.__dataStatus.ts = Date.now();
+      window.__dataStatus.source = 'SharePoint';
+      return;
+    } catch(e) {
+      console.warn('[Sync] SharePoint sync failed, falling back to local:', e.message);
+    }
   }
-  if (localFiles.length > 0) await processFiles(localFiles, 'local folder');
-  window.__dataStatus.syncOk = true;
-  window.__dataStatus.ts = Date.now();
-  window.__dataStatus.source = 'local folder';
+
+  // Not connected to Graph — show error
+  document.getElementById('ingestStatus').innerText = "Not connected to SharePoint — sign in to sync data.";
+  window.__dataStatus.syncOk = false;
 };
 
 // ===== SHAREPOINT AUTO-SYNC =====

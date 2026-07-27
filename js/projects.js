@@ -15,6 +15,15 @@ window.Projects = (function() {
     function _path(id) { return 'Projects/' + id + '.json'; }
 
     async function _saveToFilesystem(project) {
+        /* v148: Graph API — save to SharePoint */
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try {
+                await GraphClient.ensureFolder('Projects');
+                await GraphClient.writeFile('Projects/' + project.id + '.json', JSON.stringify(project, null, 2));
+            } catch(e) { console.warn('[Projects] Graph save failed:', e.message); }
+            return;
+        }
+        /* Legacy: local filesystem */
         if (typeof directoryHandle === 'undefined' || !directoryHandle) return;
         if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
@@ -27,6 +36,12 @@ window.Projects = (function() {
     }
 
     async function _deleteFromFilesystem(id) {
+        /* v148: Graph API */
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try { await GraphClient.deleteFile('Projects/' + id + '.json'); } catch(e) {}
+            return;
+        }
+        /* Legacy: local filesystem */
         if (typeof directoryHandle === 'undefined' || !directoryHandle) return;
         if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
@@ -36,6 +51,21 @@ window.Projects = (function() {
     }
 
     async function _loadFromFilesystem() {
+        /* v148: Graph API */
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try {
+                var items = await GraphClient.listJsonFiles('Projects');
+                var results = [];
+                for (var item of items) {
+                    try {
+                        var text = await GraphClient.readFile('Projects/' + item.name);
+                        if (text) results.push(JSON.parse(text));
+                    } catch(e) {}
+                }
+                return results;
+            } catch(e) { console.warn('[Projects] Graph load failed:', e.message); return []; }
+        }
+        /* Legacy: local filesystem */
         if (typeof directoryHandle === 'undefined' || !directoryHandle) return [];
         try {
             var dir = await directoryHandle.getDirectoryHandle('Projects');
@@ -777,6 +807,7 @@ window.Projects = (function() {
                         <button onclick="Projects.generateProjectReport('${p.id}')" style="background:transparent;color:#555B6E;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #555B6E;cursor:pointer;margin-bottom:4px;">\uD83D\uDCC4 Report</button>
                         ${p.status === 'needs_resolution' ? '<button onclick="Projects._doResolve(\'' + p.id + '\')" style="background:#6E8E6D;color:white;padding:6px 14px;border-radius:6px;font-weight:800;font-size:11px;border:none;cursor:pointer;">\u2714 Resolve Project</button>' : ''}
                         ${p.status === 'active' ? '<button onclick="Projects._doResolve(\'' + p.id + '\')" style="background:transparent;color:#999;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #E8E5E0;cursor:pointer;">Resolve Early</button>' : ''}
+                        <button onclick="if(confirm(\'Delete this project permanently? This cannot be undone.\')){Projects._doDeleteProject(\'' + p.id + '\')}" style="background:transparent;color:#D94F4F;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #D94F4F;cursor:pointer;margin-top:4px;">\uD83D\uDDD1 Delete</button>
                     </div>
                 </div>
 
@@ -833,6 +864,12 @@ window.Projects = (function() {
         await resolveProject(projectId);
         showToast('Project resolved', 'success');
         renderProjectDetail(projectId);
+    }
+
+    async function _doDeleteProject(projectId) {
+        await deleteProject(projectId);
+        showToast('Project deleted', 'success');
+        setView('projects');
     }
 
     /* ─── Create document linked to a project stage ───────────── */
@@ -1320,6 +1357,7 @@ window.Projects = (function() {
         _doAddStage: _doAddStage,
         _doCompleteStage: _doCompleteStage,
         _doResolve: _doResolve,
+        _doDeleteProject: _doDeleteProject,
         _emailNextStage: emailNextStage,
         generateProjectReport: generateProjectReport
     };

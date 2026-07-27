@@ -619,26 +619,17 @@ async function trackerSaveToFolder() {
         // Save to localStorage as fallback
         try { localStorage.setItem('tracker_data', json); } catch(ex) {}
 
-        // Save to data folder if handle is available
-        if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        // v148: Save to SharePoint via Graph if logged in
+        if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
             try {
-                var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
-                if (perm !== 'granted') perm = await directoryHandle.requestPermission({ mode: 'readwrite' });
-                if (perm === 'granted') {
-                    var fileHandle = await directoryHandle.getFileHandle('tracker_data.json', { create: true });
-                    var writable = await fileHandle.createWritable();
-                    await writable.write(json);
-                    await writable.close();
-                    _trackerSetSaveStatus('\u2713 Saved to data folder', '#2d7a3a', '');
-                } else {
-                    _trackerSetSaveStatus('\u26A0 Saved locally \u2014 no write permission', '#b45309', '');
-                }
-            } catch (folderErr) {
-                console.warn('[Tracker] Could not write to data folder:', folderErr);
-                _trackerSetSaveStatus('\u26A0 Saved locally \u2014 folder write failed', '#b45309', '');
+                await GraphClient.writeFile('tracker_data.json', json);
+                _trackerSetSaveStatus('\u2713 Saved to SharePoint', '#2d7a3a', '');
+            } catch(e) {
+                console.warn('[Tracker] Graph save failed:', e);
+                _trackerSetSaveStatus('\u26A0 Saved locally \u2014 Graph save failed', '#b45309', '');
             }
         } else {
-            _trackerSetSaveStatus('\u26A0 Saved locally only \u2014 no folder connected', '#b45309', '');
+            _trackerSetSaveStatus('\u26A0 Saved locally only \u2014 not signed in', '#b45309', '');
         }
         trackerRefreshKpis();
     } catch(e) {
@@ -656,24 +647,20 @@ function trackerRefreshKpis() {
 
 async function trackerLoadFromFolder() {
     try {
-        // Primary source: data folder via directoryHandle
-        if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        // v148: Primary source: SharePoint via Graph
+        if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
             try {
-                var perm = await directoryHandle.queryPermission({ mode: 'read' });
-                if (perm !== 'granted') perm = await directoryHandle.requestPermission({ mode: 'read' });
-                if (perm === 'granted') {
-                    var fileHandle = await directoryHandle.getFileHandle('tracker_data.json');
-                    var file = await fileHandle.getFile();
-                    var text = await file.text();
+                var text = await GraphClient.readFile('tracker_data.json');
+                if (text) {
                     var importObj = JSON.parse(text);
                     var stores = importObj.stores || importObj.updates || importObj;
                     if (typeof stores === 'object' && !Array.isArray(stores)) {
-                        console.log('[Tracker] Loaded', Object.keys(stores).length, 'stores from data folder');
+                        console.log('[Tracker] Loaded', Object.keys(stores).length, 'stores from SharePoint');
                         return stores;
                     }
                 }
-            } catch (folderErr) {
-                console.log('[Tracker] No tracker_data.json in data folder:', folderErr.message);
+            } catch (graphErr) {
+                console.log('[Tracker] No tracker_data.json in SharePoint:', graphErr.message);
             }
         }
         // Fallback: IDB (populated by syncData)
