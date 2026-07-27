@@ -370,6 +370,10 @@ window.renderComplaintsHub = function(){
         const typeEl = document.getElementById('comp-filter-type');
         if(storeEl) storeEl.innerHTML = '<option value="ALL">All Stores</option>' + stores.map(x => '<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');
         if(typeEl) typeEl.innerHTML = '<option value="ALL">All Categories</option>' + types.map(x => '<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');
+        var ytdFrom = document.getElementById('comp-filter-date-from');
+        var ytdTo = document.getElementById('comp-filter-date-to');
+        if(ytdFrom && !ytdFrom.value) ytdFrom.value = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
+        if(ytdTo && !ytdTo.value) ytdTo.value = new Date().toISOString().slice(0,10);
         window.renderComplaintsTable();
     } else {
         const info = document.getElementById('complaints-kpi-row');
