@@ -1,7 +1,7 @@
 async function loadDirectoryHandle() {
   // Try to reuse previously selected folder
   if (directoryHandle) {
-    var perm = await directoryHandle.queryPermission({ mode: 'read' });
+    var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
     if (perm === 'granted') {
       document.getElementById('folderStatus').textContent = 'Folder connected';
       return;
@@ -14,9 +14,9 @@ async function loadDirectoryHandle() {
     var stored = await idbGet('settings', 'directoryHandle');
     if (stored && stored.handle) {
       directoryHandle = stored.handle;
-      var perm = await directoryHandle.queryPermission({ mode: 'read' });
+      var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
       if (perm !== 'granted') {
-        perm = await directoryHandle.requestPermission({ mode: 'read' });
+        perm = await directoryHandle.requestPermission({ mode: 'readwrite' });
       }
       if (perm === 'granted') {
         document.getElementById('folderStatus').textContent = 'Folder connected';
@@ -32,7 +32,7 @@ async function loadDirectoryHandle() {
 
   // Open folder picker on first load
   try {
-    directoryHandle = await window.showDirectoryPicker();
+    directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     document.getElementById('folderStatus').textContent = 'Folder connected';
     // Persist handle to IDB so next load skips the full picker
     try {
@@ -64,9 +64,9 @@ window.syncData = async function() {
 
   // ===== LOCAL FOLDER PATH =====
   if (directoryHandle) {
-    var perm = await directoryHandle.queryPermission({ mode: 'read' });
+    var perm = await directoryHandle.queryPermission({ mode: 'readwrite' });
     if (perm !== 'granted') {
-      perm = await directoryHandle.requestPermission({ mode: 'read' });
+      perm = await directoryHandle.requestPermission({ mode: 'readwrite' });
     }
     if (perm === 'granted') {
       document.getElementById('ingestStatus').innerText = "Re-syncing from previous folder...";
@@ -82,9 +82,9 @@ window.syncData = async function() {
       var stored = await idbGet('settings', 'directoryHandle');
       if (stored && stored.handle) {
         directoryHandle = stored.handle;
-        var perm2 = await directoryHandle.queryPermission({ mode: 'read' });
+        var perm2 = await directoryHandle.queryPermission({ mode: 'readwrite' });
         if (perm2 !== 'granted') {
-          perm2 = await directoryHandle.requestPermission({ mode: 'read' });
+          perm2 = await directoryHandle.requestPermission({ mode: 'readwrite' });
         }
         if (perm2 === 'granted') {
           document.getElementById('ingestStatus').innerText = "Re-syncing from saved folder...";
@@ -101,7 +101,7 @@ window.syncData = async function() {
   if (!directoryHandle) {
     document.getElementById('ingestStatus').innerText = "Opening folder picker...";
     try {
-      directoryHandle = await window.showDirectoryPicker();
+      directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
       // Persist to IDB so next load skips the picker
       try {
         await idbPut('settings', { id: 'directoryHandle', handle: directoryHandle });
