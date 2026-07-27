@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="tailwind.min.css?v=100">
-  <link rel="stylesheet" href="css/app.css?v=100">
+  <link rel="stylesheet" href="css/app.css?v=132">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#8BA88A">
@@ -34,6 +34,7 @@
     .nav-panel[data-panel="audits"]{--tab-color:#C17F4E;--panel-bg:rgba(193,127,78,0.04);}
     .nav-panel[data-panel="docs"]{--tab-color:#7A7A7A;--panel-bg:rgba(122,122,122,0.04);}
     @media print {
+      @page { size: A4; margin: 15mm; }
       body * { visibility: hidden; }
       #print-doc-area, #print-doc-area * { visibility: visible; }
       #print-doc-area { position: absolute; left: 0; top: 0; width: 100%; }
@@ -59,8 +60,15 @@
             </div>
           </div>
         </div>
-        <!-- Right: Actions -->
+        <!-- Right: User Badge + Actions -->
         <div class="flex items-center gap-2 flex-wrap">
+          <div id="userBadge" class="hidden items-center gap-2" style="border-right:1px solid #E8E5E0;padding-right:12px;margin-right:4px;">
+            <div style="text-align:right;line-height:1.2;">
+              <div id="userBadgeName" style="font-size:12px;font-weight:700;color:#4A4A4A;"></div>
+              <div id="userBadgeDept" style="font-size:9px;font-weight:600;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;"></div>
+            </div>
+            <button onclick="Users.doLogout()" style="background:transparent;color:#999;font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px;border:1px solid #E8E5E0;cursor:pointer;" title="Sign out">&#x2715;</button>
+          </div>
           <button onclick="startAudit()" style="background:#C17F4E;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Perform a retail audit">Audit Store</button>
           <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
           <button onclick="document.getElementById('mobileAuditZipInput').click()" style="background:#7A7A7A;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
@@ -99,12 +107,13 @@
         <button onclick="setView('complaints')" id="btn-complaints" class="seg-btn flex-1 whitespace-nowrap">Complaints Hub</button>
       </div>
       <div class="nav-panel" data-panel="docs">
-        <button onclick="setView('documents')" id="btn-documents" class="seg-btn flex-1 whitespace-nowrap">Document Hub</button>
-        <button onclick="setView('documentarchive')" id="btn-documentarchive" class="seg-btn flex-1 whitespace-nowrap">Archive</button>
-        <button onclick="setView('documentcreate')" id="btn-documentcreate" class="seg-btn flex-1 whitespace-nowrap">Create Document</button>
+        <button onclick="setView('mywork')" id="btn-mywork" class="seg-btn flex-1 whitespace-nowrap">My Work</button>
+        <button onclick="setView('documents')" id="btn-documents" class="seg-btn flex-1 whitespace-nowrap">Documents</button>
+        <button onclick="setView('projects')" id="btn-projects" class="seg-btn flex-1 whitespace-nowrap">Projects</button>
         <span class="nav-divider"></span>
-        <button onclick="setView('templatelibrary')" id="btn-templatelibrary" class="seg-btn flex-1 whitespace-nowrap">Templates</button>
-        <button onclick="setView('templatebuilder')" id="btn-templatebuilder" class="seg-btn flex-1 whitespace-nowrap">Create Template</button>
+        <button onclick="setView('documentcreate')" id="btn-documentcreate" class="seg-btn flex-1 whitespace-nowrap">+ Create</button>
+        <button onclick="setView('templatelibrary')" id="btn-templatebuilder" class="seg-btn flex-1 whitespace-nowrap">+ Template</button>
+        <button onclick="setView('documentarchive')" id="btn-documentarchive" class="seg-btn flex-1 whitespace-nowrap">Archive</button>
       </div>
     </nav>
 
@@ -114,26 +123,28 @@
 
 
   <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
-  <script src="js/db.js?v=130"></script>
+  <script src="js/db.js?v=132"></script>
   <script src="js/utils.js?v=128"></script>
   <script src="js/data.js?v=116"></script>
   <script src="js/charts.js?v=116"></script>
   <script src="js/scorecards.js?v=116"></script>
   <script src="js/reports.js?v=121"></script>
   <script src="js/complaints.js?v=116"></script>
-  <script src="js/documents.js?v=130"></script>
-  <script src="js/template-builder.js?v=129"></script>
+  <script src="js/documents.js?v=131"></script>
+  <script src="js/users.js?v=134"></script>
+  <script src="js/projects.js?v=135"></script>
+  <script src="js/template-builder.js?v=132"></script>
   <script src="js/audits.js?v=116"></script>
   <script src="js/tracker_defaults.js?v=116"></script>
   <script src="js/tracker.js?v=116"></script>
   <script src="js/awards.js?v=116"></script>
   <script src="js/audit-perform.js?v=116"></script>
   <script src="js/overview.js?v=116"></script>
-  <script src="js/app.js?v=116"></script>
+  <script src="js/app.js?v=132"></script>
   <script>
     // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
     var _activeTab = 'sales';
-    var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'documents' };
+    var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'mywork' };
     function setActiveTab(tab) {
       if (tab === _activeTab) return; // Already on this tab, skip
       _activeTab = tab;
@@ -231,7 +242,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=115').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=132').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');

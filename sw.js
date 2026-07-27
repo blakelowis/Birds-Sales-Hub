@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v130';
+const CACHE_NAME = 'birds-hub-v137';
 
 const ASSETS = [
   './',
@@ -41,6 +41,9 @@ const ASSETS = [
   './js/reports.js',
   './js/complaints.js',
   './js/documents.js',
+  './js/users.js',
+  './js/projects.js',
+  './users.json',
   './js/audits.js',
   './js/tracker.js',
   './js/tracker_defaults.js',
