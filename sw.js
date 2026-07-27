@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v147';
+const CACHE_NAME = 'birds-hub-v148';
 
 const ASSETS = [
   './',
@@ -18,7 +18,6 @@ const ASSETS = [
   './xlsx.full.min.js',
   './jszip.min.js',
   './chart.js',
-  './fonts/fonts.css',
   './fonts/inter-v20-latin-regular.woff2',
   './fonts/inter-v20-latin-600.woff2',
   './fonts/inter-v20-latin-700.woff2',
@@ -33,9 +32,10 @@ const ASSETS = [
   './tracker_defaults.json',
   './EHO_Ratings.csv',
   './js/db.js',
+  './js/auth.js',
+  './js/graph.js',
   './js/utils.js',
   './js/sharepoint.js',
-  './js/graph.js',
   './js/data.js',
   './js/charts.js',
   './js/scorecards.js',
