@@ -52,6 +52,8 @@ req.onsuccess = async e => {
     populateExportDropdown();
     // v138: Connect folder FIRST — projects/documents need directoryHandle before loading
     if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
+    // Init documents IDB connection so projects/documents can load
+    if (typeof _localDocsInit === 'function') { try { await _localDocsInit(); } catch(e) { console.warn('[DB] _localDocsInit failed:', e.message); } }
     if (typeof Users !== 'undefined') {
       await Users.init();
       if (typeof Projects !== 'undefined') await Projects.load();

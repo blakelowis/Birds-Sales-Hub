@@ -16,6 +16,7 @@ window.Projects = (function() {
 
     async function _saveToFilesystem(project) {
         if (typeof directoryHandle === 'undefined' || !directoryHandle) return;
+        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
             var dir = await directoryHandle.getDirectoryHandle('Projects', { create: true });
             var fh = await dir.getFileHandle(project.id + '.json', { create: true });
@@ -27,6 +28,7 @@ window.Projects = (function() {
 
     async function _deleteFromFilesystem(id) {
         if (typeof directoryHandle === 'undefined' || !directoryHandle) return;
+        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
             var dir = await directoryHandle.getDirectoryHandle('Projects');
             await dir.removeEntry(id + '.json');
@@ -41,19 +43,18 @@ window.Projects = (function() {
             for await (var entry of dir.values()) {
                 if (entry.kind === 'file' && entry.name.endsWith('.json')) {
                     try {
-                        var fh = await entry.getFileHandle(entry.name);
-                        var file = await fh.getFile();
+                        var file = await entry.getFile();
                         var text = await file.text();
                         results.push(JSON.parse(text));
-                    } catch(e) {}
+                    } catch(e) { console.warn('[Projects] Failed to read:', entry.name, e.message); }
                 }
             }
             return results;
-        } catch(e) { return []; }
+        } catch(e) { console.warn('[Projects] Filesystem load failed:', e.message); return []; }
     }
 
     async function _loadAll() {
-        if (!window._localDocsConnection) { try { await _localDocsInit(); } catch(e) {} }
+        if (!window._localDocsConnection) { try { await _localDocsInit(); } catch(e) { console.warn('[Projects] _localDocsInit failed:', e.message); } }
 
         /* Try filesystem first (shared across users) */
         var fsProjects = await _loadFromFilesystem();
@@ -67,7 +68,10 @@ window.Projects = (function() {
         }
 
         /* Fallback to IDB */
-        if (!window._localDocsConnection) return [];
+        if (!window._localDocsConnection) {
+            try { await _localDocsInit(); } catch(e) {}
+        }
+        if (!window._localDocsConnection) { console.warn('[Projects] No IDB connection, no filesystem — returning empty'); return []; }
         return new Promise(function(resolve) {
             try {
                 var tx = window._localDocsConnection.transaction('files', 'readonly');
@@ -973,16 +977,41 @@ window.Projects = (function() {
     /* ═══════════════════════════════════════════════════════════════
        UI: MY WORK DASHBOARD
        ═══════════════════════════════════════════════════════════════ */
-    function renderMyWork() {
+    async function renderMyWork() {
         var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
         if (!user) { showToast('Not logged in', 'error'); return; }
 
+        /* Load docs fresh from storage */
+        var allDocs = { open: [], resolved: [], archived: [] };
+        try { allDocs = await loadDocuments(); } catch(e) { console.warn('[MyWork] loadDocuments failed:', e.message); }
+
+        /* Load folders */
+        var folders = [];
+        try { folders = await _loadFolderManifest(); } catch(e) {}
+
+        /* Load templates */
+        var templates = [];
+        try { templates = await _loadFormTemplates(); } catch(e) {}
+
         var myStages = getStagesForUser(user.id);
         var waitingOn = getWaitingOnOthers(user.id);
-        var myDocs = window.currentLoadedDocs ? (window.currentLoadedDocs.open || []) : [];
-        var myAssignedDocs = myDocs.filter(function(d) {
-            return d.attentionOf === user.name || d.creatorId === user.id || d.creator === user.name ||
+
+        /* All docs the user is involved in: created, assigned, or replied to */
+        var allDocList = [].concat(allDocs.open || [], allDocs.resolved || [], allDocs.archived || []);
+        var myDocs = allDocList.filter(function(d) {
+            return d.creatorId === user.id || d.creator === user.name ||
+                d.attentionOf === user.name ||
                 (d.replies && d.replies.some(function(r) { return r.author === user.name; }));
+        });
+        /* Sort newest first */
+        myDocs.sort(function(a, b) { return (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''); });
+
+        /* User's own folders */
+        var myFolders = folders;
+
+        /* Templates relevant to user */
+        var myTemplates = templates.filter(function(t) {
+            return !t.department || t.department === user.department || t.department === 'General' || user.department === 'General';
         });
 
         var actionsHtml = '';
@@ -1026,6 +1055,62 @@ window.Projects = (function() {
             </div>`;
         });
 
+        /* Document cards */
+        var docsHtml = '';
+        if (myDocs.length) {
+            docsHtml = '<div class="mb-6">' +
+                '<h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\uD83D\uDCCB My Documents (' + myDocs.length + ')</h3>' +
+                '<div class="space-y-2">' +
+                myDocs.slice(0, 10).map(function(d) {
+                    var status = 'Open';
+                    if ((allDocs.resolved || []).indexOf(d) >= 0) status = 'Resolved';
+                    else if ((allDocs.archived || []).indexOf(d) >= 0) status = 'Archived';
+                    var statusColor = status === 'Open' ? '#6E8E6D' : status === 'Resolved' ? '#2563EB' : '#999';
+                    var docMeta = '';
+                    if (d.creator && d.date) docMeta = escapeHtml(d.creator) + ' \u2022 ' + escapeHtml(d.date);
+                    else if (d.creator) docMeta = escapeHtml(d.creator);
+                    else docMeta = escapeHtml(d.date || '');
+                    return '<div class="card p-3 cursor-pointer hover:shadow-sm transition-all" onclick="openDocumentViewer(\'' + d.id + '\',\'' + status + '\',\'' + (d.userFolderId || '') + '\')">' +
+                        '<div class="flex items-center justify-between"><h4 class="text-sm font-bold text-slate-700">' + escapeHtml(d.name || 'Untitled') + '</h4>' +
+                        '<span style="font-size:9px;font-weight:800;color:white;padding:2px 6px;border-radius:4px;background:' + statusColor + ';">' + status + '</span></div>' +
+                        '<p class="text-[10px] text-slate-400">' + escapeHtml(d.type || '') + (docMeta ? ' \u2022 ' + docMeta : '') + (d.userFolderName ? ' \u2022 ' + escapeHtml(d.userFolderName) : '') + '</p></div>';
+                }).join('') +
+                '</div></div>';
+        }
+
+        /* Folder cards */
+        var foldersHtml = '';
+        if (myFolders.length) {
+            foldersHtml = '<div class="mb-6">' +
+                '<h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\uD83D\uDCC2 My Folders (' + myFolders.length + ')</h3>' +
+                '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' +
+                myFolders.map(function(f) {
+                    var folderDocs = allDocList.filter(function(d) { return d.userFolderId === f.id; });
+                    return '<div class="card p-4 cursor-pointer hover:shadow-md transition-all" onclick="setView(\'documents\')">' +
+                        '<div class="text-lg mb-1">\uD83D\uDCC1</div>' +
+                        '<h4 class="text-sm font-black text-slate-700">' + escapeHtml(f.name) + '</h4>' +
+                        '<p class="text-[10px] text-slate-400">' + folderDocs.length + ' document' + (folderDocs.length !== 1 ? 's' : '') + '</p>' +
+                        '</div>';
+                }).join('') +
+                '</div></div>';
+        }
+
+        /* Template cards */
+        var templatesHtml = '';
+        if (myTemplates.length) {
+            templatesHtml = '<div class="mb-6">' +
+                '<h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\uD83D\uDCCB My Templates (' + myTemplates.length + ')</h3>' +
+                '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' +
+                myTemplates.slice(0, 6).map(function(t) {
+                    return '<div class="card p-4 cursor-pointer hover:shadow-md transition-all" onclick="window._tplFill && _tplFill(\'' + t.id + '\')">' +
+                        '<div class="text-lg mb-1">\uD83D\uDCC4</div>' +
+                        '<h4 class="text-sm font-black text-slate-700">' + escapeHtml(t.name) + '</h4>' +
+                        '<p class="text-[10px] text-slate-400">' + escapeHtml(t.department || 'General') + '</p>' +
+                        '</div>';
+                }).join('') +
+                '</div></div>';
+        }
+
         document.getElementById('mainView').innerHTML = `
         <div style="max-width:900px;margin:0 auto;">
             <div class="mb-5">
@@ -1039,7 +1124,7 @@ window.Projects = (function() {
                 <div class="space-y-3">${actionsHtml}</div>
             </div>` : `
             <div class="card p-6 text-center mb-6" style="background:rgba(135,157,130,0.04);">
-                <p class="text-sm font-bold text-slate-500">\u2714 All clear — nothing needs your action right now</p>
+                <p class="text-sm font-bold text-slate-500">\u2714 All clear \u2014 nothing needs your action right now</p>
             </div>`}
 
             ${waitingOn.length ? `
@@ -1048,19 +1133,16 @@ window.Projects = (function() {
                 <div class="space-y-3">${waitingHtml}</div>
             </div>` : ''}
 
-            ${myAssignedDocs.length ? `
-            <div class="mb-6">
-                <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\uD83D\uDCCB Recent Documents (${myAssignedDocs.length})</h3>
-                <div class="space-y-2">
-                    ${myAssignedDocs.slice(0, 5).map(function(d) {
-                        var docMeta = '';
-                        if (d.creator && d.date) docMeta = escapeHtml(d.creator) + ' \u2022 ' + escapeHtml(d.date);
-                        else if (d.creator) docMeta = escapeHtml(d.creator);
-                        else docMeta = escapeHtml(d.date || '');
-                        return '<div class="card p-3 cursor-pointer hover:shadow-sm transition-all" onclick="openDocumentViewer(\'' + d.id + '\',\'Open\',\'' + (d.userFolderId || '') + '\')">' +
-                            '<h4 class="text-sm font-bold text-slate-700">' + escapeHtml(d.name || 'Untitled') + '</h4>' +
-                            '<p class="text-[10px] text-slate-400">' + escapeHtml(d.type || '') + (docMeta ? ' \u2022 ' + docMeta : '') + '</p></div>';
-                    }).join('')}
+            ${foldersHtml}
+            ${docsHtml}
+            ${templatesHtml}
+
+            ${(!myStages.length && !waitingOn.length && !myDocs.length && !myFolders.length && !myTemplates.length) ? `
+            <div class="card p-8 text-center" style="background:rgba(135,157,130,0.04);">
+                <p class="text-sm font-bold text-slate-500">Nothing here yet \u2014 create a project, document, or template to get started</p>
+                <div class="flex gap-3 justify-center mt-4">
+                    <button onclick="setView('projectcreate')" style="background:#6E8E6D;color:white;padding:6px 14px;border-radius:6px;font-weight:800;font-size:11px;border:none;cursor:pointer;">+ Project</button>
+                    <button onclick="setView('documentcreate')" style="background:rgba(85,91,110,0.08);color:#555B6E;padding:6px 14px;border-radius:6px;font-weight:800;font-size:11px;border:none;cursor:pointer;">+ Document</button>
                 </div>
             </div>` : ''}
         </div>`;

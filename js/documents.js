@@ -295,6 +295,11 @@ async function _cloudWriteEvidence(fileName, file) {
 async function _loadFolderManifest() {
     try {
         var text = await _localDocsGetText('Documents/folders.json');
+        if (!text) text = await _localDocsGetTextFromMasterFolder([
+            'Documents/folders.json',
+            'Data/Documents/folders.json',
+            'Master Folder/Data/Documents/folders.json'
+        ]);
         return text ? JSON.parse(text).folders || [] : [];
     } catch(e) { return []; }
 }
