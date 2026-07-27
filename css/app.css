@@ -459,16 +459,27 @@ h1, h2, h3, h4 {
 
   #print-doc-area p { font-size: 11px !important; line-height: 1.5 !important; }
 
-  /* Summary panel — compact, Edwardian styled */
-  #print-doc-area .border-t-4 {
-    border-top: 2px solid #879d82 !important;
+  /* Summary panel — compact Edwardian card/donut layout */
+  #print-doc-area .rounded-xl.p-5.mb-4 {
+    border: 1px solid #d5ddd0 !important; border-top: 3px solid #879d82 !important;
     background: #f0f3ee !important; border-radius: 0 !important;
     padding: 12px 16px !important; margin-bottom: 16px !important;
   }
-  #print-doc-area .border-t-4 h3 { font-size: 9px !important; color: #60755f !important; margin-bottom: 6px !important; }
-  #print-doc-area .border-t-4 .text-3xl { font-size: 18px !important; }
-  #print-doc-area .border-t-4 .grid { gap: 4px !important; }
-  #print-doc-area .border-t-4 .bg-white { background: #faf9f5 !important; border: 1px solid #d5ddd0 !important; padding: 4px 8px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 h3 { font-size: 9px !important; color: #60755f !important; margin-bottom: 6px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .text-3xl { font-size: 18px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .rounded-xl.p-4 { background: #faf9f5 !important; border: 1px solid #d5ddd0 !important; padding: 8px !important; margin-bottom: 6px !important; border-radius: 0 !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .rounded-full { width: 36px !important; height: 36px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .rounded-full .rounded-full { width: 26px !important; height: 26px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .rounded-full .rounded-full span { font-size: 9px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .text-sm { font-size: 10px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .text-\\[10px\\] { font-size: 8px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .text-\\[9px\\] { font-size: 8px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .text-\\[11px\\] { font-size: 9px !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 details summary { display: none !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 details { display: block !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 details > div { display: block !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .space-y-1 > div { padding: 2px 0 !important; border-bottom: 1px dotted #d5ddd0 !important; }
+  #print-doc-area .rounded-xl.p-5.mb-4 .grid { gap: 6px !important; }
 
   /* Document body — paper-like */
   #print-doc-area #doc-body-display {
@@ -512,6 +523,13 @@ h1, h2, h3, h4 {
   #print-doc-area .reply-item .bg-slate-50 { background: transparent !important; }
   #print-doc-area .reply-item p { font-size: 10px !important; color: #60755f !important; }
   #print-doc-area .reply-item div { font-size: 11px !important; color: #20231f !important; }
+
+  /* Reply with template box — lined paper for handwriting */
+  #print-doc-area textarea#reply-body {
+    height: 120px !important; border: 1px solid #d5ddd0 !important; background: #faf9f5 !important;
+    background-image: repeating-linear-gradient(transparent, transparent 19px, #e8eee5 19px, #e8eee5 20px) !important;
+    background-position: 0 -1px !important; border-radius: 0 !important;
+  }
 
   /* Evidence image */
   #print-doc-area img { max-width: 100% !important; height: auto !important; page-break-inside: avoid; margin: 8px 0 !important; }
