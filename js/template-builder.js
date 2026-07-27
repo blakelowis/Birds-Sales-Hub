@@ -128,12 +128,18 @@ window.renderTemplateLibrary = async function() {
         var scoredCount = t.fields ? t.fields.filter(function(f) { return f.scoringType && f.scoringType !== 'none'; }).length : 0;
         var ragCount = t.fields ? t.fields.filter(function(f) { return f.scoringType === 'rag'; }).length : 0;
         var pfCount = t.fields ? t.fields.filter(function(f) { return f.scoringType === 'passfail'; }).length : 0;
-        var created = t.created || 'Unknown';
+        var created = t.created || '';
+        var creatorName = t.creator || '';
 
         var typeBadges = '';
         if (scoredCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">' + scoredCount + ' Scored</span>';
         if (ragCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded" style="background:rgba(164,119,114,0.12);color:var(--edwardian-rose);border:1px solid rgba(164,119,114,0.25);">' + ragCount + ' RAG</span>';
         if (pfCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">' + pfCount + ' Pass/Fail</span>';
+
+        var metaLine = '';
+        if (creatorName && created) metaLine = escapeHtml(creatorName) + ' \u2022 ' + created;
+        else if (creatorName) metaLine = escapeHtml(creatorName);
+        else metaLine = created || 'Unknown';
 
         return '<div class="card p-5 hover:shadow-lg transition-all group cursor-pointer border-t-2 border-t-birds-green" onclick="window._tplEdit(\'' + t.id + '\')">' +
             '<div class="flex items-start justify-between mb-3">' +
@@ -150,7 +156,7 @@ window.renderTemplateLibrary = async function() {
             '<div class="flex items-center gap-2 flex-wrap">' +
             '<span class="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">' + allCount + ' item' + (allCount !== 1 ? 's' : '') + '</span>' +
             typeBadges +
-            '<span class="text-[10px] text-slate-400 ml-auto">' + created + '</span>' +
+            '<span class="text-[10px] text-slate-400 ml-auto">' + metaLine + '</span>' +
             '</div></div>';
     }).join('');
 
@@ -547,14 +553,16 @@ window._tplFillSave = async function(tmplId) {
         }
     });
     var docDate = hdrDate || new Date().toISOString().substring(0, 10);
-    var docCreator = hdrName || '';
+    var tplUser = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    var docCreator = hdrName || (tplUser ? tplUser.name : '');
+    var docCreatorId = tplUser ? tplUser.id : '';
     var docName = (hdrName ? hdrName + ' \u2014 ' : '') + tmpl.name;
     var id = _uid("DOC-");
     var seq = String(Date.now()).slice(-4);
     var ref = 'FV-' + new Date().getFullYear() + '-' + seq;
     var data = {
         id: id, name: docName, title: docName,
-        creator: docCreator, date: docDate,
+        creator: docCreator, creatorId: docCreatorId, createdAt: new Date().toISOString(), date: docDate,
         type: 'Template: ' + tmpl.name, department: tmpl.department || ((typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().department : ''), attentionOf: '', body: '', pin: '',
         reference: ref,
         status: 'Open', replies: [],
@@ -600,6 +608,9 @@ window.renderTemplateBuilderPage = async function() {
             name: '',
             description: '',
             department: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().department : '',
+            creator: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().name : '',
+            creatorId: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().id : '',
+            createdAt: new Date().toISOString(),
             fields: [
                 { id: _uid('hdr-'), label: 'Store Visit Report', answerType: 'header', scoringType: 'none', subLabel: '',
                   headerConfig: { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' } },

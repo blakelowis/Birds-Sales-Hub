@@ -1,5 +1,5 @@
 /* ─── Users Module v134 ────────────────────────────────────────── */
-/* User authentication: IDB + filesystem (.users/) + localStorage  */
+/* User authentication: IDB + filesystem (users/) + localStorage  */
 window.Users = (function() {
     var _db = null;
     var _users = [];
@@ -146,11 +146,11 @@ window.Users = (function() {
         });
     }
 
-    /* ─── Filesystem helpers (.users/ directory) ────────────────── */
+    /* ─── Filesystem helpers (users/ directory) ────────────────── */
     async function _loadFromFilesystem() {
         if (!directoryHandle) return [];
         try {
-            var dir = await directoryHandle.getDirectoryHandle('.users');
+            var dir = await directoryHandle.getDirectoryHandle('users');
             var out = [];
             for await (var entry of dir.values()) {
                 if (entry.kind === 'file' && entry.name.endsWith('.json')) {
@@ -167,7 +167,7 @@ window.Users = (function() {
     async function _saveToFilesystem(user) {
         if (!directoryHandle) return;
         try {
-            var dir = await directoryHandle.getDirectoryHandle('.users', { create: true });
+            var dir = await directoryHandle.getDirectoryHandle('users', { create: true });
             var fh = await dir.getFileHandle(user.id + '.json', { create: true });
             var w = await fh.createWritable();
             await w.write(JSON.stringify(user, null, 2));
@@ -179,15 +179,20 @@ window.Users = (function() {
         if (!directoryHandle || !_users.length) return;
         console.log('[Users] Syncing', _users.length, 'users to filesystem...');
         for (var i = 0; i < _users.length; i++) {
-            await _saveToFilesystem(_users[i]);
+            /* Only sync users that have a PIN or were created locally (not bundled fallback) */
+            if (_users[i].pin || _users[i].created) {
+                await _saveToFilesystem(_users[i]);
+            }
         }
         console.log('[Users] Filesystem sync complete');
+        /* Also reload FROM filesystem in case accounts were created on other machines */
+        await reloadFromFilesystem();
     }
 
     async function _deleteFromFilesystem(id) {
         if (!directoryHandle) return;
         try {
-            var dir = await directoryHandle.getDirectoryHandle('.users');
+            var dir = await directoryHandle.getDirectoryHandle('users');
             await dir.removeEntry(id + '.json');
         } catch(e) {}
     }
@@ -245,6 +250,32 @@ window.Users = (function() {
         if (_currentUser) {
             var found = _users.find(function(u) { return u.id === _currentUser.id; });
             if (!found) { _currentUser = null; _clearStored(); }
+        }
+    }
+
+    /* Called after folder connects — reloads users from filesystem if we only had bundled/IDB */
+    async function reloadFromFilesystem() {
+        var fsUsers = await _loadFromFilesystem();
+        if (fsUsers.length) {
+            _users = fsUsers;
+            for (var i = 0; i < _users.length; i++) {
+                await _idbPut(_users[i]);
+            }
+            /* Re-verify current user */
+            if (_currentUser) {
+                var found = _users.find(function(u) { return u.id === _currentUser.id; });
+                if (!found) {
+                    /* User might have been created on another machine — try matching by name */
+                    var byName = _users.find(function(u) { return u.name === _currentUser.name; });
+                    if (byName) {
+                        _currentUser = byName;
+                        _setStored(byName);
+                    } else {
+                        _currentUser = null;
+                        _clearStored();
+                    }
+                }
+            }
         }
     }
 
@@ -479,7 +510,7 @@ window.Users = (function() {
     }
 
     /* ─── Actions ───────────────────────────────────────────────── */
-    function doLogin() {
+    async function doLogin() {
         var nameSel = document.getElementById('loginName');
         var pinInput = document.getElementById('loginPin');
         var errEl = document.getElementById('loginError');
@@ -507,6 +538,8 @@ window.Users = (function() {
 
         setCurrentUser(user);
         updateHeaderBadge();
+        // v138: Connect folder after login so documents/projects load from filesystem
+        if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
         renderDashboard();
     }
 
@@ -648,6 +681,7 @@ window.Users = (function() {
         doFirstLogin: doFirstLogin,
         doRegister: doRegister,
         syncAllToFilesystem: syncAllToFilesystem,
+        reloadFromFilesystem: reloadFromFilesystem,
         doLogout: doLogout,
         showRegister: showRegister,
         showLogin: showLogin,

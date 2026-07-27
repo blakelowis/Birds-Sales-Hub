@@ -11,11 +11,67 @@ window.Projects = (function() {
         return (typeof Users !== 'undefined' && Users.getDepartments) ? Users.getDepartments() : ['General'];
     }
 
-    /* ─── Storage: birds_documents IDB via _localDocs* ────────── */
+    /* ─── Storage: birds_documents IDB via _localDocs* + filesystem ── */
     function _path(id) { return 'Projects/' + id + '.json'; }
+
+    async function _saveToFilesystem(project) {
+        if (typeof directoryHandle === 'undefined' || !directoryHandle) return;
+        try {
+            var dir = await directoryHandle.getDirectoryHandle('Projects', { create: true });
+            var fh = await dir.getFileHandle(project.id + '.json', { create: true });
+            var w = await fh.createWritable();
+            await w.write(JSON.stringify(project, null, 2));
+            await w.close();
+        } catch(e) { console.warn('[Projects] Filesystem save failed:', e.message); }
+    }
+
+    async function _deleteFromFilesystem(id) {
+        if (typeof directoryHandle === 'undefined' || !directoryHandle) return;
+        try {
+            var dir = await directoryHandle.getDirectoryHandle('Projects');
+            await dir.removeEntry(id + '.json');
+        } catch(e) {}
+    }
+
+    async function _loadFromFilesystem() {
+        if (typeof directoryHandle === 'undefined' || !directoryHandle) return [];
+        try {
+            var dir = await directoryHandle.getDirectoryHandle('Projects');
+            var results = [];
+            for await (var entry of dir.values()) {
+                if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+                    try {
+                        var fh = await entry.getFileHandle(entry.name);
+                        var file = await fh.getFile();
+                        var text = await file.text();
+                        results.push(JSON.parse(text));
+                    } catch(e) {}
+                }
+            }
+            return results;
+        } catch(e) { return []; }
+    }
 
     async function _loadAll() {
         if (!window._localDocsConnection) { try { await _localDocsInit(); } catch(e) {} }
+
+        /* Try filesystem first (shared across users) */
+        var fsProjects = await _loadFromFilesystem();
+        if (fsProjects.length) {
+            _projects = fsProjects;
+            /* Sync to IDB */
+            if (window._localDocsConnection) {
+                for (var i = 0; i < _projects.length; i++) {
+                    try {
+                        var tx = window._localDocsConnection.transaction('files', 'readwrite');
+                        tx.objectStore('files').put({ path: _path(_projects[i].id), data: JSON.stringify(_projects[i]) });
+                    } catch(e) {}
+                }
+            }
+            return _projects;
+        }
+
+        /* Fallback to IDB */
         if (!window._localDocsConnection) return [];
         return new Promise(function(resolve) {
             try {
@@ -42,27 +98,24 @@ window.Projects = (function() {
 
     async function _save(project) {
         if (!window._localDocsConnection) await _localDocsInit();
-        if (!window._localDocsConnection) return;
-        return new Promise(function(resolve) {
+        /* Save to IDB */
+        if (window._localDocsConnection) {
             try {
                 var tx = window._localDocsConnection.transaction('files', 'readwrite');
                 tx.objectStore('files').put({ path: _path(project.id), data: JSON.stringify(project) });
-                tx.oncomplete = function() { resolve(); };
-                tx.onerror = function() { resolve(); };
-            } catch(e) { resolve(); }
-        });
+            } catch(e) {}
+        }
+        /* Save to filesystem (shared across users) */
+        await _saveToFilesystem(project);
     }
 
     async function _delete(id) {
         if (!window._localDocsConnection) return;
-        return new Promise(function(resolve) {
-            try {
-                var tx = window._localDocsConnection.transaction('files', 'readwrite');
-                tx.objectStore('files').delete(_path(id));
-                tx.oncomplete = function() { resolve(); };
-                tx.onerror = function() { resolve(); };
-            } catch(e) { resolve(); }
-        });
+        try {
+            var tx = window._localDocsConnection.transaction('files', 'readwrite');
+            tx.objectStore('files').delete(_path(id));
+        } catch(e) {}
+        await _deleteFromFilesystem(id);
     }
 
     /* ─── Load / Refresh ──────────────────────────────────────── */
@@ -780,6 +833,14 @@ window.Projects = (function() {
             }
         }
 
+        var creatorMeta = '';
+        if (p.createdByName || p.createdAt) {
+            var parts = [];
+            if (p.createdByName) parts.push(escapeHtml(p.createdByName));
+            if (p.createdAt) parts.push(new Date(p.createdAt).toLocaleDateString('en-GB'));
+            creatorMeta = parts.join(' \u2022 ');
+        }
+
         return `
         <div class="card p-4 cursor-pointer hover:shadow-md transition-all border-t-2 ${statusColors[p.status] || 'border-t-slate-300'}" onclick="Projects.renderProjectDetail('${p.id}')" style="${isYourTurn ? 'background:rgba(255,243,205,0.3);' : ''}">
             ${isYourTurn ? '<div style="font-size:9px;font-weight:800;color:#D94F4F;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">\u26A1 Your Turn</div>' : ''}
@@ -792,6 +853,7 @@ window.Projects = (function() {
                 <span class="text-[10px] font-bold text-slate-400">${p.stages.filter(function(s){return s.status==='completed'}).length}/${p.stages.length} stages</span>
                 ${currentStage && p.status === 'active' ? '<span class="text-[10px] font-bold text-slate-400">Next: ' + escapeHtml(nextAssignee || 'Unassigned') + '</span>' : ''}
             </div>
+            ${creatorMeta ? '<div class="text-[9px] text-slate-400 mt-1">' + creatorMeta + '</div>' : ''}
         </div>`;
     }
 
@@ -806,7 +868,7 @@ window.Projects = (function() {
         var waitingOn = getWaitingOnOthers(user.id);
         var myDocs = window.currentLoadedDocs ? (window.currentLoadedDocs.open || []) : [];
         var myAssignedDocs = myDocs.filter(function(d) {
-            return d.attentionOf === user.name || d.creator === user.name ||
+            return d.attentionOf === user.name || d.creatorId === user.id || d.creator === user.name ||
                 (d.replies && d.replies.some(function(r) { return r.author === user.name; }));
         });
 
@@ -878,9 +940,13 @@ window.Projects = (function() {
                 <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\uD83D\uDCCB Recent Documents (${myAssignedDocs.length})</h3>
                 <div class="space-y-2">
                     ${myAssignedDocs.slice(0, 5).map(function(d) {
+                        var docMeta = '';
+                        if (d.creator && d.date) docMeta = escapeHtml(d.creator) + ' \u2022 ' + escapeHtml(d.date);
+                        else if (d.creator) docMeta = escapeHtml(d.creator);
+                        else docMeta = escapeHtml(d.date || '');
                         return '<div class="card p-3 cursor-pointer hover:shadow-sm transition-all" onclick="openDocumentViewer(\'' + d.id + '\',\'Open\',\'' + (d.userFolderId || '') + '\')">' +
                             '<h4 class="text-sm font-bold text-slate-700">' + escapeHtml(d.name || 'Untitled') + '</h4>' +
-                            '<p class="text-[10px] text-slate-400">' + escapeHtml(d.type || '') + ' \u2022 ' + escapeHtml(d.date || '') + '</p></div>';
+                            '<p class="text-[10px] text-slate-400">' + escapeHtml(d.type || '') + (docMeta ? ' \u2022 ' + docMeta : '') + '</p></div>';
                     }).join('')}
                 </div>
             </div>` : ''}

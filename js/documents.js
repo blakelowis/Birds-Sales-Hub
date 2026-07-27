@@ -85,14 +85,17 @@ async function _localDocsGet(folder) {
                 if (results.length) { resolve(results); return; }
                 _masterFolderDocs(folder).then(function(docs) {
                     if (docs.length > 0) {
+                        var puts = [];
                         docs.forEach(function(d) {
                             if (d && d.id && !deletedIds[d.id]) {
-                                _localDocsPut(folder, d.id, d);
+                                puts.push(_localDocsPut(folder, d.id, d));
                             }
                         });
                         docs = docs.filter(function(d) { return d && d.id && !deletedIds[d.id]; });
+                        Promise.all(puts).then(function() { resolve(docs); });
+                    } else {
+                        resolve(docs);
                     }
-                    resolve(docs);
                 });
             }
         };
@@ -134,13 +137,24 @@ async function _masterFolderDocs(folder) {
 }
 async function _localDocsPut(folder, id, data) {
     if (!window._localDocsConnection) await _localDocsInit();
-    if (!window._localDocsConnection) return;
-    return new Promise(function(resolve) {
-        var tx = window._localDocsConnection.transaction('files', 'readwrite');
-        tx.objectStore('files').put({ path: 'Documents/' + folder + '/' + id + '.json', data: JSON.stringify(data) });
-        tx.oncomplete = function() { resolve(); };
-        tx.onerror = function() { resolve(); };
-    });
+    /* Save to IDB */
+    if (window._localDocsConnection) {
+        try {
+            var tx = window._localDocsConnection.transaction('files', 'readwrite');
+            tx.objectStore('files').put({ path: 'Documents/' + folder + '/' + id + '.json', data: JSON.stringify(data) });
+        } catch(e) {}
+    }
+    /* Save to filesystem (shared across users) */
+    if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        try {
+            var dir = await directoryHandle.getDirectoryHandle('Documents', { create: true });
+            var subDir = await dir.getDirectoryHandle(folder, { create: true });
+            var fh = await subDir.getFileHandle(id + '.json', { create: true });
+            var w = await fh.createWritable();
+            await w.write(JSON.stringify(data, null, 2));
+            await w.close();
+        } catch(e) { console.warn('[Docs] Filesystem save failed:', e.message); }
+    }
 }
 async function _localDocsDelete(folder, id) {
     if (!window._localDocsConnection) await _localDocsInit();
@@ -192,13 +206,27 @@ async function _localDocsGetTextFromMasterFolder(paths) {
 }
 async function _localDocsPutText(path, text) {
     if (!window._localDocsConnection) await _localDocsInit();
-    if (!window._localDocsConnection) return;
-    return new Promise(function(resolve) {
-        var tx = window._localDocsConnection.transaction('files', 'readwrite');
-        tx.objectStore('files').put({ path: path, data: text });
-        tx.oncomplete = function() { resolve(); };
-        tx.onerror = function() { resolve(); };
-    });
+    /* Save to IDB */
+    if (window._localDocsConnection) {
+        try {
+            var tx = window._localDocsConnection.transaction('files', 'readwrite');
+            tx.objectStore('files').put({ path: path, data: text });
+        } catch(e) {}
+    }
+    /* Save to filesystem (shared across users) */
+    if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        try {
+            var parts = path.split('/').filter(Boolean);
+            var handle = directoryHandle;
+            for (var i = 0; i < parts.length - 1; i++) {
+                handle = await handle.getDirectoryHandle(parts[i], { create: true });
+            }
+            var fh = await handle.getFileHandle(parts[parts.length - 1], { create: true });
+            var w = await fh.createWritable();
+            await w.write(text);
+            await w.close();
+        } catch(e) { console.warn('[Docs] Filesystem text save failed:', e.message); }
+    }
 }
 
 /* ─── Cloud helpers that use local storage ──────────────────── */
@@ -1685,8 +1713,8 @@ async function renderDocumentCreate() {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-                <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Author Name</label>
-                <input type="text" id="doc-author" class="input-chip rounded-none w-full">
+                <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Author</label>
+                <input type="text" id="doc-author" class="input-chip rounded-none w-full bg-slate-50" value="${escapeAttr((typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().name : '')}" readonly>
             </div>
             <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Date</label>
@@ -1774,7 +1802,9 @@ window._previewDocTemplate = async function(templateId) {
 };
 
 async function saveDocumentRecord() {
-    const author = document.getElementById("doc-author")?.value?.trim() || 'Unknown';
+    var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    const author = user ? user.name : (document.getElementById("doc-author")?.value?.trim() || 'Unknown');
+    const authorId = user ? user.id : '';
 
     const id = _uid("DOC-");
     const formTemplateId = document.getElementById("doc-form-template")?.value || '';
@@ -1784,6 +1814,8 @@ async function saveDocumentRecord() {
     const data = {
         id,
         creator: author,
+        creatorId: authorId,
+        createdAt: new Date().toISOString(),
         date: document.getElementById("doc-date")?.value || new Date().toISOString().substring(0, 10),
         attentionOf: document.getElementById("doc-attention")?.value || '',
         department: document.getElementById("doc-department")?.value || '',
