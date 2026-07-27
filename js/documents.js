@@ -150,6 +150,7 @@ async function _localDocsPut(folder, id, data) {
     }
     /* Save to filesystem (shared across users) */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
             var dir = await directoryHandle.getDirectoryHandle('Documents', { create: true });
             var subDir = await dir.getDirectoryHandle(folder, { create: true });
@@ -164,6 +165,7 @@ async function _localDocsDelete(folder, id) {
     if (!window._localDocsConnection) await _localDocsInit();
     /* Try to also delete from filesystem */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        if (typeof ensureWritePermission === 'function') await ensureWritePermission();
         var fsPaths = ['Documents/' + folder, 'Data/Documents/' + folder, 'Master Folder/Data/Documents/' + folder];
         for (var fp of fsPaths) {
             try {
@@ -223,6 +225,7 @@ async function _localDocsPutText(path, text) {
     }
     /* Save to filesystem (shared across users) */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
+        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
             var parts = path.split('/').filter(Boolean);
             var handle = directoryHandle;
@@ -1727,7 +1730,7 @@ async function renderDocumentCreate() {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Author</label>
-                <input type="text" id="doc-author" class="input-chip rounded-none w-full bg-slate-50" value="${escapeAttr((typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().name : '')}" readonly>
+                <input type="text" id="doc-author" class="input-chip rounded-none w-full bg-slate-50" value="${String((typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().name : '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" readonly>
             </div>
             <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Date</label>

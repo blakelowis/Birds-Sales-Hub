@@ -166,6 +166,7 @@ window.Users = (function() {
 
     async function _saveToFilesystem(user) {
         if (!directoryHandle) return;
+        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
         try {
             var dir = await directoryHandle.getDirectoryHandle('users', { create: true });
             var fh = await dir.getFileHandle(user.id + '.json', { create: true });
@@ -323,66 +324,129 @@ window.Users = (function() {
         _clearStored();
     }
 
+    /* ─── Login State ─────────────────────────────────────────────── */
+    var _loginSelectedUserId = null;
+    var _loginDeptFilter = '';
+
     /* ─── Login Screen ──────────────────────────────────────────── */
     function renderLoginScreen() {
-        /* Hide nav panels */
         document.querySelectorAll('.nav-panel').forEach(function(p) { p.classList.remove('open'); });
         document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+        _loginSelectedUserId = null;
+        _loginDeptFilter = '';
 
-        var depts = getDepartments().map(function(d) {
-            return '<option value="' + d + '">' + d + '</option>';
-        }).join('') + '<option value="__add_custom__">+ Add Custom Department...</option>';
-
-        var allNames = _users.map(function(u) {
-            return '<option value="' + u.id + '" data-dept="' + escapeAttr(u.department) + '">' + escapeHtml(u.name) + '</option>';
+        var deptList = getDepartments();
+        var deptPills = deptList.map(function(d) {
+            return '<button onclick="Users._loginFilterDept(\'' + escapeAttr(d) + '\')" class="login-dept-pill" data-dept="' + escapeAttr(d) + '">' + escapeHtml(d) + '</button>';
         }).join('');
 
         document.getElementById('mainView').innerHTML = `
-        <div style="max-width:440px;margin:40px auto 80px;">
-            <div class="card" style="padding:40px 36px;">
-                <div style="text-align:center;margin-bottom:28px;">
-                    <img src="logo.png" alt="Birds" style="height:56px;margin-bottom:10px;">
-                    <h2 style="font-family:'Merriweather',Georgia,serif;font-size:22px;color:#4A4A4A;margin:0 0 4px;">Welcome to The Hub</h2>
-                    <p style="color:#7A7A7A;font-size:12px;margin:0;">Sign in to continue</p>
-                </div>
+        <div style="max-width:700px;margin:20px auto 80px;padding:0 16px;">
+            <div style="text-align:center;margin-bottom:24px;">
+                <img src="logo.png" alt="Birds" style="height:56px;margin-bottom:10px;">
+                <h2 style="font-family:'Merriweather',Georgia,serif;font-size:22px;color:#4A4A4A;margin:0 0 4px;">Welcome to The Hub</h2>
+                <p style="color:#7A7A7A;font-size:12px;margin:0;">Tap your name to sign in</p>
+            </div>
 
-                <div style="margin-bottom:14px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Department</label>
-                    <select id="loginDept" onchange="Users._onDeptChange(this,'loginName')" style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;background:#fff;color:#4A4A4A;outline:none;">
-                        <option value="">All Departments</option>
-                        ${depts}
-                    </select>
-                </div>
+            <div id="loginDeptPills" style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:20px;">
+                <button onclick="Users._loginFilterDept('')" class="login-dept-pill login-dept-pill-active" data-dept="">All</button>
+                ${deptPills}
+            </div>
 
-                <div style="margin-bottom:14px;">
-                    <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Name</label>
-                    <select id="loginName" onchange="Users._onNameChange()" style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;background:#fff;color:#4A4A4A;outline:none;">
-                        <option value="">${_users.length ? 'Select your name...' : 'No accounts yet — create one below'}</option>
-                        ${allNames}
-                    </select>
-                </div>
+            <div id="loginTeamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:24px;">
+                ${_renderLoginCards('')}
+            </div>
 
-                <div id="loginPinArea">
-                    <div style="margin-bottom:22px;">
-                        <label style="display:block;font-size:10px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">PIN</label>
-                        <input type="password" id="loginPin" maxlength="8"
-                            onkeydown="if(event.key==='Enter')Users.doLogin()"
-                            style="width:100%;padding:9px 12px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;outline:none;"
-                            placeholder="Enter your PIN">
-                    </div>
-                </div>
-
-                <div id="loginError" style="display:none;color:#D94F4F;font-size:12px;font-weight:600;margin-bottom:12px;text-align:center;"></div>
-
-                <button id="loginBtn" onclick="Users.doLogin()" style="width:100%;padding:11px;background:#6E8E6D;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;"
-                    onmouseover="this.style.background='#5A7A59'" onmouseout="this.style.background='#6E8E6D'">Sign In</button>
-
-                <div style="text-align:center;margin-top:20px;">
-                    <a href="#" onclick="Users.showRegister();return false;" style="color:#6E8E6D;font-size:12px;font-weight:600;text-decoration:none;">First time? <span style="text-decoration:underline;">Create Account</span></a>
+            <div id="loginPinPanel" style="display:none;max-width:380px;margin:0 auto;">
+                <div class="card" style="padding:24px;text-align:center;">
+                    <div id="loginSelectedName" style="font-size:16px;font-weight:800;color:#4A4A4A;margin-bottom:4px;"></div>
+                    <div id="loginSelectedDept" style="font-size:11px;color:#7A7A7A;margin-bottom:16px;"></div>
+                    <div id="loginPinFields"></div>
+                    <div id="loginError" style="display:none;color:#D94F4F;font-size:12px;font-weight:600;margin:10px 0;"></div>
+                    <button id="loginBtn" onclick="Users.doLogin()" style="width:100%;padding:11px;background:#6E8E6D;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">Sign In</button>
+                    <div style="margin-top:12px;"><a href="#" onclick="Users._loginDeselect();return false;" style="color:#999;font-size:11px;">&larr; Back to team</a></div>
                 </div>
             </div>
-            <p style="text-align:center;color:#aaa;font-size:10px;margin-top:16px;">Your account is saved to the data folder for cross-device access</p>
+
+            <div style="text-align:center;margin-top:20px;">
+                <a href="#" onclick="Users.showRegister();return false;" style="color:#6E8E6D;font-size:12px;font-weight:600;text-decoration:none;">New team member? <span style="text-decoration:underline;">Create Account</span></a>
+            </div>
         </div>`;
+
+        if (!_users.length) {
+            document.getElementById('loginTeamGrid').innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#999;font-size:13px;padding:40px 0;">No accounts yet &mdash; <a href="#" onclick="Users.showRegister();return false;" style="color:#6E8E6D;">create one</a></p>';
+        }
+    }
+
+    function _renderLoginCards(deptFilter) {
+        var list = deptFilter ? _users.filter(function(u) { return u.department === deptFilter; }) : _users;
+        var initials = function(name) {
+            var parts = (name || '').trim().split(/\s+/);
+            if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+            return (parts[0] || '?')[0].toUpperCase();
+        };
+        var deptColor = function(dept) {
+            var colors = { 'General':'#6E8E6D','Area Sales Team':'#2563EB','Technical':'#D97706','Training & Development':'#7C3AED','Retail Auditor':'#DC2626','Production Manager':'#059669','Head of Retail':'#DB2777','Project Manager':'#0891B2','Director':'#1E293B' };
+            return colors[dept] || '#6E8E6D';
+        };
+        return list.map(function(u) {
+            var sel = u.id === _loginSelectedUserId;
+            var bg = sel ? deptColor(u.department) : '#f8fafc';
+            var fg = sel ? '#fff' : '#334155';
+            var border = sel ? deptColor(u.department) : '#e2e8f0';
+            var hasPin = !!u.pin;
+            var badge = hasPin ? '' : '<span style="position:absolute;top:4px;right:4px;width:8px;height:8px;background:#F59E0B;border-radius:50%;border:2px solid #fff;"></span>';
+            return '<div onclick="Users._loginSelectUser(\'' + u.id + '\')" style="position:relative;cursor:pointer;padding:14px 10px;border-radius:12px;text-align:center;border:2px solid ' + border + ';background:' + bg + ';color:' + fg + ';transition:all .15s;user-select:none;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,0.1)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">' +
+                badge +
+                '<div style="width:44px;height:44px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;background:' + (sel ? 'rgba(255,255,255,0.2)' : deptColor(u.department) + '20') + ';color:' + deptColor(u.department) + ';">' + initials(u.name) + '</div>' +
+                '<div style="font-size:12px;font-weight:700;line-height:1.3;">' + escapeHtml(u.name) + '</div>' +
+                '<div style="font-size:9px;font-weight:600;opacity:0.6;margin-top:2px;">' + escapeHtml(u.department) + '</div>' +
+                '</div>';
+        }).join('');
+    }
+
+    function _loginFilterDept(dept) {
+        _loginDeptFilter = dept;
+        _loginSelectedUserId = null;
+        document.getElementById('loginTeamGrid').innerHTML = _renderLoginCards(dept);
+        document.getElementById('loginPinPanel').style.display = 'none';
+        document.querySelectorAll('.login-dept-pill').forEach(function(b) {
+            b.className = 'login-dept-pill' + (b.getAttribute('data-dept') === dept ? ' login-dept-pill-active' : '');
+        });
+    }
+
+    function _loginSelectUser(userId) {
+        _loginSelectedUserId = userId;
+        var user = getById(userId);
+        if (!user) return;
+
+        document.getElementById('loginTeamGrid').innerHTML = _renderLoginCards(_loginDeptFilter);
+        var panel = document.getElementById('loginPinPanel');
+        panel.style.display = 'block';
+        document.getElementById('loginSelectedName').textContent = user.name;
+        document.getElementById('loginSelectedDept').textContent = user.department;
+
+        var fields = document.getElementById('loginPinFields');
+        var errEl = document.getElementById('loginError');
+        if (errEl) errEl.style.display = 'none';
+
+        if (!user.pin) {
+            fields.innerHTML = '<div style="margin-bottom:10px;"><input type="password" id="loginPinNew" maxlength="8" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;text-align:center;outline:none;" placeholder="Choose a PIN (4+ digits)"></div>' +
+                '<div style="margin-bottom:14px;"><input type="password" id="loginPinConfirm" maxlength="8" onkeydown="if(event.key===\'Enter\')Users.doFirstLogin()" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;text-align:center;outline:none;" placeholder="Confirm PIN"></div>';
+            var btn = document.getElementById('loginBtn');
+            if (btn) { btn.textContent = 'Set PIN & Sign In'; btn.onclick = function() { Users.doFirstLogin(); }; }
+        } else {
+            fields.innerHTML = '<div style="margin-bottom:14px;"><input type="password" id="loginPin" maxlength="8" onkeydown="if(event.key===\'Enter\')Users.doLogin()" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:13px;text-align:center;outline:none;" placeholder="Enter your PIN"></div>';
+            var btn = document.getElementById('loginBtn');
+            if (btn) { btn.textContent = 'Sign In'; btn.onclick = function() { Users.doLogin(); }; }
+            setTimeout(function() { var p = document.getElementById('loginPin'); if (p) p.focus(); }, 100);
+        }
+    }
+
+    function _loginDeselect() {
+        _loginSelectedUserId = null;
+        document.getElementById('loginPinPanel').style.display = 'none';
+        document.getElementById('loginTeamGrid').innerHTML = _renderLoginCards(_loginDeptFilter);
     }
 
     /* ─── Register Screen ───────────────────────────────────────── */
@@ -483,12 +547,12 @@ window.Users = (function() {
 
     /* ─── First login: set PIN for pre-created accounts ───────────── */
     function doFirstLogin() {
-        var nameSel = document.getElementById('loginName');
+        var errEl = document.getElementById('loginError');
+        var userId = _loginSelectedUserId;
+        if (!userId) { _showErr(errEl, 'Please select your name'); return; }
+
         var pinNew = document.getElementById('loginPinNew');
         var pinConfirm = document.getElementById('loginPinConfirm');
-        var errEl = document.getElementById('loginError');
-
-        if (!nameSel || !nameSel.value) { _showErr(errEl, 'Please select your name'); return; }
         var pin = pinNew ? pinNew.value : '';
         var pin2 = pinConfirm ? pinConfirm.value : '';
 
@@ -496,7 +560,7 @@ window.Users = (function() {
         if (pin.length < 4) { _showErr(errEl, 'PIN must be at least 4 digits'); return; }
         if (pin !== pin2) { _showErr(errEl, 'PINs do not match'); return; }
 
-        var user = getById(nameSel.value);
+        var user = getById(userId);
         if (!user) { _showErr(errEl, 'User not found'); return; }
 
         user.pin = pin;
@@ -511,20 +575,19 @@ window.Users = (function() {
 
     /* ─── Actions ───────────────────────────────────────────────── */
     async function doLogin() {
-        var nameSel = document.getElementById('loginName');
-        var pinInput = document.getElementById('loginPin');
         var errEl = document.getElementById('loginError');
-
-        if (!nameSel || !nameSel.value) {
+        var userId = _loginSelectedUserId;
+        if (!userId) {
             _showErr(errEl, 'Please select your name');
             return;
         }
+        var pinInput = document.getElementById('loginPin');
         if (!pinInput || !pinInput.value) {
             _showErr(errEl, 'Please enter your PIN');
             return;
         }
 
-        var user = getById(nameSel.value);
+        var user = getById(userId);
         if (!user) {
             _showErr(errEl, 'User not found');
             return;
@@ -538,7 +601,6 @@ window.Users = (function() {
 
         setCurrentUser(user);
         updateHeaderBadge();
-        // v138: Connect folder after login so documents/projects load from filesystem
         if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
         renderDashboard();
     }
@@ -686,6 +748,9 @@ window.Users = (function() {
         showRegister: showRegister,
         showLogin: showLogin,
         _onDeptChange: _onDeptChange,
-        _onNameChange: _onNameChange
+        _onNameChange: _onNameChange,
+        _loginFilterDept: _loginFilterDept,
+        _loginSelectUser: _loginSelectUser,
+        _loginDeselect: _loginDeselect
     };
 })();
