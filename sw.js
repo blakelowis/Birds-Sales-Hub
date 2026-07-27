@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v137';
+const CACHE_NAME = 'birds-hub-v140';
 
 const ASSETS = [
   './',
@@ -10,6 +10,7 @@ const ASSETS = [
   './favicon.ico',
   './tailwind.min.css',
   './css/app.css',
+  './fonts/fonts.css',
   './html2canvas.min.js',
   './papaparse.min.js',
   './jspdf.umd.min.js',
