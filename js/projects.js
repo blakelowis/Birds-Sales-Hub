@@ -59,14 +59,9 @@ window.Projects = (function() {
         var fsProjects = await _loadFromFilesystem();
         if (fsProjects.length) {
             _projects = fsProjects;
-            /* Sync to IDB */
-            if (window._localDocsConnection) {
-                for (var i = 0; i < _projects.length; i++) {
-                    try {
-                        var tx = window._localDocsConnection.transaction('files', 'readwrite');
-                        tx.objectStore('files').put({ path: _path(_projects[i].id), data: JSON.stringify(_projects[i]) });
-                    } catch(e) {}
-                }
+            /* Sync to IDB (awaited) */
+            for (var i = 0; i < _projects.length; i++) {
+                await _idbPut(_path(_projects[i].id), JSON.stringify(_projects[i]));
             }
             return _projects;
         }
@@ -96,17 +91,27 @@ window.Projects = (function() {
         });
     }
 
-    async function _save(project) {
-        if (!window._localDocsConnection) await _localDocsInit();
-        /* Save to IDB */
-        if (window._localDocsConnection) {
+    function _idbPut(path, data) {
+        if (!window._localDocsConnection) return Promise.resolve(false);
+        return new Promise(function(resolve) {
             try {
                 var tx = window._localDocsConnection.transaction('files', 'readwrite');
-                tx.objectStore('files').put({ path: _path(project.id), data: JSON.stringify(project) });
-            } catch(e) {}
-        }
+                var req = tx.objectStore('files').put({ path: path, data: data });
+                req.onsuccess = function() { resolve(true); };
+                req.onerror = function() { resolve(false); };
+            } catch(e) { resolve(false); }
+        });
+    }
+
+    async function _save(project) {
+        if (!window._localDocsConnection) await _localDocsInit();
+        /* Save to IDB (awaited) */
+        await _idbPut(_path(project.id), JSON.stringify(project));
         /* Save to filesystem (shared across users) */
         await _saveToFilesystem(project);
+        /* Also store in runtime cache */
+        var idx = _projects.findIndex(function(p) { return p.id === project.id; });
+        if (idx >= 0) _projects[idx] = project; else _projects.unshift(project);
     }
 
     async function _delete(id) {
@@ -856,13 +861,15 @@ window.Projects = (function() {
         var visible = user ? active.filter(function(p) {
             return p.createdBy === user.id ||
                 p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }) ||
-                p.department === user.department;
+                p.department === user.department ||
+                (user.department === 'General');
         }) : active;
 
         var completedVisible = user ? completed.filter(function(p) {
             return p.createdBy === user.id ||
                 p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }) ||
-                p.department === user.department;
+                p.department === user.department ||
+                (user.department === 'General');
         }) : completed;
 
         /* Group by department */

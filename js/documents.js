@@ -137,12 +137,16 @@ async function _masterFolderDocs(folder) {
 }
 async function _localDocsPut(folder, id, data) {
     if (!window._localDocsConnection) await _localDocsInit();
-    /* Save to IDB */
+    /* Save to IDB (awaited) */
     if (window._localDocsConnection) {
-        try {
-            var tx = window._localDocsConnection.transaction('files', 'readwrite');
-            tx.objectStore('files').put({ path: 'Documents/' + folder + '/' + id + '.json', data: JSON.stringify(data) });
-        } catch(e) {}
+        await new Promise(function(resolve) {
+            try {
+                var tx = window._localDocsConnection.transaction('files', 'readwrite');
+                var req = tx.objectStore('files').put({ path: 'Documents/' + folder + '/' + id + '.json', data: JSON.stringify(data) });
+                req.onsuccess = function() { resolve(true); };
+                req.onerror = function() { resolve(false); };
+            } catch(e) { resolve(false); }
+        });
     }
     /* Save to filesystem (shared across users) */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
@@ -206,12 +210,16 @@ async function _localDocsGetTextFromMasterFolder(paths) {
 }
 async function _localDocsPutText(path, text) {
     if (!window._localDocsConnection) await _localDocsInit();
-    /* Save to IDB */
+    /* Save to IDB (awaited) */
     if (window._localDocsConnection) {
-        try {
-            var tx = window._localDocsConnection.transaction('files', 'readwrite');
-            tx.objectStore('files').put({ path: path, data: text });
-        } catch(e) {}
+        await new Promise(function(resolve) {
+            try {
+                var tx = window._localDocsConnection.transaction('files', 'readwrite');
+                var req = tx.objectStore('files').put({ path: path, data: text });
+                req.onsuccess = function() { resolve(true); };
+                req.onerror = function() { resolve(false); };
+            } catch(e) { resolve(false); }
+        });
     }
     /* Save to filesystem (shared across users) */
     if (typeof directoryHandle !== 'undefined' && directoryHandle) {
