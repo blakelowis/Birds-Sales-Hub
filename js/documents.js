@@ -574,6 +574,11 @@ function _renderFormTemplateFields(templateId, existingValues) {
                     if (hc.showDocRef) hFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document Ref</label><input type="text" data-tplfield="' + f.id + '" data-hdr="docRef" value="' + escapeHtml(hdrVals[3] || '') + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="Auto-generated"></div>');
                     if (hc.showDocId) hFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document ID</label><input type="text" data-tplfield="' + f.id + '" data-hdr="docId" value="' + escapeHtml(hdrVals[4] || '') + '" class="input-chip rounded-none w-full form-tpl-field" placeholder="Auto-generated"></div>');
                     if (hc.showTraining) hFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Training Document</label><select data-tplfield="' + f.id + '" data-hdr="training" class="input-chip rounded-none w-full form-tpl-field"><option value="No"' + (hdrVals[5] !== 'Yes' ? ' selected' : '') + '>No</option><option value="Yes"' + (hdrVals[5] === 'Yes' ? ' selected' : '') + '>Yes</option></select></div>');
+                    if (hc.showStore) {
+                        var storeList = (typeof _getTplStores === 'function') ? _getTplStores() : [];
+                        var storeOpts = storeList.map(function(s) { return '<option value="' + escapeHtml(s) + '"' + (hdrVals[6] === s ? ' selected' : '') + '>' + escapeHtml(s) + '</option>'; }).join('');
+                        hFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Store</label><select data-tplfield="' + f.id + '" data-hdr="store" class="input-chip rounded-none w-full form-tpl-field"><option value="">Select store...</option>' + storeOpts + '</select></div>');
+                    }
                     if (hFields.length) html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' + hFields.join('') + '</div>';
                     html += '</div>';
                     break;

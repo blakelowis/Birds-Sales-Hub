@@ -156,9 +156,14 @@ window.Projects = (function() {
 
     /* ─── Helper: is user assigned to a stage? ────────────────── */
     function _isUserAssignedToStage(stage, userId) {
-        if (stage.assignType === 'department' && stage.assignDepartment) {
+        if (stage.assignType === 'department') {
             var user = (typeof Users !== 'undefined') ? Users.getById(userId) : null;
-            return user && user.department === stage.assignDepartment;
+            if (!user) return false;
+            /* Check multi-dept array first, fall back to single dept */
+            if (stage.assignDepartments && stage.assignDepartments.length) {
+                return stage.assignDepartments.indexOf(user.department) !== -1;
+            }
+            return stage.assignDepartment && user.department === stage.assignDepartment;
         }
         if (stage.assignType === 'custom') return false;
         return stage.assignedTo && stage.assignedTo.indexOf(userId) !== -1;
@@ -239,7 +244,8 @@ window.Projects = (function() {
             description: (description || '').trim(),
             assignedTo: assignedTo || [],
             assignType: window._lastAssignType || 'persons',
-            assignDepartment: window._lastAssignDepartment || '',
+            assignDepartments: window._lastAssignDepartments || [],
+            assignDepartment: (window._lastAssignDepartments && window._lastAssignDepartments.length) ? window._lastAssignDepartments[0] : '',
             assignCustom: window._lastAssignCustom || '',
             status: 'pending',
             completedBy: null,
@@ -431,8 +437,13 @@ window.Projects = (function() {
         var p = getById(projectId);
         if (!p) return;
         var users = (typeof Users !== 'undefined') ? Users.getAll() : [];
-        var deptOpts = (typeof Users !== 'undefined') ? Users.getDeptOptionsHtml('', false) : '<option>General</option>';
-        deptOpts += '<option value="__add_custom__">+ Add Custom Department...</option>';
+        var depts = [...new Set(users.map(function(u) { return u.department || 'General'; }))].sort();
+        var deptChecks = depts.map(function(d) {
+            return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer">' +
+                '<input type="checkbox" value="' + escapeHtml(d) + '" class="stage-dept-cb accent-[#6E8E6D]">' +
+                '<span class="text-sm">' + escapeHtml(d) + '</span>' +
+                '</label>';
+        }).join('');
         var userChecks = users.map(function(u) {
             return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer">' +
                 '<input type="checkbox" value="' + u.id + '" class="stage-assign-cb accent-[#6E8E6D]">' +
@@ -468,8 +479,10 @@ window.Projects = (function() {
                         </div>
 
                         <div id="assign-dept-panel" class="hidden">
-                            <select id="stage-assign-dept" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-birds-green outline-none">${deptOpts}</select>
-                            <p class="text-[10px] text-slate-400 mt-1">Everyone in this department will be notified</p>
+                            <div class="max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
+                                ${deptChecks}
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-1">Select one or more departments</p>
                         </div>
                         <div id="assign-persons-panel" class="max-h-40 overflow-y-auto border border-slate-200 rounded-lg">
                             ${userChecks}
@@ -502,15 +515,18 @@ window.Projects = (function() {
         var type = typeEl ? typeEl.value : 'persons';
         window._lastAssignType = type;
         var assignedTo = [];
-        var assignDepartment = '';
+        var assignDepartments = [];
         var assignCustom = '';
 
         if (type === 'department') {
-            var deptEl = document.getElementById('stage-assign-dept');
-            assignDepartment = deptEl ? deptEl.value : '';
-            /* Resolve department to user IDs for assignedTo */
-            if (assignDepartment && typeof Users !== 'undefined') {
-                Users.getByDepartment(assignDepartment).forEach(function(u) { assignedTo.push(u.id); });
+            document.querySelectorAll('.stage-dept-cb:checked').forEach(function(cb) {
+                assignDepartments.push(cb.value);
+            });
+            /* Resolve departments to user IDs */
+            if (assignDepartments.length && typeof Users !== 'undefined') {
+                assignDepartments.forEach(function(dept) {
+                    Users.getByDepartment(dept).forEach(function(u) { if (assignedTo.indexOf(u.id) === -1) assignedTo.push(u.id); });
+                });
             }
         } else if (type === 'custom') {
             var customEl = document.getElementById('stage-assign-custom');
@@ -521,9 +537,9 @@ window.Projects = (function() {
                 assignedTo.push(cb.value);
             });
         }
-        window._lastAssignDepartment = assignDepartment;
+        window._lastAssignDepartments = assignDepartments;
         window._lastAssignCustom = assignCustom;
-        return { assignedTo: assignedTo, assignType: type, assignDepartment: assignDepartment, assignCustom: assignCustom };
+        return { assignedTo: assignedTo, assignType: type, assignDepartments: assignDepartments, assignCustom: assignCustom };
     }
 
     async function _doAddStage(projectId) {
@@ -558,8 +574,9 @@ window.Projects = (function() {
             var isFuture = idx > currentIdx || (idx === currentIdx && s.status !== 'completed' && !isCurrent);
             var isYourTurn = false;
             if (isCurrent && user) {
-                if (s.assignType === 'department' && s.assignDepartment) {
-                    isYourTurn = user.department === s.assignDepartment;
+                if (s.assignType === 'department') {
+                    var userDepts = (s.assignDepartments && s.assignDepartments.length) ? s.assignDepartments : (s.assignDepartment ? [s.assignDepartment] : []);
+                    isYourTurn = userDepts.indexOf(user.department) !== -1;
                 } else if (s.assignType !== 'custom') {
                     isYourTurn = s.assignedTo && s.assignedTo.indexOf(user.id) !== -1;
                 }
@@ -573,10 +590,17 @@ window.Projects = (function() {
 
             var assigneeNames = '';
             var assignBadge = '';
-            if (s.assignType === 'department' && s.assignDepartment) {
-                var deptMembers = (typeof Users !== 'undefined') ? Users.getByDepartment(s.assignDepartment) : [];
-                var deptNames = deptMembers.map(function(m) { return m.name; }).join(', ');
-                assigneeNames = s.assignDepartment + (deptNames ? ' (' + deptNames + ')' : ' (no members)');
+            if (s.assignType === 'department') {
+                var deptList = (s.assignDepartments && s.assignDepartments.length) ? s.assignDepartments : (s.assignDepartment ? [s.assignDepartment] : []);
+                var deptMembers = [];
+                if (typeof Users !== 'undefined') {
+                    deptList.forEach(function(dept) {
+                        Users.getByDepartment(dept).forEach(function(m) {
+                            if (deptMembers.indexOf(m.name) === -1) deptMembers.push(m.name);
+                        });
+                    });
+                }
+                assigneeNames = deptList.join(', ') + (deptMembers.length ? ' (' + deptMembers.join(', ') + ')' : ' (no members)');
                 assignBadge = '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 ml-1">DEPT</span>';
             } else if (s.assignType === 'custom' && s.assignCustom) {
                 assigneeNames = s.assignCustom;
@@ -820,9 +844,16 @@ window.Projects = (function() {
 
         var nextAssignee = '';
         if (currentStage) {
-            if (currentStage.assignType === 'department' && currentStage.assignDepartment) {
-                var nm = (typeof Users !== 'undefined') ? Users.getByDepartment(currentStage.assignDepartment) : [];
-                nextAssignee = currentStage.assignDepartment + ' (' + nm.map(function(m) { return m.name.split(' ')[0]; }).join(', ') + ')';
+            if (currentStage.assignType === 'department') {
+                var deptList = (currentStage.assignDepartments && currentStage.assignDepartments.length) ? currentStage.assignDepartments : (currentStage.assignDepartment ? [currentStage.assignDepartment] : []);
+                var deptNames = [];
+                if (typeof Users !== 'undefined') {
+                    deptList.forEach(function(dept) {
+                        var nm = Users.getByDepartment(dept);
+                        deptNames.push(dept + ' (' + nm.map(function(m) { return m.name.split(' ')[0]; }).join(', ') + ')');
+                    });
+                }
+                nextAssignee = deptNames.join(', ');
             } else if (currentStage.assignType === 'custom' && currentStage.assignCustom) {
                 nextAssignee = currentStage.assignCustom;
             } else if (currentStage.assignedTo && currentStage.assignedTo.length) {

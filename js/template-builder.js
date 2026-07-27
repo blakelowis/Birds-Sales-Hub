@@ -123,6 +123,7 @@ window.renderTemplateLibrary = async function() {
         return (t.department || 'General') === filterDept;
     });
 
+    var deptOptsList = tplDepts.filter(function(d) { return d !== 'All'; });
     var cards = filtered.map(function(t) {
         var allCount = t.fields ? t.fields.length : 0;
         var scoredCount = t.fields ? t.fields.filter(function(f) { return f.scoringType && f.scoringType !== 'none'; }).length : 0;
@@ -141,12 +142,16 @@ window.renderTemplateLibrary = async function() {
         else if (creatorName) metaLine = escapeHtml(creatorName);
         else metaLine = created || 'Unknown';
 
+        var deptSelect = '<select onclick="event.stopPropagation()" onchange="window._tplChangeDept(\'' + t.id + '\',this.value)" class="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500 border-0 cursor-pointer hover:bg-slate-200">' +
+            deptOptsList.map(function(d) { return '<option value="' + escapeHtml(d) + '"' + ((t.department || 'General') === d ? ' selected' : '') + '>' + escapeHtml(d) + '</option>'; }).join('') +
+            '</select>';
+
         return '<div class="card p-5 hover:shadow-lg transition-all group cursor-pointer border-t-2 border-t-birds-green" onclick="window._tplEdit(\'' + t.id + '\')">' +
             '<div class="flex items-start justify-between mb-3">' +
             '<div class="flex-1 min-w-0">' +
             '<h3 class="text-lg font-black text-slate-800 truncate">' + escapeHtml(t.name || 'Untitled') + '</h3>' +
             '<p class="text-xs text-slate-400 mt-0.5">' + escapeHtml(t.description || 'No description') + '</p>' +
-            (t.department ? '<span class="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 mt-1">' + escapeHtml(t.department) + '</span>' : '') +
+            '<div class="mt-1">' + deptSelect + '</div>' +
             '</div>' +
             '<div class="flex gap-1 ml-2">' +
             '<button onclick="event.stopPropagation();window._tplFill(\'' + t.id + '\')" class="px-2 py-1 rounded text-[10px] font-bold bg-birds-green text-white hover:bg-emerald-800" title="Fill In">\u25B6 Fill</button>' +
@@ -171,6 +176,15 @@ window.renderTemplateLibrary = async function() {
 };
 
 window._tplEdit = function(id) { window._tplBuilderEditId = id; setView('templatebuilder'); };
+window._tplChangeDept = async function(id, newDept) {
+    var all = await _tplLoadTemplates();
+    var t = all.find(function(t) { return t.id === id; });
+    if (!t) return;
+    t.department = newDept;
+    await _saveFormTemplates(all);
+    showToast('Moved to ' + newDept, 'success');
+    renderTemplateLibrary();
+};
 window._tplDuplicate = async function(id) { if (!confirm('Duplicate this form template?')) return; await _tplDuplicateTemplate(id); renderTemplateLibrary(); };
 window._tplDelete = async function(id) { if (!confirm('Delete this form? This cannot be undone.')) return; await _tplDeleteTemplate(id); renderTemplateLibrary(); };
 window._tplFill = function(id) { window._tplFillId = id; setView('templatefill'); };
@@ -238,6 +252,11 @@ window.renderTemplateFill = async function() {
             if (hc.showDocRef) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document Ref</label><input type="text" data-tplfield="' + f.id + '" data-hdr="docRef" class="input-chip rounded-none w-full form-tpl-field" placeholder="Auto-generated"></div>');
             if (hc.showDocId) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document ID</label><input type="text" data-tplfield="' + f.id + '" data-hdr="docId" class="input-chip rounded-none w-full form-tpl-field" placeholder="Auto-generated"></div>');
             if (hc.showTraining) hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Training Document</label><select data-tplfield="' + f.id + '" data-hdr="training" class="input-chip rounded-none w-full form-tpl-field"><option value="No">No</option><option value="Yes">Yes</option></select></div>');
+            if (hc.showStore) {
+                var bStoreNames = (typeof _getTplStores === 'function') ? _getTplStores() : [];
+                var bStoreOpts = bStoreNames.map(function(s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
+                hfItems.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Store</label><select data-tplfield="' + f.id + '" data-hdr="store" class="input-chip rounded-none w-full form-tpl-field"><option value="">Select store...</option>' + bStoreOpts + '</select></div>');
+            }
             if (hfItems.length) hdrHtml += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' + hfItems.join('') + '</div>';
             hdrHtml += '</div>';
             return hdrHtml;
@@ -543,13 +562,18 @@ window._tplFillSave = async function(tmplId) {
     if (!tmpl) return;
     var values = _tplCollectValues(tmpl);
     /* Extract metadata from Document Header fields if present */
-    var hdrName = '', hdrJob = '', hdrDate = '';
+    var hdrName = '', hdrJob = '', hdrDate = '', hdrStore = '';
     tmpl.fields.forEach(function(f) {
         if (f.answerType === 'header' && f.headerConfig) {
             var hdrVals = (values[f.id] || '').split(' | ');
-            if (f.headerConfig.showName) hdrName = hdrVals[0] || '';
-            if (f.headerConfig.showJobTitle) hdrJob = hdrVals[1] || '';
-            if (f.headerConfig.showDate) hdrDate = hdrVals[2] || '';
+            var idx = 0;
+            if (f.headerConfig.showName) { hdrName = hdrVals[idx] || ''; idx++; }
+            if (f.headerConfig.showJobTitle) { hdrJob = hdrVals[idx] || ''; idx++; }
+            if (f.headerConfig.showDate) { hdrDate = hdrVals[idx] || ''; idx++; }
+            if (f.headerConfig.showDocRef) { idx++; }
+            if (f.headerConfig.showDocId) { idx++; }
+            if (f.headerConfig.showTraining) { idx++; }
+            if (f.headerConfig.showStore) { hdrStore = hdrVals[idx] || ''; idx++; }
         }
     });
     var docDate = hdrDate || new Date().toISOString().substring(0, 10);
@@ -565,6 +589,7 @@ window._tplFillSave = async function(tmplId) {
         creator: docCreator, creatorId: docCreatorId, createdAt: new Date().toISOString(), date: docDate,
         type: 'Template: ' + tmpl.name, department: tmpl.department || ((typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().department : ''), attentionOf: '', body: '', pin: '',
         reference: ref,
+        store: hdrStore || '',
         status: 'Open', replies: [],
         formTemplateId: tmplId, formTemplateName: tmpl.name, formTemplateValues: values
     };
@@ -613,7 +638,7 @@ window.renderTemplateBuilderPage = async function() {
             createdAt: new Date().toISOString(),
             fields: [
                 { id: _uid('hdr-'), label: 'Store Visit Report', answerType: 'header', scoringType: 'none', subLabel: '',
-                  headerConfig: { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' } },
+                  headerConfig: { showName: true, showJobTitle: true, showDate: true, showStore: false, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' } },
                 { id: _uid('sig-'), label: '', answerType: 'signoff', scoringType: 'none', signoffRole: 'Area Manager' }
             ],
             created: new Date().toISOString().substring(0, 10)
@@ -812,6 +837,7 @@ function _bldProperties(f) {
             { key: 'showName', label: 'Name', icon: '\uD83D\uDC64' },
             { key: 'showJobTitle', label: 'Job Title', icon: '\uD83D\uDCCB' },
             { key: 'showDate', label: 'Date', icon: '\uD83D\uDCC5' },
+            { key: 'showStore', label: 'Store', icon: '\uD83C\uDFEA' },
             { key: 'showDocRef', label: 'Document Ref', icon: '\uD83D\uDCC4' },
             { key: 'showDocId', label: 'Document ID', icon: '\uD83D\uDD11' },
             { key: 'showLogo', label: 'Logo', icon: '\uD83D\uDDBC\uFE0F' },
@@ -958,7 +984,7 @@ window._bldAdd = function(sidebarType) {
         scoreWeight: undefined
     };
     if (answerType === 'multichoice' || answerType === 'checkbox') field.options = ['Option 1', 'Option 2'];
-    if (answerType === 'header') { field.subLabel = ''; field.headerConfig = { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' }; }
+    if (answerType === 'header') { field.subLabel = ''; field.headerConfig = { showName: true, showJobTitle: true, showDate: true, showStore: false, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' }; }
     if (answerType === 'signoff') field.signoffRole = 'Manager';
     if (answerType === 'table') { field.tableCols = 3; field.tableRows = 3; field.tableHeaders = ['Col 1', 'Col 2', 'Col 3']; field.tableRowHeaders = ['Row 1', 'Row 2', 'Row 3']; field.tableRowHeaderLabel = 'Item'; }
     b.tmpl.fields.push(field);
@@ -1229,6 +1255,7 @@ function _bldPreview(tmpl) {
             if (hc.showDocRef) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document Ref</label><input type="text" class="input-chip rounded-none w-full" placeholder="Auto-generated" disabled></div>');
             if (hc.showDocId) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Document ID</label><input type="text" class="input-chip rounded-none w-full" placeholder="Auto-generated" disabled></div>');
             if (hc.showTraining) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Training Document</label><select class="input-chip rounded-none w-full" disabled><option>No</option><option>Yes</option></select></div>');
+            if (hc.showStore) hpFields.push('<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Store</label><select class="input-chip rounded-none w-full" disabled><option>Select store...</option>' + storeOpts + '</select></div>');
             if (hpFields.length) html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">' + hpFields.join('') + '</div>';
             html += '</div>';
         } else if (at === 'section') {
