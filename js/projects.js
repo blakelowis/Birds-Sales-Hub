@@ -215,7 +215,7 @@ window.Projects = (function() {
     }
 
     /* ─── Create project ──────────────────────────────────────── */
-    async function create(name, description, department) {
+    async function create(name, description, department, startDate, endDate) {
         var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
         var project = {
             id: PROJECT_PREFIX + new Date().getFullYear() + '-' + _uid('').substring(0, 8),
@@ -226,6 +226,10 @@ window.Projects = (function() {
             createdBy: user ? user.id : '',
             createdByName: user ? user.name : 'Unknown',
             createdAt: new Date().toISOString().substring(0, 10),
+            startDate: startDate || '',
+            endDate: endDate || '',
+            overrunReason: '',
+            overrunImprovement: '',
             currentStageIndex: 0,
             stages: []
         };
@@ -235,7 +239,7 @@ window.Projects = (function() {
     }
 
     /* ─── Stage management ────────────────────────────────────── */
-    async function addStage(projectId, title, description, assignedTo) {
+    async function addStage(projectId, title, description, assignedTo, dueDate) {
         var p = getById(projectId);
         if (!p) return null;
         var stage = {
@@ -247,6 +251,7 @@ window.Projects = (function() {
             assignDepartments: window._lastAssignDepartments || [],
             assignDepartment: (window._lastAssignDepartments && window._lastAssignDepartments.length) ? window._lastAssignDepartments[0] : '',
             assignCustom: window._lastAssignCustom || '',
+            dueDate: dueDate || '',
             status: 'pending',
             completedBy: null,
             completedAt: null,
@@ -363,6 +368,39 @@ window.Projects = (function() {
         return null;
     }
 
+    /* ─── RAG calculations ───────────────────────────────────── */
+    function getStageRag(stage) {
+        if (stage.status === 'completed') return 'green';
+        if (!stage.dueDate) return null;
+        var now = new Date();
+        var due = new Date(stage.dueDate + 'T23:59:59');
+        var diff = Math.ceil((due - now) / 86400000);
+        if (diff < 0) return 'red';
+        if (diff <= 3) return 'amber';
+        return 'green';
+    }
+
+    function getProjectRag(project) {
+        if (project.status === 'resolved') return 'green';
+        if (!project.endDate) return null;
+        var now = new Date();
+        var end = new Date(project.endDate + 'T23:59:59');
+        var diff = Math.ceil((end - now) / 86400000);
+        if (diff < 0) return 'red';
+        if (diff <= 7) return 'amber';
+        /* Also check if any stage is overdue */
+        var hasOverdue = project.stages.some(function(s) { return getStageRag(s) === 'red'; });
+        if (hasOverdue) return 'amber';
+        return 'green';
+    }
+
+    function _ragColor(rag) {
+        if (rag === 'red') return { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5', label: 'Overdue' };
+        if (rag === 'amber') return { bg: '#fef9ee', color: '#d97706', border: '#fcd34d', label: 'At Risk' };
+        if (rag === 'green') return { bg: '#f0fdf4', color: '#16a34a', border: '#86efac', label: 'On Track' };
+        return null;
+    }
+
     /* ─── Generate email body for all assigned users ──────────── */
     function emailAllAssignees(projectId) {
         var p = getById(projectId);
@@ -411,6 +449,16 @@ window.Projects = (function() {
                             <select id="prj-dept" onchange="Projects._onDeptChange(this)" class="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-birds-green outline-none">${deptOptions}</select>
                         </div>
                     </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Start Date <span class="text-slate-300">(optional)</span></label>
+                            <input type="date" id="prj-start" class="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-birds-green outline-none">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Target End Date <span class="text-slate-300">(optional)</span></label>
+                            <input type="date" id="prj-end" class="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-birds-green outline-none">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-6 pt-4 border-t border-slate-100">
@@ -424,8 +472,10 @@ window.Projects = (function() {
         var name = document.getElementById('prj-name');
         var desc = document.getElementById('prj-desc');
         var dept = document.getElementById('prj-dept');
+        var startDate = document.getElementById('prj-start');
+        var endDate = document.getElementById('prj-end');
         if (!name || !name.value.trim()) { showToast('Please enter a project name', 'error'); return; }
-        var p = await create(name.value, desc ? desc.value : '', dept ? dept.value : 'General');
+        var p = await create(name.value, desc ? desc.value : '', dept ? dept.value : 'General', startDate ? startDate.value : '', endDate ? endDate.value : '');
         showToast('Project created — now add your first stage', 'success');
         renderProjectDetail(p.id);
     }
@@ -462,6 +512,10 @@ window.Projects = (function() {
                     <div>
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Description / Instructions</label>
                         <textarea id="stage-desc" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm resize-y h-16 focus:ring-2 focus:ring-birds-green outline-none" placeholder="What does this person need to do?"></textarea>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Due Date <span class="text-slate-300">(optional)</span></label>
+                        <input type="date" id="stage-due" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-birds-green outline-none">
                     </div>
 
                     <div>
@@ -545,9 +599,10 @@ window.Projects = (function() {
     async function _doAddStage(projectId) {
         var title = document.getElementById('stage-title');
         var desc = document.getElementById('stage-desc');
+        var dueDate = document.getElementById('stage-due');
         if (!title || !title.value.trim()) { showToast('Please enter a stage title', 'error'); return; }
         var assignment = _collectStageAssignment();
-        var s = await addStage(projectId, title.value, desc ? desc.value : '', assignment.assignedTo);
+        var s = await addStage(projectId, title.value, desc ? desc.value : '', assignment.assignedTo, dueDate ? dueDate.value : '');
         showToast('Stage added', 'success');
         renderProjectDetail(projectId);
     }
@@ -667,9 +722,10 @@ window.Projects = (function() {
                             <span class="text-lg">${statusIcon}</span>
                             <h4 class="text-sm font-black text-slate-800">${escapeHtml(s.title)}</h4>
                             <span style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:9999px;color:${statusColor};background:${isPast ? 'rgba(135,157,130,0.1)' : isYourTurn ? 'rgba(217,79,79,0.1)' : 'rgba(156,163,175,0.1)'};text-transform:uppercase;letter-spacing:.05em;">${statusLabel}</span>
+                            ${function(){ var r = getStageRag(s); if(!r) return ''; var rc = _ragColor(r); return '<span style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:9999px;color:' + rc.color + ';background:' + rc.bg + ';border:1px solid ' + rc.border + ';">' + rc.label + '</span>'; }()}
                         </div>
                         <p class="text-xs text-slate-500">${escapeHtml(s.description || 'No description')}</p>
-                        <p class="text-[11px] text-slate-400 mt-1">Assigned: <strong>${escapeHtml(assigneeNames)}</strong>${assignBadge}</p>
+                        <p class="text-[11px] text-slate-400 mt-1">Assigned: <strong>${escapeHtml(assigneeNames)}</strong>${assignBadge}${s.dueDate ? ' \u2022 Due: <strong>' + escapeHtml(s.dueDate) + '</strong>' : ''}</p>
                         ${completedByInfo}
                         ${overviewHtml}
                         ${linkedDocsHtml}
@@ -704,8 +760,12 @@ window.Projects = (function() {
                         <p class="text-[11px] text-slate-400 mt-1">
                             Created by ${escapeHtml(p.createdByName || 'Unknown')} \u2022 ${escapeHtml(p.createdAt || '')} \u2022 Dept: ${escapeHtml(p.department)}
                         </p>
+                        ${function(){ var rag = getProjectRag(p); if(!rag) return ''; var rc = _ragColor(rag); return '<div class="mt-2 flex items-center gap-2"><span style="font-size:10px;font-weight:800;padding:3px 10px;border-radius:9999px;color:' + rc.color + ';background:' + rc.bg + ';border:1px solid ' + rc.border + ';">' + rc.label + '</span></div>'; }()}
+                        ${(p.startDate || p.endDate) ? '<div class="mt-2 flex items-center gap-3 text-[11px] text-slate-400">' + (p.startDate ? '<span>Start: <strong>' + escapeHtml(p.startDate) + '</strong></span>' : '') + (p.endDate ? '<span>Target End: <strong>' + escapeHtml(p.endDate) + '</strong></span>' : '') + '</div>' : ''}
+                        ${p.overrunReason ? '<div class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-[11px]"><strong class="text-red-700">Overrun Reason:</strong> ' + escapeHtml(p.overrunReason) + (p.overrunImprovement ? '<br><strong class="text-red-700">Improvements:</strong> ' + escapeHtml(p.overrunImprovement) : '') + '</div>' : ''}
                     </div>
                     <div class="text-right flex-shrink-0">
+                        <button onclick="Projects.generateProjectReport('${p.id}')" style="background:transparent;color:#555B6E;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #555B6E;cursor:pointer;margin-bottom:4px;">\uD83D\uDCC4 Report</button>
                         ${p.status === 'needs_resolution' ? '<button onclick="Projects._doResolve(\'' + p.id + '\')" style="background:#6E8E6D;color:white;padding:6px 14px;border-radius:6px;font-weight:800;font-size:11px;border:none;cursor:pointer;">\u2714 Resolve Project</button>' : ''}
                         ${p.status === 'active' ? '<button onclick="Projects._doResolve(\'' + p.id + '\')" style="background:transparent;color:#999;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #E8E5E0;cursor:pointer;">Resolve Early</button>' : ''}
                     </div>
@@ -748,7 +808,19 @@ window.Projects = (function() {
     }
 
     async function _doResolve(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
         if (!confirm('Resolve this project? This marks it as complete.')) return;
+        /* If past end date, prompt for overrun reason */
+        if (p.endDate && new Date() > new Date(p.endDate + 'T23:59:59')) {
+            var reason = prompt('This project has overrun its target end date (' + p.endDate + ').\n\nPlease provide a reason (optional):');
+            if (reason === null) return;
+            var improvement = prompt('What improvements could be made next time? (optional):');
+            if (improvement === null) return;
+            p.overrunReason = reason || '';
+            p.overrunImprovement = improvement || '';
+            await _save(p);
+        }
         await resolveProject(projectId);
         showToast('Project resolved', 'success');
         renderProjectDetail(projectId);
@@ -875,7 +947,10 @@ window.Projects = (function() {
         return `
         <div class="card p-4 cursor-pointer hover:shadow-md transition-all border-t-2 ${statusColors[p.status] || 'border-t-slate-300'}" onclick="Projects.renderProjectDetail('${p.id}')" style="${isYourTurn ? 'background:rgba(255,243,205,0.3);' : ''}">
             ${isYourTurn ? '<div style="font-size:9px;font-weight:800;color:#D94F4F;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">\u26A1 Your Turn</div>' : ''}
-            <h3 class="text-sm font-black text-slate-800 mb-1 truncate">${escapeHtml(p.name)}</h3>
+            <div class="flex items-center gap-2 mb-1">
+                <h3 class="text-sm font-black text-slate-800 truncate flex-1">${escapeHtml(p.name)}</h3>
+                ${function(){ var rag = getProjectRag(p); if(!rag) return ''; var rc = _ragColor(rag); return '<span style="font-size:8px;font-weight:800;padding:2px 6px;border-radius:9999px;color:' + rc.color + ';background:' + rc.bg + ';border:1px solid ' + rc.border + ';white-space:nowrap;">' + rc.label + '</span>'; }()}
+            </div>
             <p class="text-[11px] text-slate-400 mb-2 line-clamp-1">${escapeHtml(p.description || 'No description')}</p>
             <div style="height:5px;background:#E8E5E0;border-radius:3px;overflow:hidden;margin-bottom:8px;">
                 <div style="height:100%;width:${progress}%;background:${p.status === 'resolved' ? '#6E8E6D' : '#D97706'};border-radius:3px;"></div>
@@ -1007,6 +1082,121 @@ window.Projects = (function() {
         }
     }
 
+    /* ─── End of Project PDF Report ─────────────────────────────── */
+    function generateProjectReport(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
+        if (typeof window.jspdf === 'undefined') { alert('PDF library not loaded, please try again.'); return; }
+        var { jsPDF } = window.jspdf;
+        var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        var ml = 20, mr = 190, y = 20;
+        var lineH = 7;
+
+        function checkPage(need) { if (y + need > 275) { doc.addPage(); y = 20; } }
+        function addLine(label, value, bold) { checkPage(lineH); doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100); doc.text(label + ':', ml, y); doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setTextColor(30); doc.text(String(value || '\u2014'), ml + 35, y); y += lineH; }
+        function addHeading(text) { checkPage(12); doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(40); doc.text(text, ml, y); y += 10; doc.setDrawColor(200); doc.line(ml, y - 5, mr, y - 5); }
+        function addBody(text) { checkPage(lineH); doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60); var lines = doc.splitTextToSize(String(text || ''), mr - ml); doc.text(lines, ml, y); y += lines.length * 5; }
+
+        /* Title */
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(20);
+        doc.setTextColor(30);
+        doc.text('End of Project Report', ml, y); y += 12;
+        doc.setDrawColor(110, 142, 109);
+        doc.setLineWidth(0.8);
+        doc.line(ml, y - 5, mr, y - 5); y += 5;
+
+        /* Project Info */
+        addHeading('Project Details');
+        addLine('Project Name', p.name);
+        addLine('Description', p.description || '\u2014');
+        addLine('Department', p.department);
+        addLine('Created By', p.createdByName || 'Unknown');
+        addLine('Created', p.createdAt || '\u2014');
+        addLine('Start Date', p.startDate || '\u2014');
+        addLine('Target End Date', p.endDate || '\u2014');
+        addLine('Resolved', p.resolvedAt || '\u2014');
+        addLine('Status', p.status === 'resolved' ? 'Resolved' : p.status);
+
+        /* Timeframe Assessment */
+        y += 5;
+        addHeading('Timeframe Assessment');
+        if (p.startDate && p.endDate) {
+            var start = new Date(p.startDate);
+            var end = new Date(p.endDate);
+            var resolved = p.resolvedAt ? new Date(p.resolvedAt) : new Date();
+            var plannedDays = Math.ceil((end - start) / 86400000);
+            var actualDays = Math.ceil((resolved - start) / 86400000);
+            addLine('Planned Duration', plannedDays + ' days');
+            addLine('Actual Duration', actualDays + ' days');
+            var diff = actualDays - plannedDays;
+            if (diff <= 0) {
+                addLine('Result', 'Completed on time' + (diff < 0 ? ' (' + Math.abs(diff) + ' days early)' : ''), true);
+            } else {
+                addLine('Result', 'Overrun by ' + diff + ' day' + (diff !== 1 ? 's' : ''), true);
+            }
+        } else if (p.endDate) {
+            addLine('Target End', p.endDate);
+            addLine('Actual End', p.resolvedAt || 'Not yet resolved');
+        } else {
+            addBody('No timeframe was set for this project.');
+        }
+
+        /* Overrun Details */
+        if (p.overrunReason) {
+            y += 3;
+            addHeading('Overrun Analysis');
+            addLine('Reason', p.overrunReason);
+            if (p.overrunImprovement) addLine('Improvements', p.overrunImprovement);
+        }
+
+        /* Stage Summary */
+        y += 3;
+        addHeading('Stage Summary');
+        if (!p.stages.length) {
+            addBody('No stages were created for this project.');
+        } else {
+            p.stages.forEach(function(s, idx) {
+                checkPage(25);
+                var stagRag = getStageRag(s);
+                var ragLabel = stagRag ? (stagRag.charAt(0).toUpperCase() + stagRag.slice(1)) : 'N/A';
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.setTextColor(30);
+                doc.text('Stage ' + (idx + 1) + ': ' + s.title, ml, y); y += 6;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.setTextColor(100);
+                doc.text('Assigned: ' + (s.assignType === 'department' ? (s.assignDepartments && s.assignDepartments.length ? s.assignDepartments.join(', ') : s.assignDepartment || 'Unassigned') : s.assignType === 'custom' ? s.assignCustom : (s.assignedTo || []).map(function(uid) { var u = (typeof Users !== 'undefined') ? Users.getById(uid) : null; return u ? u.name : ''; }).filter(Boolean).join(', ') || 'Unassigned'), ml, y); y += 5;
+                doc.text('Status: ' + (s.status === 'completed' ? 'Completed' : 'Pending') + '  |  Due: ' + (s.dueDate || 'Not set') + (s.completedAt ? '  |  Completed: ' + s.completedAt : '') + '  |  RAG: ' + ragLabel, ml, y); y += 5;
+                if (s.overview) { addBody('Summary: ' + s.overview); }
+                if (s.documents && s.documents.length) {
+                    doc.setFont('helvetica', 'italic');
+                    doc.setFontSize(9);
+                    doc.setTextColor(100);
+                    s.documents.forEach(function(d) {
+                        checkPage(5);
+                        doc.text('\u2022 Document: ' + (d.docRef || d.docId) + ' \u2014 ' + (d.title || ''), ml + 3, y); y += 5;
+                    });
+                }
+                y += 2;
+            });
+        }
+
+        /* Footer */
+        checkPage(15);
+        y += 5;
+        doc.setDrawColor(200);
+        doc.line(ml, y, mr, y); y += 8;
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text('Generated: ' + new Date().toLocaleString('en-GB') + '  |  The Birds Executive Hub', ml, y);
+
+        doc.save('Project_Report_' + (p.name || 'untitled').replace(/\s+/g, '_') + '.pdf');
+        showToast('PDF report downloaded', 'success');
+    }
+
     /* ─── Public API ────────────────────────────────────────────── */
     return {
         _onDeptChange: _onDeptChange,
@@ -1041,6 +1231,7 @@ window.Projects = (function() {
         _doAddStage: _doAddStage,
         _doCompleteStage: _doCompleteStage,
         _doResolve: _doResolve,
-        _emailNextStage: emailNextStage
+        _emailNextStage: emailNextStage,
+        generateProjectReport: generateProjectReport
     };
 })();
