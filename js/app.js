@@ -1,7 +1,20 @@
 async function renderDashboard(){
 try {
-  
-  
+  // v133: Auth guard — show login if not authenticated
+  if (typeof Users !== 'undefined' && !Users.getCurrentUser()) {
+    Users.renderLoginScreen();
+    return;
+  }
+
+if(currentView === 'mywork')
+    return Projects.renderMyWork();
+
+if(currentView === 'projects')
+    return Projects.renderProjectsList();
+
+if(currentView === 'projectcreate')
+    return Projects.renderCreateProject();
+
 if(currentView === 'champions')
     return renderChampionsView();
 

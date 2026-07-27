@@ -9,10 +9,39 @@ async function loadDirectoryHandle() {
     directoryHandle = null;
   }
 
+  // Try to restore from IDB (avoids full folder picker)
+  try {
+    var stored = await idbGet('settings', 'directoryHandle');
+    if (stored && stored.handle) {
+      directoryHandle = stored.handle;
+      var perm = await directoryHandle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') {
+        perm = await directoryHandle.requestPermission({ mode: 'read' });
+      }
+      if (perm === 'granted') {
+        document.getElementById('folderStatus').textContent = 'Folder connected';
+        // Sync any users created before folder was connected
+        if (typeof Users !== 'undefined' && Users.syncAllToFilesystem) Users.syncAllToFilesystem();
+        return;
+      }
+      directoryHandle = null;
+    }
+  } catch (e) {
+    console.warn('[DB] Could not restore directory handle:', e.message);
+  }
+
   // Open folder picker on first load
   try {
     directoryHandle = await window.showDirectoryPicker();
     document.getElementById('folderStatus').textContent = 'Folder connected';
+    // Persist handle to IDB so next load skips the full picker
+    try {
+      await idbPut('settings', { id: 'directoryHandle', handle: directoryHandle });
+    } catch (e) {
+      console.warn('[DB] Could not persist directory handle:', e.message);
+    }
+    // Sync any users created before folder was connected
+    if (typeof Users !== 'undefined' && Users.syncAllToFilesystem) Users.syncAllToFilesystem();
   } catch (e) {
     document.getElementById('ingestStatus').innerText = "Select a data folder to begin.";
     document.getElementById('folderStatus').textContent = '';
@@ -48,9 +77,39 @@ window.syncData = async function() {
 
   // Only open picker if we don't have a valid handle
   if (!directoryHandle) {
+    // Try to restore from IDB first
+    try {
+      var stored = await idbGet('settings', 'directoryHandle');
+      if (stored && stored.handle) {
+        directoryHandle = stored.handle;
+        var perm2 = await directoryHandle.queryPermission({ mode: 'read' });
+        if (perm2 !== 'granted') {
+          perm2 = await directoryHandle.requestPermission({ mode: 'read' });
+        }
+        if (perm2 === 'granted') {
+          document.getElementById('ingestStatus').innerText = "Re-syncing from saved folder...";
+        } else {
+          directoryHandle = null;
+        }
+      }
+    } catch (e) {
+      console.warn('[DB] Could not restore handle from IDB:', e.message);
+    }
+  }
+
+  // Only open picker if we still don't have a valid handle
+  if (!directoryHandle) {
     document.getElementById('ingestStatus').innerText = "Opening folder picker...";
     try {
       directoryHandle = await window.showDirectoryPicker();
+      // Persist to IDB so next load skips the picker
+      try {
+        await idbPut('settings', { id: 'directoryHandle', handle: directoryHandle });
+      } catch (e) {
+        console.warn('[DB] Could not persist directory handle:', e.message);
+      }
+      // Sync any users created before folder was connected
+      if (typeof Users !== 'undefined' && Users.syncAllToFilesystem) Users.syncAllToFilesystem();
     } catch (pickErr) {
       if (pickErr.name === 'AbortError') {
         document.getElementById('ingestStatus').innerText = "Folder selection cancelled.";

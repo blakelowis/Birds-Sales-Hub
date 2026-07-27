@@ -14,7 +14,7 @@ if (navigator.storage && navigator.storage.persist) {
 // Delete old database versions to prevent stale data
 indexedDB.databases && indexedDB.databases().then(function(dbs) {
   dbs.forEach(function(dbInfo) {
-    if (dbInfo.name && dbInfo.name !== 'BirdsExecutiveHub_v38') {
+    if (dbInfo.name && dbInfo.name !== 'BirdsExecutiveHub_v38' && dbInfo.name !== 'birds_documents' && dbInfo.name !== 'birds_users') {
       console.log('[DB] Deleting old database:', dbInfo.name);
       indexedDB.deleteDatabase(dbInfo.name);
     }
@@ -50,15 +50,28 @@ req.onsuccess = async e => {
     try { await idbClear('complaints'); } catch(e) { console.warn('[DB] complaints clear failed:', e.message); }
     try { await loadStoreMap(); } catch(e) { console.warn('[DB] loadStoreMap failed:', e.message); }
     populateExportDropdown();
-    if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
-    // loadSharedActions is called on-demand from the audit hub after folder sync completes
+    // v136: Auth check BEFORE folder picker — no premature folder prompt
+    if (typeof Users !== 'undefined') {
+      await Users.init();
+      if (typeof Projects !== 'undefined') await Projects.load();
+      if (Users.getCurrentUser()) {
+        Users.updateHeaderBadge();
+        // Restore folder handle from IDB silently (no picker prompt)
+        if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
+        renderDashboard();
+      } else {
+        Users.renderLoginScreen();
+      }
+    } else {
+      if (typeof loadDirectoryHandle === 'function') await loadDirectoryHandle();
+      renderDashboard();
+    }
     if (window.ComplaintsData && window.ComplaintsData.length) {
       window.__dataStatus.complaintsRows = window.ComplaintsData.length;
       console.log('[Startup] Complaints loaded from data folder sync:', window.ComplaintsData.length, 'rows');
     } else {
       console.log('[Startup] No complaints loaded — sync from data folder required');
     }
-    renderDashboard();
     updateDataStatusUI();
     checkDataFreshness();
     if(typeof loadSettings === 'function') loadSettings();

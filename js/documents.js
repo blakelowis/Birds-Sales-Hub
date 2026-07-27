@@ -14,11 +14,27 @@ window._openLinkedDoc = function(docId) {
     showToast('Linked document not found. It may have been deleted.', 'error');
 };
 
-const _docDepartments = [
-    'Head of Retail', 'Food Safety', 'Health & Safety',
-    'Training & Development', 'Area Team', 'Auditor',
-    'ALL Team', 'General'
-];
+function _getDocDepartments() {
+    var base = (typeof Users !== 'undefined' && Users.getDepartments) ? Users.getDepartments() : ['General'];
+    return base.concat(['+ Add Custom Department...']);
+}
+
+window.Documents = window.Documents || {};
+Documents._onDocDeptChange = function(sel) {
+    if (!sel) return;
+    if (sel.value === '+ Add Custom Department...') {
+        var name = prompt('Enter new department name:');
+        if (!name || !name.trim()) { sel.value = ''; return; }
+        if (typeof Users !== 'undefined' && Users.addDepartment) {
+            Users.addDepartment(name.trim()).then(function(added) {
+                if (added) { showToast('Department "' + name.trim() + '" added', 'success'); }
+                else { showToast('Department already exists', 'warning'); }
+                /* Re-render the create form to reflect new department list */
+                if (typeof renderCreateDocument === 'function') renderCreateDocument();
+            });
+        }
+    }
+};
 
 /* ─── Cloud helpers ──────────────────────────────────────────── */
 function _isDocsCloud() {
@@ -152,6 +168,7 @@ async function _localDocsDelete(folder, id) {
 }
 async function _localDocsGetText(path) {
     if (!window._localDocsConnection) await _localDocsInit();
+    if (!window._localDocsConnection) return null;
     return new Promise(function(resolve) {
         var tx = window._localDocsConnection.transaction('files', 'readonly');
         var req = tx.objectStore('files').get(path);
@@ -175,6 +192,7 @@ async function _localDocsGetTextFromMasterFolder(paths) {
 }
 async function _localDocsPutText(path, text) {
     if (!window._localDocsConnection) await _localDocsInit();
+    if (!window._localDocsConnection) return;
     return new Promise(function(resolve) {
         var tx = window._localDocsConnection.transaction('files', 'readwrite');
         tx.objectStore('files').put({ path: path, data: text });
@@ -566,11 +584,10 @@ function _renderFormTemplateFields(templateId, existingValues) {
                     var tableVals = (val || '').split('\n');
                     html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                     html += '<thead><tr>';
-                    html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs"></th>';
+                    html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>';
                     for (var tc = 0; tc < cols; tc++) {
                         html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[tc] || 'Col ' + (tc+1)) + '</th>';
                     }
-                    if (scoredRows.length && hasScoring) html += '<th class="bg-amber-50 border border-slate-200 p-2 text-center font-bold text-amber-700 text-xs" style="min-width:50px">Score</th>';
                     html += '</tr></thead><tbody>';
                     for (var tr = 0; tr < rows; tr++) {
                         var rowParts = (tableVals[tr] || '').split(' | ');
@@ -578,25 +595,25 @@ function _renderFormTemplateFields(templateId, existingValues) {
                         html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                         html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[tr] || 'Row ' + (tr+1)) + '</td>';
                         for (var tc = 0; tc < cols; tc++) {
-                            html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="' + tc + '" value="' + escapeHtml(rowParts[tc] || '') + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field focus:bg-white focus:ring-1 focus:ring-emerald-300 rounded" placeholder=""></td>';
-                        }
-                        if (rowScored) {
-                            var scType = f.scoringType || 'score_1_10';
-                            var existingScore = (existingValues && existingValues[f.id + '_r' + tr + '_c' + 'score']) || '';
-                            html += '<td class="border border-slate-200 p-1 text-center" style="min-width:120px">';
-                            if (scType === 'rag') {
-                                html += '<div class="flex gap-1 justify-center">';
-                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Green' ? ' ring-2 ring-offset-1' : '') + '">G</button>';
-                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200' + (existingScore === 'Amber' ? ' ring-2 ring-offset-1' : '') + '">A</button>';
-                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Red' ? ' ring-2 ring-offset-1' : '') + '">R</button>';
-                                html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
-                            } else if (scType === 'passfail') {
-                                html += '<div class="flex gap-1 justify-center">';
-                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Pass' ? ' ring-2 ring-offset-1' : '') + '">Pass</button>';
-                                html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Fail' ? ' ring-2 ring-offset-1' : '') + '">Fail</button>';
-                                html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
-                            } else {
-                                html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" min="0" max="10" value="' + escapeHtml(existingScore) + '" class="w-12 p-1 text-sm border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+                            var isLastCol = (tc === cols - 1);
+                            html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="' + tc + '" value="' + escapeHtml(rowParts[tc] || '') + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field focus:bg-white focus:ring-1 focus:ring-emerald-300 rounded" placeholder="">';
+                            if (isLastCol && rowScored) {
+                                var scType = f.scoringType || 'score_1_10';
+                                var existingScore = (existingValues && existingValues[f.id + '_r' + tr + '_c' + 'score']) || '';
+                                html += '<div class="flex gap-0.5 mt-1 justify-center">';
+                                if (scType === 'rag') {
+                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Green' ? ' ring-1 ring-offset-0' : '') + '">G</button>';
+                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200' + (existingScore === 'Amber' ? ' ring-1 ring-offset-0' : '') + '">A</button>';
+                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Red' ? ' ring-1 ring-offset-0' : '') + '">R</button>';
+                                    html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
+                                } else if (scType === 'passfail') {
+                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Pass' ? ' ring-1 ring-offset-0' : '') + '">Pass</button>';
+                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Fail' ? ' ring-1 ring-offset-0' : '') + '">Fail</button>';
+                                    html += '<input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
+                                } else {
+                                    html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" min="0" max="10" value="' + escapeHtml(existingScore) + '" class="w-10 p-0.5 text-[10px] border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+                                }
+                                html += '</div>';
                             }
                             html += '</td>';
                         }
@@ -811,11 +828,10 @@ async function _renderFormTemplateView(templateId, existingValues) {
                 var hasScoring = f.scoringType && f.scoringType !== 'none';
                 html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                 html += '<thead><tr>';
-                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs"></th>';
+                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>';
                 for (var hc = 0; hc < numCols; hc++) {
                     html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[hc] || 'Col ' + (hc+1)) + '</th>';
                 }
-                if (scoredRows.length && hasScoring) html += '<th class="bg-amber-50 border border-slate-200 p-2 text-center font-bold text-amber-700 text-xs" style="min-width:50px">Score</th>';
                 html += '</tr></thead><tbody>';
                 tableRows.forEach(function(row, ri) {
                     var cells = row.split(' | ');
@@ -824,24 +840,26 @@ async function _renderFormTemplateView(templateId, existingValues) {
                     html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                     html += '<td class="bg-slate-50 border border-slate-200 p-2 text-xs font-bold text-slate-500 text-left">' + escapeHtml(rowHdrs[ri] || 'Row ' + (ri+1)) + '</td>';
                     for (var cc = 0; cc < numCols; cc++) {
-                        html += '<td class="border border-slate-200 p-2 text-sm">' + escapeHtml(cells[cc] || '\u2014') + '</td>';
-                    }
-                    if (rowScored) {
-                        var scType = f.scoringType || 'score_1_10';
-                        var scoreDisplay = '', scoreClass = '';
-                        if (scType === 'rag') {
-                            scoreDisplay = existingScore || '\u2014';
-                            scoreClass = existingScore === 'Green' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : existingScore === 'Amber' ? 'bg-amber-50 text-amber-700 border-amber-200' : existingScore === 'Red' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
-                        } else if (scType === 'passfail') {
-                            scoreDisplay = existingScore || '\u2014';
-                            scoreClass = existingScore === 'Pass' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : existingScore === 'Fail' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
-                        } else {
-                            var sv = parseInt(existingScore) || 0;
-                            var max = f.scoreMax || 10;
-                            scoreDisplay = existingScore ? existingScore + ' / ' + max : '\u2014';
-                            scoreClass = sv >= 8 ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : sv >= 4 ? 'bg-amber-50 text-amber-700 border-amber-200' : sv > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
+                        var isLastCol = (cc === numCols - 1);
+                        html += '<td class="border border-slate-200 p-2 text-sm">' + escapeHtml(cells[cc] || '\u2014');
+                        if (isLastCol && rowScored) {
+                            var scType = f.scoringType || 'score_1_10';
+                            var scoreDisplay = '', scoreStyle = '';
+                            if (scType === 'rag') {
+                                scoreDisplay = existingScore || '\u2014';
+                                scoreStyle = existingScore === 'Green' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : existingScore === 'Amber' ? 'background:rgba(245,158,11,0.1);color:#92400e;border-color:rgba(245,158,11,0.3);' : existingScore === 'Red' ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
+                            } else if (scType === 'passfail') {
+                                scoreDisplay = existingScore || '\u2014';
+                                scoreStyle = existingScore === 'Pass' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : existingScore === 'Fail' ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
+                            } else {
+                                var sv = parseInt(existingScore) || 0;
+                                var max = f.scoreMax || 10;
+                                scoreDisplay = existingScore ? existingScore + '/' + max : '\u2014';
+                                scoreStyle = sv >= 8 ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : sv >= 4 ? 'background:rgba(245,158,11,0.1);color:#92400e;border-color:rgba(245,158,11,0.3);' : sv > 0 ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
+                            }
+                            html += '<div class="mt-1 text-center"><span class="inline-block text-[9px] font-black border px-1.5 py-0.5 rounded" style="' + scoreStyle + '">' + escapeHtml(scoreDisplay) + '</span></div>';
                         }
-                        html += '<td class="border border-slate-200 p-2 text-center"><span class="text-xs font-black border px-2 py-0.5 rounded ' + scoreClass + '">' + escapeHtml(scoreDisplay) + '</span></td>';
+                        html += '</td>';
                     }
                     html += '</tr>';
                 });
@@ -1445,8 +1463,9 @@ async function renderDocuments(useCache = false) {
     const fStatus = document.getElementById("filter-status")?.value || "All";
     const fAttention = document.getElementById("filter-attention")?.value || "All";
     const fAuthor = document.getElementById("filter-author")?.value || "All";
-    const fDept = document.getElementById("filter-dept")?.value || "All";
+    const fDept = document.getElementById("filter-dept")?.value || window._currentDeptFilter || "All";
     const fSort = document.getElementById("filter-sort")?.value || "newest";
+    if (fDept !== "All" && fDept !== window._currentDeptFilter) window._currentDeptFilter = fDept;
 
     const filterDoc = (d, label) => {
         if (fStatus !== "All" && fStatus !== label) return false;
@@ -1506,8 +1525,9 @@ async function renderDocuments(useCache = false) {
         var fStatus2 = document.getElementById("filter-status")?.value || "All";
         var fAttention2 = document.getElementById("filter-attention")?.value || "All";
         var fAuthor2 = document.getElementById("filter-author")?.value || "All";
-        var fDept2 = document.getElementById("filter-dept")?.value || "All";
+        var fDept2 = document.getElementById("filter-dept")?.value || window._currentDeptFilter || "All";
         var fSort2 = document.getElementById("filter-sort")?.value || "newest";
+        if (fDept2 !== "All" && fDept2 !== window._currentDeptFilter) window._currentDeptFilter = fDept2;
 
         var filteredDocs = folderDocs.filter(d => {
             if (fStatus2 !== "All" && d.status !== fStatus2) return false;
@@ -1548,9 +1568,18 @@ async function renderDocuments(useCache = false) {
                     <option value="Resolved" ${fStatus2 === 'Resolved' ? 'selected' : ''}>Resolved</option>
                     <option value="Archived" ${fStatus2 === 'Archived' ? 'selected' : ''}>Archived</option>
                 </select>
-                <select id="filter-dept" class="input-chip rounded-none" onchange="renderDocuments(true)">
+                <select id="filter-dept" class="input-chip rounded-none" onchange="window._currentDeptFilter=this.value;renderDocuments(true)">
                     <option value="All">All Departments</option>
-                    ${deptOptions.map(a => `<option value="${escapeHtml(a)}" ${fDept2 === a ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
+                    ${(() => {
+                        var sSet = {};
+                        if (typeof Users !== 'undefined' && Users.SENIOR_DEPARTMENTS) Users.SENIOR_DEPARTMENTS.forEach(function(d) { sSet[d] = true; });
+                        var sSeen = false;
+                        return deptOptions.map(a => {
+                            var sep = '';
+                            if (sSet[a] && !sSeen) { sSeen = true; sep = '<option disabled style="font-weight:800;color:#5a6577;background:#f1ede8;">── Senior Leadership ──</option>'; }
+                            return sep + `<option value="${escapeHtml(a)}" ${fDept2 === a ? 'selected' : ''}>${escapeHtml(a)}</option>`;
+                        }).join('');
+                    })()}
                 </select>
                 <select id="filter-author" class="input-chip rounded-none" onchange="renderDocuments(true)">
                     <option value="All">All Authors</option>
@@ -1580,9 +1609,18 @@ async function renderDocuments(useCache = false) {
                 <option value="Open" ${fStatus === 'Open' ? 'selected' : ''}>Open</option>
                 <option value="Resolved" ${fStatus === 'Resolved' ? 'selected' : ''}>Resolved</option>
             </select>
-            <select id="filter-dept" class="input-chip rounded-none" onchange="renderDocuments(true)">
+            <select id="filter-dept" class="input-chip rounded-none" onchange="window._currentDeptFilter=this.value;renderDocuments(true)">
                 <option value="All">All Departments</option>
-                ${deptOptions.map(a => `<option value="${escapeHtml(a)}" ${fDept === a ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
+                ${(() => {
+                    var sSet2 = {};
+                    if (typeof Users !== 'undefined' && Users.SENIOR_DEPARTMENTS) Users.SENIOR_DEPARTMENTS.forEach(function(d) { sSet2[d] = true; });
+                    var sSeen2 = false;
+                    return deptOptions.map(a => {
+                        var sep = '';
+                        if (sSet2[a] && !sSeen2) { sSeen2 = true; sep = '<option disabled style="font-weight:800;color:#5a6577;background:#f1ede8;">── Senior Leadership ──</option>'; }
+                        return sep + `<option value="${escapeHtml(a)}" ${fDept === a ? 'selected' : ''}>${escapeHtml(a)}</option>`;
+                    }).join('');
+                })()}
             </select>
             <select id="filter-attention" class="hidden" onchange="renderDocuments(true)">
                 <option value="All">All — Attention Of</option>
@@ -1625,9 +1663,25 @@ async function renderDocumentCreate() {
     var templates = await _loadFormTemplates();
     var tplOptions = templates.length ? '<option value="">-- No template --</option>' + templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('') : '';
 
+    /* Project context */
+    var stageCtx = window._projectStageContext || null;
+    var projectInfo = '';
+    var defaultDept = '';
+    if (stageCtx && typeof Projects !== 'undefined') {
+        var proj = Projects.getById(stageCtx.projectId);
+        if (proj) {
+            defaultDept = proj.department || '';
+            var stage = proj.stages.find(function(s) { return s.id === stageCtx.stageId; });
+            projectInfo = '<div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"><p class="text-xs font-bold text-blue-700">Linked to Project: ' + escapeHtml(proj.name) + '</p>' +
+                (stage ? '<p class="text-[11px] text-blue-500">Stage: ' + escapeHtml(stage.title) + '</p>' : '') +
+                '</div>';
+        }
+    }
+
     document.getElementById('mainView').innerHTML = `
     <div class="card p-6 border-t-4 border-t-birds-green rounded-none">
         <h2 class="text-2xl font-black birds-green mb-4">Create New Document</h2>
+        ${projectInfo}
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
@@ -1640,14 +1694,14 @@ async function renderDocumentCreate() {
             </div>
             <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Department</label>
-                <select id="doc-department" class="input-chip rounded-none w-full">
-                    ${_docDepartments.map(d => `<option value="${d}">${d}</option>`).join('')}
+                <select id="doc-department" onchange="Documents._onDocDeptChange(this)" class="input-chip rounded-none w-full">
+                    ${_getDocDepartments().map(d => `<option value="${d}"${d === defaultDept ? ' selected' : ''}>${d}</option>`).join('')}
                 </select>
             </div>
             <div>
                 <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Attention Of</label>
-                <select id="doc-attention" class="input-chip rounded-none w-full">
-                    ${_docDepartments.map(d => `<option value="${d}">${d}</option>`).join('')}
+                <select id="doc-attention" onchange="Documents._onDocDeptChange(this)" class="input-chip rounded-none w-full">
+                    ${_getDocDepartments().map(d => `<option value="${d}">${d}</option>`).join('')}
                 </select>
             </div>
             <div class="md:col-span-2">
@@ -1784,6 +1838,16 @@ async function saveDocumentRecord() {
     if (userFolderId) {
         window.currentUserFolder = userFolderId;
     }
+    /* Link to project stage if context exists */
+    var stageCtx = window._projectStageContext;
+    if (stageCtx && typeof Projects !== 'undefined' && Projects._linkDocToStage) {
+        await Projects._linkDocToStage(stageCtx.projectId, stageCtx.stageId, id, data.reference, data.name);
+        window._projectStageContext = null;
+        /* Return to project detail */
+        showToast('Document linked to project stage', 'success');
+        Projects.renderProjectDetail(stageCtx.projectId);
+        return;
+    }
     renderDocuments();
 }
 
@@ -1909,20 +1973,20 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
 
             ${evidenceUrl ? `<img src="${evidenceUrl}" class="w-64 mb-6 border-4 border-slate-50" />` : ''}
 
-            ${replies.length ? `<div class="mb-6"><h3 class="text-sm font-black uppercase text-slate-400 mb-3">Replies (${replies.length})</h3>${replyHtml}</div>` : '<p class="text-sm text-slate-400 italic mb-6">No replies yet.</p>'}
+            ${replies.length ? `<div class="mb-6"><h3 class="text-sm font-black uppercase text-slate-400 mb-3">Replies (${replies.length})</h3>${replyHtml}</div>` : '<p class="text-sm text-slate-400 italic mb-6 print:hidden">No replies yet.</p>'}
 
-            <div class="print:hidden border-t pt-6 mb-6">
-                <h3 class="text-sm font-black uppercase text-slate-400 mb-3">Add a Reply</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div class="border-t pt-6 mb-6">
+                <h3 class="text-sm font-black uppercase text-slate-400 mb-3">Reply with template</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 print:hidden">
                     <input type="text" id="reply-author" class="input-chip rounded-none w-full" placeholder="Your name">
                     <input type="date" id="reply-date" class="input-chip rounded-none w-full" value="${today}">
                 </div>
                 <textarea id="reply-body" class="w-full h-28 p-3 mb-3 border border-slate-300 rounded-lg resize-y" placeholder="Reply message..."></textarea>
-                <div class="mb-3">
+                <div class="mb-3 print:hidden">
                     <label class="text-xs font-bold text-slate-500 mb-1 block">Attach Photo (optional)</label>
                     <input type="file" id="reply-photo" accept="image/*" class="text-sm">
                 </div>
-                <button onclick="addDocumentReply('${doc.id}', '${folder}')" style="background:var(--edwardian-rose);color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">Save Reply</button>
+                <button onclick="addDocumentReply('${doc.id}', '${folder}')" class="print:hidden" style="background:var(--edwardian-rose);color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">Save Reply</button>
             </div>
 
             <div class="print:hidden flex flex-wrap gap-2">
@@ -2220,6 +2284,32 @@ async function renderDocumentArchive() {
         window.currentLoadedDocs = await loadDocuments();
     }
     const docs = window.currentLoadedDocs.archived || [];
+    var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    var userDept = user ? user.department : '';
+
+    /* Department filter */
+    var archDepts = [...new Set(docs.map(function(d) { return d.department || 'General'; }))].sort();
+    var filterDept = window._currentDeptFilter || userDept || 'All';
+    if (filterDept !== 'All' && archDepts.indexOf(filterDept) === -1) filterDept = 'All';
+    window._currentDeptFilter = filterDept;
+
+    var deptFilterOpts = '<option value="All"' + (filterDept === 'All' ? ' selected' : '') + '>All Departments</option>';
+    var archSeniorSet = {};
+    if (typeof Users !== 'undefined' && Users.SENIOR_DEPARTMENTS) {
+        Users.SENIOR_DEPARTMENTS.forEach(function(d) { archSeniorSet[d] = true; });
+    }
+    var archSeenSenior = false;
+    archDepts.forEach(function(d) {
+        if (archSeniorSet[d] && !archSeenSenior) {
+            deptFilterOpts += '<option disabled style="font-weight:800;color:#5a6577;background:#f1ede8;">── Senior Leadership ──</option>';
+            archSeenSenior = true;
+        }
+        deptFilterOpts += '<option value="' + d + '"' + (filterDept === d ? ' selected' : '') + '>' + d + '</option>';
+    });
+
+    var filtered = filterDept === 'All' ? docs : docs.filter(function(d) {
+        return (d.department || 'General') === filterDept;
+    });
 
     const sortDocs = (arr) => [...arr].sort((a, b) => {
         const da = new Date(a.archivedDate || a.date || 0).getTime() || 0;
@@ -2248,9 +2338,14 @@ async function renderDocumentArchive() {
     };
 
     document.getElementById("mainView").innerHTML = `
-        <h2 class="text-[36px] font-black outfit mb-6" style="color:var(--edwardian-rose);">Document Archive</h2>
-        <p class="text-slate-500 font-bold mb-6">${docs.length} archived document${docs.length !== 1 ? 's' : ''}</p>
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h2 class="text-[36px] font-black outfit" style="color:var(--edwardian-rose);">Document Archive</h2>
+                <p class="text-slate-500 font-bold">${filtered.length} archived document${filtered.length !== 1 ? 's' : ''}${filterDept !== 'All' ? ' in ' + filterDept : ''}</p>
+            </div>
+            <select onchange="window._currentDeptFilter=this.value;renderDocumentArchive()" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white">${deptFilterOpts}</select>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            ${docs.length ? sortDocs(docs).map(d => docCard(d)).join('') : '<div class="card p-12 text-center col-span-full"><p class="text-slate-400 font-bold">No archived documents.</p></div>'}
+            ${filtered.length ? sortDocs(filtered).map(d => docCard(d)).join('') : '<div class="card p-12 text-center col-span-full"><p class="text-slate-400 font-bold">No archived documents.</p></div>'}
         </div>`;
 }

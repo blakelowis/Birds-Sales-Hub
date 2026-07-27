@@ -87,10 +87,11 @@ async function _tplDuplicateTemplate(id) {
 window.renderTemplateLibrary = async function() {
     var templates = await _tplLoadTemplates();
     var el = document.getElementById('mainView');
+    var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    var userDept = user ? user.department : '';
 
     if (!templates.length) {
         el.innerHTML = '<div class="card p-12 text-center border-t-4 border-t-birds-green">' +
-            '<div class="text-6xl mb-4 opacity-30">\u2611</div>' +
             '<h2 class="text-2xl font-black text-slate-700 mb-2">No Visit Forms Yet</h2>' +
             '<p class="text-sm text-slate-400 mb-6 max-w-md mx-auto">Create scoring questionnaires for store visits \u2014 drag question types, attach scoring, and get auto-calculated summaries.</p>' +
             '<button onclick="setView(\'templatebuilder\')" class="btn-primary rounded-none text-lg px-8 py-3">+ Create Your First Form</button>' +
@@ -98,7 +99,31 @@ window.renderTemplateLibrary = async function() {
         return;
     }
 
-    var cards = templates.map(function(t) {
+    /* Department filter */
+    var tplDepts = [...new Set(templates.map(function(t) { return t.department || 'General'; }))].sort();
+    var filterDept = window._currentDeptFilter || userDept || 'All';
+    if (filterDept !== 'All' && tplDepts.indexOf(filterDept) === -1) filterDept = 'All';
+    window._currentDeptFilter = filterDept;
+
+    var deptFilterOpts = '<option value="All"' + (filterDept === 'All' ? ' selected' : '') + '>All Departments</option>';
+    var seniorSet = {};
+    if (typeof Users !== 'undefined' && Users.SENIOR_DEPARTMENTS) {
+        Users.SENIOR_DEPARTMENTS.forEach(function(d) { seniorSet[d] = true; });
+    }
+    var seenSenior = false;
+    tplDepts.forEach(function(d) {
+        if (seniorSet[d] && !seenSenior) {
+            deptFilterOpts += '<option disabled style="font-weight:800;color:#5a6577;background:#f1ede8;">── Senior Leadership ──</option>';
+            seenSenior = true;
+        }
+        deptFilterOpts += '<option value="' + d + '"' + (filterDept === d ? ' selected' : '') + '>' + d + '</option>';
+    });
+
+    var filtered = filterDept === 'All' ? templates : templates.filter(function(t) {
+        return (t.department || 'General') === filterDept;
+    });
+
+    var cards = filtered.map(function(t) {
         var allCount = t.fields ? t.fields.length : 0;
         var scoredCount = t.fields ? t.fields.filter(function(f) { return f.scoringType && f.scoringType !== 'none'; }).length : 0;
         var ragCount = t.fields ? t.fields.filter(function(f) { return f.scoringType === 'rag'; }).length : 0;
@@ -115,6 +140,7 @@ window.renderTemplateLibrary = async function() {
             '<div class="flex-1 min-w-0">' +
             '<h3 class="text-lg font-black text-slate-800 truncate">' + escapeHtml(t.name || 'Untitled') + '</h3>' +
             '<p class="text-xs text-slate-400 mt-0.5">' + escapeHtml(t.description || 'No description') + '</p>' +
+            (t.department ? '<span class="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 mt-1">' + escapeHtml(t.department) + '</span>' : '') +
             '</div>' +
             '<div class="flex gap-1 ml-2">' +
             '<button onclick="event.stopPropagation();window._tplFill(\'' + t.id + '\')" class="px-2 py-1 rounded text-[10px] font-bold bg-birds-green text-white hover:bg-emerald-800" title="Fill In">\u25B6 Fill</button>' +
@@ -130,9 +156,11 @@ window.renderTemplateLibrary = async function() {
 
     el.innerHTML = '<div class="flex items-center justify-between mb-6">' +
         '<div><h1 class="text-2xl font-black text-slate-800">Store Visit Forms</h1>' +
-        '<p class="text-sm text-slate-400">' + templates.length + ' form' + (templates.length !== 1 ? 's' : '') + ' available</p></div>' +
+        '<p class="text-sm text-slate-400">' + filtered.length + ' form' + (filtered.length !== 1 ? 's' : '') + (filterDept !== 'All' ? ' in ' + filterDept : '') + '</p></div>' +
+        '<div class="flex items-center gap-3">' +
+        '<select id="tpl-dept-filter" onchange="window._currentDeptFilter=this.value;renderTemplateLibrary()" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white">' + deptFilterOpts + '</select>' +
         '<button onclick="setView(\'templatebuilder\')" class="btn-primary rounded-none">+ New Form</button>' +
-        '</div>' +
+        '</div></div>' +
         '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">' + cards + '</div>';
 };
 
@@ -183,10 +211,6 @@ window.renderTemplateFill = async function() {
 
     var tmpl = await _getFormTemplate(id);
     if (!tmpl) { showToast('Template not found.', 'error'); setView('templatelibrary'); return; }
-
-    var storeNames = _getTplStores();
-    var storeOpts = storeNames.map(function(s) { return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>'; }).join('');
-    var amOpts = AM_LIST.map(function(a) { return '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>'; }).join('');
 
     var questionsHtml = tmpl.fields.map(function(f, i) {
         var at = f.answerType || 'text';
@@ -258,41 +282,38 @@ window.renderTemplateFill = async function() {
             var scoredCols = f.tableScoredCols || [];
             var hasScoring = f.scoringType && f.scoringType !== 'none';
             html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200"><thead><tr>';
-            html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs"></th>';
+            html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>';
             for (var c = 0; c < cols; c++) {
-                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[c] || 'Col ' + (c+1)) + (hasScoring && scoredCols.indexOf(c) !== -1 ? ' \u2605' : '') + '</th>';
+                var isScored = hasScoring && scoredCols.indexOf(c) !== -1;
+                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[c] || 'Col ' + (c+1)) + (isScored ? ' <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;border:1px solid #fde68a;">&#9733;</span>' : '') + '</th>';
             }
-            if (hasScoring) html += '<th class="bg-amber-50 border border-slate-200 p-2 text-center font-bold text-amber-700 text-xs" style="min-width:50px">Score</th>';
             html += '</tr></thead><tbody>';
             for (var r = 0; r < rows; r++) {
                 var rowScored = scoredRows.indexOf(r) !== -1 && hasScoring;
                 html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                 html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[r] || 'Row ' + (r+1)) + '</td>';
                 for (var c2 = 0; c2 < cols; c2++) {
-                    html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="' + c2 + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field rounded" placeholder=""></td>';
-                }
-                if (hasScoring) {
-                if (rowScored) {
-                    var scType = f.scoringType || 'score_1_10';
-                    html += '<td class="border border-slate-200 p-1 text-center" style="min-width:120px">';
-                    if (scType === 'rag') {
-                        html += '<div class="flex gap-1 justify-center">';
-                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">G</button>';
-                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200">A</button>';
-                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">R</button>';
-                        html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
-                    } else if (scType === 'passfail') {
-                        html += '<div class="flex gap-1 justify-center">';
-                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">Pass</button>';
-                        html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[10px] font-bold px-2 py-1 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-100">Fail</button>';
-                        html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
-                    } else {
-                        html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" min="0" max="10" class="w-12 p-1 text-sm border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+                    var isLastCol = (c2 === cols - 1);
+                    html += '<td class="border border-slate-200 p-1">';
+                    html += '<input type="text" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="' + c2 + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field rounded" placeholder="">';
+                    if (isLastCol && rowScored) {
+                        var scType = f.scoringType || 'score_1_10';
+                        html += '<div class="flex gap-0.5 mt-1 justify-center">';
+                        if (scType === 'rag') {
+                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">G</button>';
+                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200">A</button>';
+                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">R</button>';
+                            html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
+                        } else if (scType === 'passfail') {
+                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">Pass</button>';
+                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">Fail</button>';
+                            html += '<input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
+                        } else {
+                            html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" min="0" max="10" class="w-10 p-0.5 text-[10px] border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+                        }
+                        html += '</div>';
                     }
                     html += '</td>';
-                } else {
-                    html += '<td class="border border-slate-200 p-1 text-center text-slate-300 text-xs" style="min-width:120px"></td>';
-                }
                 }
                 html += '</tr>';
             }
@@ -325,13 +346,6 @@ window.renderTemplateFill = async function() {
         '<h2 class="text-2xl font-black birds-green">' + escapeHtml(tmpl.name) + '</h2>' +
         '<p class="text-sm text-slate-400">' + escapeHtml(tmpl.description || '') + '</p></div>' +
         '<button onclick="setView(\'templatelibrary\')" class="text-sm font-bold text-slate-500 hover:text-slate-700">\u2190 Back to Forms</button></div>' +
-        '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">' +
-        '<div><label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Store *</label>' +
-        '<select id="fill-store" class="input-chip rounded-none w-full"><option value="">Select store...</option>' + storeOpts + '</select></div>' +
-        '<div><label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Area Manager</label>' +
-        '<select id="fill-am" class="input-chip rounded-none w-full"><option value="">Select...</option>' + amOpts + '</select></div>' +
-        '<div><label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Visit Date</label>' +
-        '<input type="date" id="fill-date" class="input-chip rounded-none w-full" value="' + new Date().toISOString().substring(0, 10) + '"></div></div>' +
         '<div class="space-y-3 mb-6">' + questionsHtml + '</div>' +
         '<div id="fill-summary"></div>' +
         '<div class="flex gap-3 pt-4 border-t border-slate-200">' +
@@ -519,25 +533,35 @@ window._tplFillSummary = async function(tmplId) {
 };
 
 window._tplFillSave = async function(tmplId) {
-    var store = document.getElementById('fill-store') && document.getElementById('fill-store').value;
-    if (!store) { showToast('Select a store.', 'warning'); return; }
     var tmpl = await _getFormTemplate(tmplId);
     if (!tmpl) return;
     var values = _tplCollectValues(tmpl);
+    /* Extract metadata from Document Header fields if present */
+    var hdrName = '', hdrJob = '', hdrDate = '';
+    tmpl.fields.forEach(function(f) {
+        if (f.answerType === 'header' && f.headerConfig) {
+            var hdrVals = (values[f.id] || '').split(' | ');
+            if (f.headerConfig.showName) hdrName = hdrVals[0] || '';
+            if (f.headerConfig.showJobTitle) hdrJob = hdrVals[1] || '';
+            if (f.headerConfig.showDate) hdrDate = hdrVals[2] || '';
+        }
+    });
+    var docDate = hdrDate || new Date().toISOString().substring(0, 10);
+    var docCreator = hdrName || '';
+    var docName = (hdrName ? hdrName + ' \u2014 ' : '') + tmpl.name;
     var id = _uid("DOC-");
     var seq = String(Date.now()).slice(-4);
     var ref = 'FV-' + new Date().getFullYear() + '-' + seq;
     var data = {
-        id: id, name: store + ' \u2014 ' + tmpl.name, title: store + ' \u2014 ' + tmpl.name,
-        creator: document.getElementById('fill-am') ? document.getElementById('fill-am').value : '',
-        date: document.getElementById('fill-date') ? document.getElementById('fill-date').value : new Date().toISOString().substring(0, 10),
-        type: 'Template: ' + tmpl.name, department: '', attentionOf: '', body: '', pin: '',
+        id: id, name: docName, title: docName,
+        creator: docCreator, date: docDate,
+        type: 'Template: ' + tmpl.name, department: tmpl.department || ((typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().department : ''), attentionOf: '', body: '', pin: '',
         reference: ref,
         status: 'Open', replies: [],
         formTemplateId: tmplId, formTemplateName: tmpl.name, formTemplateValues: values
     };
     await _cloudWriteDoc('Open', id, data);
-    showToast('Visit saved successfully.', 'success');
+    showToast('Document saved successfully.', 'success');
     openDocumentViewer(id, 'Open', '');
 };
 
@@ -575,6 +599,7 @@ window.renderTemplateBuilderPage = async function() {
             id: _uid('FTPL-'),
             name: '',
             description: '',
+            department: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().department : '',
             fields: [
                 { id: _uid('hdr-'), label: 'Store Visit Report', answerType: 'header', scoringType: 'none', subLabel: '',
                   headerConfig: { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' } },
@@ -598,6 +623,9 @@ function _bldRender() {
     var canvasEl = document.getElementById('bld-canvas');
     if (canvasEl) savedScrollTop = canvasEl.scrollTop;
     var tmpl = b.tmpl;
+
+    /* Department options for builder header */
+    var deptOpts = (typeof Users !== 'undefined') ? Users.getDeptOptionsHtml(tmpl.department || '', false) : '<option>General</option>';
 
     // Canvas
     var canvasHtml = '';
@@ -655,6 +683,7 @@ function _bldRender() {
         '<button onclick="setView(\'templatelibrary\')" class="text-xs font-bold text-slate-500 hover:text-slate-700 flex-shrink-0">\u2190 Library</button>' +
         '<input type="text" id="bld-page-name" value="' + escapeHtml(tmpl.name) + '" class="input-chip rounded-none text-xs px-2 py-1 w-48 flex-shrink-0" placeholder="Form name" onchange="window._bldUpdateMeta()">' +
         '<input type="text" id="bld-page-desc" value="' + escapeHtml(tmpl.description) + '" class="input-chip rounded-none text-xs px-2 py-1 flex-1 min-w-0" placeholder="Description" onchange="window._bldUpdateMeta()">' +
+        '<select id="bld-page-dept" onchange="window._bldUpdateMeta()" class="input-chip rounded-none text-xs px-2 py-1 w-44 flex-shrink-0">' + deptOpts + '</select>' +
         '<span class="text-[10px] text-slate-400 flex-shrink-0">' + tmpl.fields.length + ' items</span>' +
         '<button onclick="window._bldTogglePreview()" class="px-3 py-1 rounded text-[11px] font-bold flex-shrink-0 ' + (b.previewMode ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' + (b.previewMode ? '\u2190 Edit' : 'Preview') + '</button>' +
         '<button onclick="window._bldSave(false)" class="bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1 rounded text-[11px] font-bold flex-shrink-0">Save & Stay</button>' +
@@ -736,7 +765,7 @@ function _bldFieldPreview(f) {
     if (at === 'image') return '<div class="mt-1 p-4 border-2 border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">Photo upload area</div>';
     if (at === 'table') {
         var rows = f.tableRows || 3, cols = f.tableCols || 3;
-        var hdrs = '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500"></th>' + (f.tableHeaders || []).slice(0, cols).map(function(h) { return '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(h) + '</th>'; }).join('');
+        var hdrs = '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>' + (f.tableHeaders || []).slice(0, cols).map(function(h) { return '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(h) + '</th>'; }).join('');
         var rowHdrs = f.tableRowHeaders || [];
         var cells = '';
         for (var r = 0; r < Math.min(rows, 2); r++) {
@@ -817,6 +846,8 @@ function _bldProperties(f) {
             '<input type="number" id="prop-tablecols" value="' + (f.tableCols || 3) + '" min="1" max="10" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div>' +
             '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Rows</label>' +
             '<input type="number" id="prop-tablerows" value="' + (f.tableRows || 3) + '" min="1" max="20" class="input-chip rounded-none w-full" onchange="window._bldUpdateField()"></div></div>';
+        html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Row Label Header</label>' +
+            '<input type="text" id="prop-tablerowheaderlabel" value="' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '" class="input-chip rounded-none w-full text-xs" placeholder="e.g. Item, Question, Area" onchange="window._bldUpdateField()"></div>';
         html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Column Headers (one per line)</label>' +
             '<textarea id="prop-tableheaders" class="w-full h-20 p-2 border border-slate-300 rounded-lg text-sm font-mono" onchange="window._bldUpdateField()">' + escapeHtml((f.tableHeaders || []).join('\n')) + '</textarea></div>';
         html += '<div><label class="text-xs font-bold text-slate-500 mb-1 block">Row Labels (one per line)</label>' +
@@ -918,7 +949,7 @@ window._bldAdd = function(sidebarType) {
     if (answerType === 'multichoice' || answerType === 'checkbox') field.options = ['Option 1', 'Option 2'];
     if (answerType === 'header') { field.subLabel = ''; field.headerConfig = { showName: true, showJobTitle: true, showDate: true, showDocRef: true, showDocId: false, showLogo: true, showTraining: false, defaultJobTitle: 'Area Manager' }; }
     if (answerType === 'signoff') field.signoffRole = 'Manager';
-    if (answerType === 'table') { field.tableCols = 3; field.tableRows = 3; field.tableHeaders = ['Col 1', 'Col 2', 'Col 3']; field.tableRowHeaders = ['Row 1', 'Row 2', 'Row 3']; }
+    if (answerType === 'table') { field.tableCols = 3; field.tableRows = 3; field.tableHeaders = ['Col 1', 'Col 2', 'Col 3']; field.tableRowHeaders = ['Row 1', 'Row 2', 'Row 3']; field.tableRowHeaderLabel = 'Item'; }
     b.tmpl.fields.push(field);
     b.selectedIdx = b.tmpl.fields.length - 1;
     b.previewMode = false;
@@ -977,6 +1008,7 @@ window._bldMoveField = function(idx, dir) {
 window._bldUpdateMeta = function() {
     window._bld.tmpl.name = document.getElementById('bld-page-name') ? document.getElementById('bld-page-name').value : '';
     window._bld.tmpl.description = document.getElementById('bld-page-desc') ? document.getElementById('bld-page-desc').value : '';
+    window._bld.tmpl.department = document.getElementById('bld-page-dept') ? document.getElementById('bld-page-dept').value : '';
 };
 
 window._bldUpdateField = function(textOnly) {
@@ -1040,8 +1072,13 @@ window._bldUpdateField = function(textOnly) {
         if (tc) f.tableCols = parseInt(tc.value) || 3;
         if (tr) f.tableRows = parseInt(tr.value) || 3;
         if (th) f.tableHeaders = th.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+        // v132: Trim/extend headers to match column count
+        while (f.tableHeaders.length > f.tableCols) f.tableHeaders.pop();
+        while (f.tableHeaders.length < f.tableCols) f.tableHeaders.push('Col ' + (f.tableHeaders.length + 1));
         var trh = document.getElementById('prop-tablerowheaders');
         if (trh) f.tableRowHeaders = trh.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+        var trhl = document.getElementById('prop-tablerowheaderlabel');
+        if (trhl) f.tableRowHeaderLabel = trhl.value.trim() || 'Item';
         // Scored columns
         var colChecks = document.querySelectorAll('.prop-table-scored-col');
         if (colChecks.length) {
@@ -1054,6 +1091,9 @@ window._bldUpdateField = function(textOnly) {
             f.tableScoredRows = [];
             rowChecks.forEach(function(cb) { if (cb.checked) f.tableScoredRows.push(parseInt(cb.getAttribute('data-row'))); });
         }
+        // v132: Trim scored row/col indices that exceed new dimensions
+        if (f.tableScoredRows) f.tableScoredRows = f.tableScoredRows.filter(function(r) { return r < f.tableRows; });
+        if (f.tableScoredCols) f.tableScoredCols = f.tableScoredCols.filter(function(c) { return c < f.tableCols; });
     }
 
     // Clean incompatible
@@ -1061,7 +1101,7 @@ window._bldUpdateField = function(textOnly) {
     if (f.answerType !== 'signoff') delete f.signoffRole;
     if (f.answerType !== 'multichoice' && f.answerType !== 'checkbox') delete f.options;
     if (f.answerType !== 'number') { delete f.numberMin; delete f.numberMax; delete f.numberStep; }
-    if (f.answerType !== 'table') { delete f.tableCols; delete f.tableRows; delete f.tableHeaders; delete f.tableRowHeaders; delete f.tableScoredCols; delete f.tableScoredRows; }
+    if (f.answerType !== 'table') { delete f.tableCols; delete f.tableRows; delete f.tableHeaders; delete f.tableRowHeaders; delete f.tableScoredCols; delete f.tableScoredRows; delete f.tableRowHeaderLabel; }
     if (!f.scoringType || f.scoringType === 'none') { delete f.scoreWeight; delete f.tableScoredCols; delete f.tableScoredRows; }
 
     // Targeted update: refresh canvas card + rebuild properties panel (needed when scoring type changes show/hide conditional sections)
@@ -1209,7 +1249,7 @@ function _bldPreview(tmpl) {
                 var rows = f.tableRows || 3, cols = f.tableCols || 3;
                 var rowHdrs = f.tableRowHeaders || [];
                 html += '<table class="w-full text-sm border border-slate-200"><thead><tr>';
-                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-xs font-bold text-slate-600"></th>';
+                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-xs font-bold text-slate-600">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>';
                 for (var c = 0; c < cols; c++) html += '<th class="bg-slate-100 border border-slate-200 p-2 text-xs font-bold text-slate-600">' + escapeHtml((f.tableHeaders||[])[c] || 'Col '+(c+1)) + '</th>';
                 html += '</tr></thead><tbody>';
                 for (var r = 0; r < rows; r++) {
