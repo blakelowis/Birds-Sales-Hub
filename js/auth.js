@@ -33,6 +33,10 @@ window.BirdsAuth = (function() {
             console.error('[Auth] MSAL.js not loaded');
             return false;
         }
+        if (!window.isSecureContext) {
+            console.error('[Auth] Not a secure context — MSAL PKCE requires HTTPS or localhost.');
+            return false;
+        }
         _msalInstance = new msal.PublicClientApplication({
             auth: {
                 clientId: CONFIG.clientId,

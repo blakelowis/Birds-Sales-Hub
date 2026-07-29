@@ -66,14 +66,14 @@ function shortQuestionLabel(q, maxLen=96){
   return s.length > maxLen ? s.slice(0, maxLen - 1) + '…' : s;
 }
 
-// Reads Open/ and Closed/ JSON files directly from SharePoint or local folder.
-// No IndexedDB caching — two folders are the source of truth.
+// Reads Open/ and Closed/ JSON files via cached folder reads.
+// Uses IndexedDB to cache file contents — only re-reads when files change.
 // Open JSON = open actions. If a matching questionId exists in Closed/, it's closed.
 async function getAuditActionsForReport(){
   var all = [];
   try {
-    var rawOpen = await readJsonFolder('Open');
-    var rawClosed = await readJsonFolder('Closed');
+    var rawOpen = await readJsonFolderCached('Open');
+    var rawClosed = await readJsonFolderCached('Closed');
     // Build lookup of closed actions by questionId
     var closedMap = {};
     rawClosed.forEach(function(f) {
@@ -233,7 +233,7 @@ function breakdownHtml(title, rows, clickType){
 }
 function tooltipTitle(a){ return escapeHtml(`Question: ${a.Question} Closed comment: ${a.HowClosed || '—'} Extra comment: ${a.ExtraComment || '—'}`); }
 async function renderAuditActionHub(){
-  // Read Open/ and Closed/ JSON files directly — two folders are the source of truth
+  // Read Open/ and Closed/ JSON files via IndexedDB cache
   document.getElementById('mainView').innerHTML = '<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">Loading actions from Open/ and Closed/ folders...</p></div>';
   __auditHubCache = await getAuditActionsForReport();
   if(!__auditHubCache.length){ document.getElementById('mainView').innerHTML = `<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">No audit actions found. Check that your data folder has <b>Open/</b> and <b>Closed/</b> subfolders with JSON action files.</p></div>`; return; }

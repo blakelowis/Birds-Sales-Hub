@@ -360,7 +360,7 @@ window.renderTemplateFill = async function() {
             html += '<input type="hidden" data-tplfield="' + f.id + '" data-sig="true" value="" class="form-tpl-field"></div></div>';
         }
 
-        html += _tplBuildScoringHtml(f, f.id);
+        if (at !== 'table' && at !== 'signoff') html += _tplBuildScoringHtml(f, f.id);
         html += '</div>';
         return html;
     }).join('');
@@ -510,9 +510,6 @@ function _tplCollectValues(tmpl) {
         } else if (at === 'yesno') {
             var hidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
             values[f.id] = hidden ? hidden.value : '';
-        } else if (f.scoringType && f.scoringType !== 'none') {
-            var scoreHidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
-            values[f.id] = scoreHidden ? scoreHidden.value : '';
         } else if (at === 'table') {
             var rows = f.tableRows || 3, cols = f.tableCols || 3;
             var data = [];
@@ -543,6 +540,12 @@ function _tplCollectValues(tmpl) {
         } else {
             var els2 = document.querySelectorAll('.form-tpl-field[data-tplfield="' + f.id + '"]');
             values[f.id] = els2.length > 0 ? els2[0].value : '';
+        }
+        /* Also collect score value if this field has scoring */
+        if (f.scoringType && f.scoringType !== 'none' && at !== 'yesno' && at !== 'table' && at !== 'header' && at !== 'signoff') {
+            var scoreH = document.querySelector('input[type="hidden"].form-tpl-field.form-tpl-score[data-tplfield="' + f.id + '"], input[type="hidden"].form-tpl-field.form-tpl-rag[data-tplfield="' + f.id + '"], input[type="hidden"].form-tpl-field.form-tpl-pf[data-tplfield="' + f.id + '"]');
+            if (!scoreH) scoreH = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
+            values[f.id + '_score'] = scoreH ? scoreH.value : '';
         }
     });
     return values;
@@ -594,6 +597,8 @@ window._tplFillSave = async function(tmplId) {
         formTemplateId: tmplId, formTemplateName: tmpl.name, formTemplateValues: values
     };
     await _cloudWriteDoc('Open', id, data);
+    if (!window.currentLoadedDocs) window.currentLoadedDocs = { open: [], resolved: [], archived: [] };
+    window.currentLoadedDocs.open.unshift(data);
     showToast('Document saved successfully.', 'success');
     openDocumentViewer(id, 'Open', '');
 };

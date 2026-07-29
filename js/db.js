@@ -1,5 +1,4 @@
 let db;
-let __anchorMeta = { folderName: null, anchoredAt: null, perm: null, storagePersisted: null };
 
 window.__dataStatus = { syncRan: false, syncOk: false, filesFound: 0, weeklyFiles: 0, complaintsRows: 0, source: 'none', ts: null };
 
@@ -50,44 +49,48 @@ req.onsuccess = async e => {
     try { await loadStoreMap(); } catch(e) { console.warn('[DB] loadStoreMap failed:', e.message); }
     populateExportDropdown();
 
-    // v148: Auth-first boot — try silent Entra login, then load via Graph
-    var _authReady = false;
-    if (typeof BirdsAuth !== 'undefined') {
-        try { BirdsAuth.init(); } catch(e) { console.warn('[DB] MSAL init failed:', e.message); }
-        try {
-            await BirdsAuth.loginSilent();
-            await BirdsAuth.resolveSharePointIds();
-            _authReady = true;
-            console.log('[DB] Entra silent login OK');
-        } catch(e) {
-            console.log('[DB] Silent login not available, showing login screen');
-        }
-    }
+    // BOOT: No auth — straight to dashboard (filesystem mode)
 
-    // Init documents IDB connection so projects/documents can load
     if (typeof _localDocsInit === 'function') { try { await _localDocsInit(); } catch(e) { console.warn('[DB] _localDocsInit failed:', e.message); } }
 
-    if (_authReady) {
-        // Logged in — load everything via Graph
-        if (typeof Users !== 'undefined') {
-            await Users.init();
-            if (typeof Projects !== 'undefined') await Projects.load();
-            Users.updateHeaderBadge();
-            renderDashboard();
-        } else {
-            renderDashboard();
-        }
-        // Trigger data sync from SharePoint
-        if (typeof window.syncData === 'function') {
-            try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
-        }
-    } else if (typeof Users !== 'undefined') {
-        // Not logged in — show Entra login screen
+    if (typeof Users !== 'undefined') {
         await Users.init();
-        Users.renderLoginScreen();
-    } else {
-        renderDashboard();
+        Users.updateHeaderBadge();
     }
+
+    renderDashboard();
+
+    if (typeof window.syncData === 'function') {
+        try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
+    }
+
+    if (typeof Projects !== 'undefined') {
+        try { await Projects.load(); } catch(e) { console.warn('[DB] Projects.load failed:', e.message); }
+    }
+
+    /* Load module registry config and bakery module scripts */
+    if (typeof ModuleRegistry !== 'undefined') {
+        try {
+            await ModuleRegistry.loadConfig();
+            await ModuleRegistry.loadModuleScripts('bakery');
+            console.log('[DB] Module registry loaded');
+            /* Build bakery nav from loaded modules */
+            await _renderBakeryNav();
+        } catch(e) { console.warn('[DB] Module registry failed:', e.message); }
+    }
+
+    /* Show admin tab if user has admin role */
+    var _user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    if (_user && _user.role === 'admin') {
+        var adminTab = document.getElementById('adminTab');
+        if (adminTab) adminTab.style.display = '';
+    }
+
+    /* Apply tab/view permissions */
+    if (typeof applyNavPermissions === 'function') applyNavPermissions();
+
+    /* Re-render to show bakery tab content if on that tab */
+    renderDashboard();
 
     if (window.ComplaintsData && window.ComplaintsData.length) {
         window.__dataStatus.complaintsRows = window.ComplaintsData.length;
@@ -148,11 +151,31 @@ async function checkDataFreshness() {
   } catch (_) {}
 }
 
-const idbGetAll = s => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve([]); } try { return new Promise(res => { const r = db.transaction(s).objectStore(s).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve([]); } };
+var _idbCache = {};
+function _clearCache(store) { if (store) { delete _idbCache[store]; } else { _idbCache = {}; } }
+
+const idbGetAll = s => {
+  if (_idbCache[s]) return Promise.resolve(_idbCache[s]);
+  if (!db || db.closed) { _reconnectDB(); return Promise.resolve([]); }
+  try {
+    return new Promise(res => {
+      const r = db.transaction(s).objectStore(s).getAll();
+      r.onsuccess = () => {
+        var data = r.result || [];
+        if (s === 'kpi' || s === 'audits' || s === 'stores') _idbCache[s] = data;
+        res(data);
+      };
+      r.onerror = () => res([]);
+    });
+  } catch(e) {
+    if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB();
+    return Promise.resolve([]);
+  }
+};
 const idbGet = (s, k) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(null); } try { return new Promise(res => { const r = db.transaction(s).objectStore(s).get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(null); } };
 const idbAdd = (s, v) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(null); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).add(v); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(null); } };
-const idbPut = (s, v) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
-const idbClear = (s) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).clear(); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
+const idbPut = (s, v) => { _clearCache(s); if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
+const idbClear = (s) => { _clearCache(s); if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).clear(); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
 
 // Auto-reconnect if DB connection closes (e.g. after SW update)
 function _reconnectDB() {

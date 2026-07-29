@@ -202,7 +202,7 @@ function buildMonthlyChampions(rawKpis, effectiveWeek, effectiveYear){
    const productGain=Number(((Number(w4.Product||0)-Number(w1.Product||0))*100).toFixed(1));
    const wasteGain=Number(((Number(w1.Waste||0)-Number(w4.Waste||0))*100).toFixed(1));
    const labourGain=Number(((Number(w1.Labour||0)-Number(w4.Labour||0))*100).toFixed(1));
-   const energyGain=Number(((Number(w1.Energy||0)-Number(w4.Energy||0))*100).toFixed(1));
+    const energyGain=Number(w1.Energy>0?(((Number(w1.Energy)-Number(w4.Energy))/Number(w1.Energy))*100).toFixed(1):0);
    const wins=(window.__areaWinsCache||[]).filter(w=>canonicalStoreId(w.Branch)===canonicalStoreId(store.branch));
    results.push({branch:store.branch,score:salesGain+productGain+wasteGain+labourGain+energyGain,awards:[...new Set(wins.map(w=>w.Metric))],awardCount:wins.length,improvedCount:[salesGain,productGain,wasteGain,labourGain,energyGain].filter(v=>v>0).length,salesGain,productGain,wasteGain,labourGain,energyGain});
  });

@@ -109,8 +109,8 @@ async function _localDocsGet(folder) {
 }
 
 async function _masterFolderDocs(folder) {
-    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
-        /* v148: Graph API — read from SharePoint */
+    /* Try Graph API first if available */
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
         var paths = [
             'Documents/' + folder,
             folder
@@ -129,31 +129,40 @@ async function _masterFolderDocs(folder) {
                 if (docs.length) return docs;
             } catch(e) {}
         }
-        return [];
     }
-    if (!directoryHandle) return [];
-    var paths = [
-        'Documents/' + folder,
-        'Data/Documents/' + folder,
-        'Master Folder/Data/Documents/' + folder,
-        'Data/' + folder,
-        folder
-    ];
-    for (var path of paths) {
-        var parts = path.split('/').filter(Boolean);
-        var handle = directoryHandle;
+    /* Filesystem fallback — read from folder picker */
+    if (window.directoryHandle) {
         try {
-            for (var part of parts) handle = await handle.getDirectoryHandle(part);
-            var docs = [];
-            for await (var entry of handle.values()) {
-                if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.json')) continue;
-                try {
-                    var data = JSON.parse(await (await entry.getFile()).text());
-                    if (data && typeof data === 'object') docs.push(data);
-                } catch (e) {}
+            var docsFolder = null;
+            /* Try Documents/{folder} first, then just {folder} */
+            var tryPaths = ['Documents/' + folder, folder];
+            for (var tryPath of tryPaths) {
+                var parts = tryPath.split('/');
+                var current = window.directoryHandle;
+                for (var part of parts) {
+                    var found = null;
+                    for await (var entry of current.values()) {
+                        if (entry.kind === 'directory' && entry.name === part) { found = entry; break; }
+                    }
+                    if (!found) { current = null; break; }
+                    current = found;
+                }
+                if (current) { docsFolder = current; break; }
             }
-            if (docs.length) return docs;
-        } catch (e) {}
+            if (!docsFolder) return [];
+            var docs = [];
+            for await (var subEntry of docsFolder.values()) {
+                if (subEntry.kind === 'file' && subEntry.name.endsWith('.json')) {
+                    try {
+                        var file = await subEntry.getFile();
+                        var text = await file.text();
+                        var obj = JSON.parse(text);
+                        if (obj && obj.id) docs.push(obj);
+                    } catch(e) {}
+                }
+            }
+            return docs;
+        } catch(e) { console.warn('[Docs] Filesystem read failed:', e.message); }
     }
     return [];
 }
@@ -170,8 +179,8 @@ async function _localDocsPut(folder, id, data) {
             } catch(e) { resolve(false); }
         });
     }
-    /* v148: Save to SharePoint via Graph if logged in */
-    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+    /* Save to Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
         try {
             var relPath = 'Documents/' + folder + '/' + id + '.json';
             await GraphClient.ensureFolder('Documents/' + folder);
@@ -179,35 +188,60 @@ async function _localDocsPut(folder, id, data) {
         } catch(e) { console.warn('[Docs] Graph save failed:', e.message); }
         return;
     }
-    /* Legacy: save to local filesystem */
-    if (typeof directoryHandle !== 'undefined' && directoryHandle) {
-        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
+    /* Filesystem fallback */
+    if (window.directoryHandle) {
         try {
-            var dir = await directoryHandle.getDirectoryHandle('Documents', { create: true });
-            var subDir = await dir.getDirectoryHandle(folder, { create: true });
-            var fh = await subDir.getFileHandle(id + '.json', { create: true });
-            var w = await fh.createWritable();
-            await w.write(JSON.stringify(data, null, 2));
-            await w.close();
+            var docsFolder = null;
+            var tryPaths = ['Documents/' + folder, folder];
+            for (var tryPath of tryPaths) {
+                var fp = tryPath.split('/');
+                var cur = window.directoryHandle;
+                for (var fp2 of fp) {
+                    var found = null;
+                    for await (var entry of cur.values()) {
+                        if (entry.kind === 'directory' && entry.name === fp2) { found = entry; break; }
+                    }
+                    if (!found) found = await cur.getDirectoryHandle(fp2, { create: true });
+                    cur = found;
+                }
+                docsFolder = cur;
+                break;
+            }
+            if (!docsFolder) docsFolder = await window.directoryHandle.getDirectoryHandle(folder, { create: true });
+            var fh = await docsFolder.getFileHandle(id + '.json', { create: true });
+            var ws = await fh.createWritable();
+            await ws.write(JSON.stringify(data, null, 2));
+            await ws.close();
         } catch(e) { console.warn('[Docs] Filesystem save failed:', e.message); }
     }
 }
 async function _localDocsDelete(folder, id) {
     if (!window._localDocsConnection) await _localDocsInit();
-    /* v148: Delete from SharePoint via Graph if logged in */
-    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+    /* Delete from Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
         try { await GraphClient.deleteFile('Documents/' + folder + '/' + id + '.json'); } catch(e) {}
-    } else if (typeof directoryHandle !== 'undefined' && directoryHandle) {
-        /* Legacy: delete from local filesystem */
-        if (typeof ensureWritePermission === 'function') await ensureWritePermission();
-        var fsPaths = ['Documents/' + folder, 'Data/Documents/' + folder, 'Master Folder/Data/Documents/' + folder];
-        for (var fp of fsPaths) {
-            try {
-                var h = directoryHandle;
-                for (var part of fp.split('/').filter(Boolean)) h = await h.getDirectoryHandle(part);
-                await h.removeEntry(id + '.json');
-            } catch (e) { /* file may not exist on this path */ }
-        }
+    }
+    /* Delete from filesystem */
+    if (window.directoryHandle) {
+        try {
+            var tryPaths = ['Documents/' + folder, folder];
+            for (var tryPath of tryPaths) {
+                var fp = tryPath.split('/');
+                var cur = window.directoryHandle;
+                for (var fp2 of fp) {
+                    var found = null;
+                    for await (var entry of cur.values()) {
+                        if (entry.kind === 'directory' && entry.name === fp2) { found = entry; break; }
+                    }
+                    if (!found) { cur = null; break; }
+                    cur = found;
+                }
+                if (cur) {
+                    await cur.removeEntry(id + '.json');
+                    break;
+                }
+            }
+        } catch(e) {}
     }
     /* Delete from IDB + write tombstone */
     if (!window._localDocsConnection) return;
@@ -232,8 +266,8 @@ async function _localDocsGetText(path) {
 }
 
 async function _localDocsGetTextFromMasterFolder(paths) {
-    /* v148: Try Graph first */
-    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+    /* Try Graph first */
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
         for (var p of paths) {
             try {
                 var text = await GraphClient.readFile(p);
@@ -242,15 +276,36 @@ async function _localDocsGetTextFromMasterFolder(paths) {
         }
         return null;
     }
-    if (!directoryHandle) return null;
-    for (var path of paths) {
-        var parts = path.split('/').filter(Boolean);
-        var handle = directoryHandle;
-        try {
-            for (var part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
-            var fileHandle = await handle.getFileHandle(parts[parts.length - 1]);
-            return await (await fileHandle.getFile()).text();
-        } catch (e) {}
+    /* Filesystem fallback */
+    if (window.directoryHandle) {
+        for (var p of paths) {
+            try {
+                var parts = p.split('/');
+                var current = window.directoryHandle;
+                for (var part of parts) {
+                    var found = null;
+                    for await (var entry of current.values()) {
+                        if (entry.kind === 'directory' && entry.name === part) { found = entry; break; }
+                    }
+                    if (entry && entry.kind === 'file' && entry.name === part) {
+                        var file = await entry.getFile();
+                        return await file.text();
+                    }
+                    if (!found) { current = null; break; }
+                    current = found;
+                }
+                if (current) {
+                    /* It's a directory — look for the file inside */
+                    var fileName = parts[parts.length - 1];
+                    for await (var subEntry of current.values()) {
+                        if (subEntry.kind === 'file' && subEntry.name === fileName) {
+                            var file = await subEntry.getFile();
+                            return await file.text();
+                        }
+                    }
+                }
+            } catch(e) {}
+        }
     }
     return null;
 }
@@ -268,7 +323,7 @@ async function _localDocsPutText(path, text) {
         });
     }
     /* v148: Save to SharePoint via Graph if logged in */
-    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
         try {
             var folderPart = path.substring(0, path.lastIndexOf('/'));
             if (folderPart) await GraphClient.ensureFolder(folderPart);
@@ -276,19 +331,24 @@ async function _localDocsPutText(path, text) {
         } catch(e) { console.warn('[Docs] Graph text save failed:', e.message); }
         return;
     }
-    /* Legacy: save to local filesystem */
-    if (typeof directoryHandle !== 'undefined' && directoryHandle) {
-        if (typeof ensureWritePermission === 'function' && !(await ensureWritePermission())) return;
+    /* Filesystem fallback */
+    if (window.directoryHandle) {
         try {
-            var parts = path.split('/').filter(Boolean);
-            var handle = directoryHandle;
+            var parts = path.split('/');
+            var current = window.directoryHandle;
             for (var i = 0; i < parts.length - 1; i++) {
-                handle = await handle.getDirectoryHandle(parts[i], { create: true });
+                var found = null;
+                for await (var entry of current.values()) {
+                    if (entry.kind === 'directory' && entry.name === parts[i]) { found = entry; break; }
+                }
+                if (!found) found = await current.getDirectoryHandle(parts[i], { create: true });
+                current = found;
             }
-            var fh = await handle.getFileHandle(parts[parts.length - 1], { create: true });
-            var w = await fh.createWritable();
-            await w.write(text);
-            await w.close();
+            var fileName = parts[parts.length - 1];
+            var fh = await current.getFileHandle(fileName, { create: true });
+            var ws = await fh.createWritable();
+            await ws.write(text);
+            await ws.close();
         } catch(e) { console.warn('[Docs] Filesystem text save failed:', e.message); }
     }
 }
@@ -1084,7 +1144,24 @@ async function _calculateFormSummary(templateId, values) {
         if (f.answerType === 'divider' || f.answerType === 'signoff' || f.answerType === 'pagebreak') return;
 
         var isScored = (f.scoringType && f.scoringType !== 'none') || f.scored;
-        if (!isScored) return;
+        if (!isScored) {
+            if (!categoryMap[currentCategory]) {
+                categoryMap[currentCategory] = { name: currentCategory, totalScore: 0, maxScore: 0, percent: 0, fieldResults: [] };
+            }
+            var rawValNS = values[f.id] || '';
+            categoryMap[currentCategory].fieldResults.push({
+                label: f.label,
+                type: f.answerType || 'text',
+                scoringType: 'none',
+                rawValue: rawValNS,
+                value: 0,
+                max: 0,
+                weight: 0,
+                percent: 0,
+                category: currentCategory
+            });
+            return;
+        }
 
         // Ensure current category exists
         if (!categoryMap[currentCategory]) {
@@ -1449,9 +1526,10 @@ async function _renderSummaryPanel(templateId, values) {
                 html += '<span class="font-black border px-2 py-0.5 rounded ' + trClass + '">' + escapeHtml(trDisplay) + '</span>';
                 html += '</div>';
             } else {
+                var nsDisplay = r.rawValue || r.value || '\u2014';
                 html += '<div class="flex items-center justify-between text-xs bg-white rounded px-2.5 py-1.5 border border-slate-100">';
                 html += '<span class="font-bold text-slate-600">' + escapeHtml(r.label) + '</span>';
-                html += '<span class="font-black border px-2 py-0.5 rounded bg-slate-50 text-slate-400 border-slate-200">' + r.value + ' / ' + r.max + '</span>';
+                html += '<span class="font-black border px-2 py-0.5 rounded bg-slate-50 text-slate-500 border-slate-200 text-[10px]">' + escapeHtml(String(nsDisplay).substring(0, 40)) + '</span>';
                 html += '</div>';
             }
         });
@@ -1519,6 +1597,280 @@ window._downloadSummaryCSV = async function() {
     link.download = (doc.name || doc.id || 'document') + '_summary.csv';
     link.click();
     URL.revokeObjectURL(link.href);
+};
+
+/* ─── PDF Export (jsPDF) ─────────────────────────────────────── */
+window._downloadTemplatePDF = async function(docId, folder) {
+    if (typeof window.jspdf === 'undefined') { showToast('PDF library not loaded.', 'error'); return; }
+    var docData = null;
+    if (window.currentLoadedDocs && folder) {
+        var fl = folder.toLowerCase();
+        if (window.currentLoadedDocs[fl]) docData = window.currentLoadedDocs[fl].find(function(d) { return d.id === docId; });
+    }
+    if (!docData && folder) docData = await _cloudGetDoc(folder, docId);
+    if (!docData) { showToast('Document not found.', 'error'); return; }
+    if (!docData.formTemplateId || !docData.formTemplateValues) { showToast('No form data to export.', 'warning'); return; }
+    var tmpl = await _getFormTemplate(docData.formTemplateId);
+    if (!tmpl) { showToast('Template not found.', 'error'); return; }
+
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var W = 210, H = 297, M = 15, CW = W - 2 * M;
+    var x0 = M, y = 8;
+    var FONT = 'helvetica';
+    var vals = docData.formTemplateValues || {};
+    var summary = await _calculateFormSummary(docData.formTemplateId, vals);
+
+    function checkPage(h) { if (y + h > H - M) { doc.addPage(); y = M; } }
+    function bold() { doc.setFont(FONT, 'bold'); }
+    function normal() { doc.setFont(FONT, 'normal'); }
+    function sz(s) { doc.setFontSize(s); }
+    function clr(r, g, b) { doc.setTextColor(r, g, b); }
+    function bg(r, g, b) { doc.setFillColor(r, g, b); }
+    function line(y_) { doc.setDrawColor(200, 200, 200); doc.line(M, y_, W - M, y_); }
+
+    /* ── Page 1: Header ── */
+    bg(135, 157, 130); doc.rect(0, 0, W, 30, 'F');
+    clr(255, 255, 255); sz(16); bold();
+    doc.text(docData.name || docData.title || 'Document', M, 12);
+    sz(9); normal();
+    doc.text('Birds of Derby — ' + (docData.type || ''), M, 20);
+    doc.text('Reference: ' + (docData.reference || '—') + '  |  Date: ' + (docData.date || '—') + '  |  Author: ' + (docData.creator || '—'), M, 26);
+    y = 38;
+
+    /* ── Section Scores ── */
+    if (summary && summary.maxScore > 0) {
+        checkPage(30);
+        clr(40, 40, 40); sz(12); bold();
+        doc.text('Section Scores', M, y); y += 8;
+
+        /* Overall score bar */
+        bg(248, 246, 242); doc.roundedRect(M, y, CW, 12, 2, 2, 'F');
+        clr(60, 60, 60); sz(10); bold();
+        doc.text(summary.totalScore + ' / ' + summary.maxScore + '  (' + summary.scorePercent + '%)', M + 4, y + 8);
+        var barPct = Math.min(summary.scorePercent, 100);
+        var barW = (CW - 8) * barPct / 100;
+        if (barW > 2) {
+            var br = barPct >= 80 ? 135 : barPct >= 40 ? 245 : 239;
+            var bg2 = barPct >= 80 ? 157 : barPct >= 40 ? 158 : 68;
+            var bb = barPct >= 80 ? 130 : barPct >= 40 ? 11 : 68;
+            bg(br, bg2, bb); doc.roundedRect(M + 4, y + 10, barW, 2, 1, 1, 'F');
+        }
+        y += 16;
+
+        /* Overall rating */
+        if (summary.overallRating) {
+            clr(40, 40, 40); sz(9); bold();
+            doc.text('Overall Rating: ' + summary.overallRating, M, y); y += 6;
+        }
+
+        /* Section cards */
+        if (summary.categories.length > 0) {
+            summary.categories.forEach(function(cat) {
+                if (cat.maxScore === 0) return;
+                checkPage(14);
+                bg(255, 255, 255); doc.roundedRect(M, y, CW, 10, 1, 1, 'F');
+                doc.setDrawColor(220, 220, 220); doc.roundedRect(M, y, CW, 10, 1, 1, 'S');
+                clr(60, 60, 60); sz(9); bold();
+                doc.text(cat.name, M + 3, y + 7);
+                normal();
+                doc.text(cat.totalScore + ' / ' + cat.maxScore + '  (' + cat.percent + '%)', x0 + CW - 40, y + 7);
+                y += 13;
+            });
+        }
+
+        /* RAG counts */
+        if (summary.ragGreenCount + summary.ragAmberCount + summary.ragRedCount > 0) {
+            checkPage(6); sz(8); normal(); clr(100, 100, 100);
+            doc.text('RAG: ' + summary.ragGreenCount + ' Green, ' + summary.ragAmberCount + ' Amber, ' + summary.ragRedCount + ' Red', M, y);
+            y += 5;
+        }
+        if (summary.yesCount + summary.noCount > 0) {
+            checkPage(6); sz(8); normal(); clr(100, 100, 100);
+            doc.text('Yes/No: ' + summary.yesCount + ' Yes, ' + summary.noCount + ' No', M, y);
+            y += 5;
+        }
+
+        /* Question-level breakdown */
+        if (summary.fieldResults.length > 0) {
+            checkPage(12); y += 2;
+            clr(40, 40, 40); sz(10); bold();
+            doc.text('Question Scores', M, y); y += 7;
+
+            var lastCat = '';
+            summary.fieldResults.forEach(function(fr) {
+                if (fr.category && fr.category !== lastCat) {
+                    lastCat = fr.category;
+                    checkPage(10); y += 1;
+                    clr(100, 100, 100); sz(7); bold();
+                    doc.text(fr.category.toUpperCase(), M, y); y += 5;
+                }
+                checkPage(6);
+                clr(60, 60, 60); sz(8); normal();
+                var label = fr.label || '—';
+                var display = '';
+                if (fr.scoringType === 'rag' || fr.type === 'rag' || fr.type === 'table_row') {
+                    display = fr.rawValue || '—';
+                } else if (fr.scoringType === 'passfail') {
+                    display = fr.value || '—';
+                } else {
+                    display = (fr.value || 0) + ' / ' + (fr.max || 10);
+                }
+                doc.text(label.substring(0, 60), M, y);
+                bold();
+                doc.text(display, x0 + CW - 20, y);
+                normal();
+                y += 5;
+            });
+        }
+    }
+
+    /* ── Page break before Report ── */
+    doc.addPage(); y = M;
+
+    /* ── Report: All Questions + Answers ── */
+    clr(40, 40, 40); sz(12); bold();
+    doc.text('Report — Questions & Answers', M, y); y += 10;
+
+    tmpl.fields.forEach(function(f, i) {
+        var at = f.answerType || 'text';
+        var val = vals[f.id] || '';
+
+        if (at === 'header') {
+            checkPage(14); y += 2;
+            bg(240, 248, 240); doc.roundedRect(M, y - 4, CW, 10, 2, 2, 'F');
+            clr(80, 100, 70); sz(11); bold();
+            doc.text(f.label || 'Header', M + 3, y + 3); y += 12;
+            return;
+        }
+        if (at === 'section') {
+            checkPage(10); y += 2;
+            clr(60, 60, 60); sz(10); bold();
+            doc.text(f.label || 'Section', M, y); y += 4;
+            line(y); y += 6;
+            return;
+        }
+        if (at === 'divider') { checkPage(8); y += 2; line(y); y += 6; return; }
+        if (at === 'signoff') {
+            checkPage(20); y += 3;
+            clr(60, 60, 60); sz(9); bold();
+            doc.text('Sign-off', M, y); y += 6;
+            var parts = (val || '').split(' | ');
+            var roleVal = parts[0] || f.signoffRole || 'Manager';
+            var nameVal = parts[1] || '';
+            var dateVal = parts[2] || '';
+            var sigVal = '';
+            for (var si = 2; si < parts.length; si++) {
+                if (parts[si] && parts[si].indexOf('data:image') === 0) { sigVal = parts[si]; break; }
+                else if (parts[si]) dateVal = dateVal || parts[si];
+            }
+            normal(); sz(8); clr(80, 80, 80);
+            doc.text('Role: ' + roleVal, M, y); y += 5;
+            doc.text('Name: ' + (nameVal || '—'), M, y); y += 5;
+            doc.text('Date: ' + (dateVal || '—'), M, y); y += 5;
+            if (sigVal) {
+                try {
+                    doc.addImage(sigVal, 'PNG', M, y, 50, 20);
+                    y += 22;
+                } catch(e) { doc.text('[Signature]', M, y); y += 5; }
+            }
+            y += 4;
+            return;
+        }
+
+        /* Regular field */
+        var displayVal = '';
+        if (at === 'table') {
+            var lines = (val || '').split('\n');
+            var hdrs = f.tableHeaders || [];
+            var rowHdrs = f.tableRowHeaders || [];
+            var numCols = f.tableCols || 3;
+            var rows = f.tableRows || 3;
+
+            checkPage(12);
+            clr(60, 60, 60); sz(8); bold();
+            doc.text('Q' + (i + 1) + '. ' + (f.label || ''), M, y); y += 5;
+            normal(); sz(7);
+
+            /* Table header */
+            var colW = (CW - 20) / numCols;
+            bg(240, 240, 240); doc.rect(M, y - 3, CW, 5, 'F');
+            bold();
+            doc.text(f.tableRowHeaderLabel || 'Item', M + 1, y);
+            for (var hc = 0; hc < numCols; hc++) {
+                doc.text(hdrs[hc] || ('Col ' + (hc + 1)), M + 20 + hc * colW, y);
+            }
+            y += 5; normal();
+
+            for (var ri = 0; ri < rows; ri++) {
+                var cells = (lines[ri] || '').split(' | ');
+                checkPage(5);
+                doc.text(rowHdrs[ri] || ('Row ' + (ri + 1)), M + 1, y);
+                for (var cc = 0; cc < numCols; cc++) {
+                    doc.text(cells[cc] || '—', M + 20 + cc * colW, y);
+                }
+                y += 5;
+            }
+
+            /* Table row scores */
+            var scoredRows = f.tableScoredRows || [];
+            if (scoredRows.length > 0 && f.scoringType && f.scoringType !== 'none') {
+                y += 1;
+                scoredRows.forEach(function(ri2) {
+                    var scKey = f.id + '_r' + ri2 + '_c' + 'score';
+                    var scVal = vals[scKey] || '';
+                    if (scVal) {
+                        checkPage(5); sz(7); clr(100, 100, 100);
+                        doc.text((rowHdrs[ri2] || 'Row ' + (ri2 + 1)) + ' Score: ' + scVal, M + 4, y);
+                        y += 4;
+                    }
+                });
+            }
+            y += 2;
+            return;
+        }
+
+        checkPage(10);
+        clr(60, 60, 60); sz(8); bold();
+        doc.text('Q' + (i + 1) + '. ' + (f.label || ''), M, y); y += 5;
+        normal(); sz(8);
+
+        if (at === 'text' || at === 'number' || at === 'date' || at === 'checkbox' || at === 'multichoice' || at === 'yesno' || at === 'rag') {
+            displayVal = val || '—';
+        } else if (at === 'textarea') {
+            displayVal = val || '—';
+        } else if (at === 'three_col') {
+            var labels = f.colLabels || ['Field 1', 'Field 2', 'Field 3'];
+            var subVals = (val || '').split(' | ');
+            labels.forEach(function(l, si2) {
+                checkPage(5);
+                clr(120, 120, 120); sz(7); bold();
+                doc.text(l + ':', M + 3, y);
+                normal();
+                doc.text(subVals[si2] || '—', M + 30, y);
+                y += 4;
+            });
+            y += 2;
+            return;
+        } else if (at === 'image') {
+            displayVal = val || '[No photo]';
+        } else {
+            displayVal = val || '—';
+        }
+
+        if (displayVal) {
+            var wrapped = doc.splitTextToSize(displayVal, CW - 6);
+            checkPage(wrapped.length * 4 + 2);
+            clr(80, 80, 80);
+            doc.text(wrapped, M + 3, y);
+            y += wrapped.length * 4 + 3;
+        }
+        y += 2;
+    });
+
+    /* ── Save ── */
+    doc.save((docData.name || docData.id || 'document') + '.pdf');
+    showToast('PDF downloaded.', 'success');
 };
 
 /* ─── Load ──────────────────────────────────────────────────── */
@@ -2097,7 +2449,7 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
 
             <div class="print:hidden flex flex-wrap gap-2">
                 <button onclick="${userFolderId ? 'enterUserFolder(\'' + userFolderId + '\')' : 'renderDocuments()'}" style="background:rgba(85,91,110,0.08);color:#555B6E;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">Back</button>
-                <button onclick="window.print()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 13px;">Print PDF</button>
+                <button onclick="window._downloadTemplatePDF('${doc.id}','${folder}')" class="btn" style="background: var(--edwardian-rose); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 13px;">Download PDF</button>
                 ${doc.formTemplateId && doc.formTemplateValues ? '<button onclick="window._downloadSummaryCSV()" style="background:var(--edwardian-sage);color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">\u2B07 Download CSV</button>' : ''}
                 ${doc.formTemplateId && doc.status !== 'Archived' ? '<button onclick="window._toggleFormEdit(\'' + doc.id + '\',\'' + folder + '\')" id="btn-edit-form" style="background:rgba(85,91,110,0.08);color:#555B6E;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">\u270f Edit Answers</button>' : ''}
                 <button onclick="moveDocToFolder('${doc.id}','${folder}','${userFolderId || ''}')" class="bg-slate-100 text-slate-600 rounded-none font-bold px-4 py-2 hover:bg-slate-200">📁 Move to Folder</button>
@@ -2269,6 +2621,9 @@ async function resolveDocument(id, userFolderId) {
     doc.resolvedDate = new Date().toISOString().substring(0, 10);
     await _cloudWriteDoc('Resolved', id, doc);
     await _cloudDeleteDoc('Open', id);
+    if (window.currentLoadedDocs) {
+        window.currentLoadedDocs.open = (window.currentLoadedDocs.open || []).filter(function(d) { return d.id !== id; });
+    }
 
     // Offer follow-up document creation
     if (doc.followupTemplateId) {
@@ -2324,6 +2679,10 @@ async function archiveDocument(id, folder, userFolderId) {
     doc.archivedDate = new Date().toISOString().substring(0, 10);
     await _cloudWriteDoc('Archive', id, doc);
     await _cloudDeleteDoc(folder, id);
+    if (window.currentLoadedDocs) {
+        var fl = folder.toLowerCase();
+        if (window.currentLoadedDocs[fl]) window.currentLoadedDocs[fl] = window.currentLoadedDocs[fl].filter(function(d) { return d.id !== id; });
+    }
     showToast("Document Archived.", 'success');
     _busyOps.delete(id);
     if (userFolderId) { window.currentUserFolder = userFolderId; }
@@ -2356,6 +2715,9 @@ async function permanentDeleteDocument(id) {
             tx.objectStore('files').delete('Evidence/' + doc.evidenceFile);
         } catch (e) {}
     }
+    if (window.currentLoadedDocs && window.currentLoadedDocs.archived) {
+        window.currentLoadedDocs.archived = window.currentLoadedDocs.archived.filter(function(d) { return d.id !== id; });
+    }
     showToast("Document deleted.", 'success');
     _busyOps.delete(id);
     renderDocuments();
@@ -2379,6 +2741,10 @@ async function deleteDocument(id, folder) {
     if (_busyOps.has(id)) return; _busyOps.add(id);
     if (!confirm("Permanently delete this document?")) { _busyOps.delete(id); return; }
     await _cloudDeleteDoc(folder, id);
+    if (window.currentLoadedDocs) {
+        var fl = folder.toLowerCase();
+        if (window.currentLoadedDocs[fl]) window.currentLoadedDocs[fl] = window.currentLoadedDocs[fl].filter(function(d) { return d.id !== id; });
+    }
     showToast("Document deleted.", 'success');
     _busyOps.delete(id);
     renderDocuments();

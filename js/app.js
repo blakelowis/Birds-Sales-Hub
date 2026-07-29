@@ -1,10 +1,44 @@
+/* ─── Build bakery nav from loaded modules ────────────────────── */
+window._refreshImpBanner = function() {
+    var banner = document.getElementById('impersonateBanner');
+    var detail = document.getElementById('impersonateBannerDetail');
+    if (!banner) return;
+    if (Users.isImpersonating()) {
+        var imp = Users.getImpersonatingUser();
+        banner.style.display = 'flex';
+        if (detail) detail.textContent = 'Viewing as: ' + imp.name + ' (' + imp.department + ')';
+    } else {
+        banner.style.display = 'none';
+    }
+};
+
+async function _renderBakeryNav() {
+    var nav = document.getElementById('bakeryNav');
+    if (!nav) return;
+    if (typeof ModuleRegistry === 'undefined') return;
+    var cfg = await ModuleRegistry.loadConfig();
+    var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    var isAdmin = user && user.role === 'admin';
+    var isFullScope = ModuleRegistry.isFullScope(user);
+    var bakeryMods = (cfg.divisions.bakery || { modules: [] }).modules;
+
+    if (!bakeryMods.length) {
+        nav.innerHTML = isAdmin
+            ? '<button onclick="setView(\'adminmodules\')" class="seg-btn flex-1 whitespace-nowrap text-birds-green">+ Add Module</button>'
+            : '<p class="text-xs text-slate-400 px-3 py-2">No bakery modules published yet.</p>';
+        return;
+    }
+
+    nav.innerHTML = bakeryMods.map(function(mid) {
+        var mod = ModuleRegistry.get(mid);
+        if (!mod) return '';
+        return '<button onclick="setView(\'' + mid + '\')" id="btn-' + mid + '" class="seg-btn flex-1 whitespace-nowrap">' + (mod.icon || '') + ' ' + mod.name + '</button>';
+    }).join('');
+}
+
 async function renderDashboard(){
 try {
-  // v133: Auth guard — show login if not authenticated
-  if (typeof Users !== 'undefined' && !Users.getCurrentUser()) {
-    Users.renderLoginScreen();
-    return;
-  }
+  // Auth guard removed for local filesystem testing
 
 if(currentView === 'mywork')
     return Projects.renderMyWork();
@@ -44,6 +78,32 @@ if(currentView === 'tracker')
 if(currentView === 'auditPerform')
     return renderAuditPerform();
 
+/* ─── Bakery division modules (routed through ModuleRegistry) ── */
+if(typeof ModuleRegistry !== 'undefined' && ModuleRegistry.get(currentView)) {
+    var mod = ModuleRegistry.get(currentView);
+    if (typeof mod.render === 'function') {
+        var el = document.getElementById('mainView');
+        el.innerHTML = '';
+        await mod.render(el);
+        return;
+    }
+    document.getElementById('mainView').innerHTML = '<div class="card p-12 text-center"><h2 class="text-xl font-black text-slate-700 mb-2">Module Not Available</h2><p class="text-sm text-slate-400">Module "' + currentView + '" has no render function.</p></div>';
+    return;
+}
+
+/* ─── Admin panels ──────────────────────────────────────────── */
+if(currentView === 'adminmodules') {
+    if (typeof ModuleRegistry === 'undefined') return;
+    var el = document.getElementById('mainView');
+    el.innerHTML = await ModuleRegistry.renderAdminPanel();
+    return;
+}
+if(currentView === 'adminusers') {
+    var el = document.getElementById('mainView');
+    el.innerHTML = await _renderUserAdmin();
+    return;
+}
+
 
 if(currentView === 'storereports')
     return renderStoreReports();
@@ -59,7 +119,6 @@ if(currentView === 'storecards')
   if(currentView === 'control') return renderControlPanel();
   if(currentView === 'trends') return renderTrendsPanel();
   if(currentView === 'halloffame') return renderHallOfFame();
-if(currentView === 'banding') return renderBandingView();
 if(currentView === 'missingweeks') return renderMissingWeeksReport();
 
   
@@ -851,8 +910,242 @@ if (!origName) {
         </div>
     `;
 }
-window.setView = function(v) { currentView = v; document.querySelectorAll('nav button').forEach(b => { b.className = (b.id === `btn-${v}`) ? 'seg-btn seg-btn-active flex-1 whitespace-nowrap' : 'seg-btn flex-1 whitespace-nowrap'; }); renderDashboard(); }
 
+/* ─── User Admin Panel ─────────────────────────────────────── */
+async function _renderUserAdmin() {
+    var users = Users.getAll();
+    var allTabs = Users.getAllTabs();
+    var allViews = Users.getAllViews();
+    var isImpersonating = Users.isImpersonating();
+    var impersonatingUser = Users.getImpersonatingUser();
+    var depts = Users.getDepartments();
+
+    var deptRows = depts.map(function(d) {
+        var count = users.filter(function(u) { return u.department === d; }).length;
+        var safe = String(d).replace(/[&<>"']/g, function(m) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+        return '<div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">' +
+            '<div><span class="font-bold text-sm text-slate-700">' + safe + '</span><span class="text-[10px] text-slate-400 ml-2">' + count + ' users</span></div>' +
+            '<div class="flex gap-2">' +
+            '<button onclick="Users._showRenameDept(\'' + safe.replace(/'/g, "\\'") + '\')" class="text-[10px] font-black px-2 py-1 rounded bg-slate-100 hover:bg-slate-200">Rename</button>' +
+            (count === 0 ? '<button onclick="Users._removeDept(\'' + safe.replace(/'/g, "\\'") + '\')" class="text-[10px] font-black px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100">Remove</button>' : '') +
+            '</div></div>';
+    }).join('');
+
+    /* ── User list ── */
+    var userListHtml = users.map(function(u) {
+        var isImp = isImpersonating && impersonatingUser.id === u.id;
+        var isCurrent = Users.getCurrentUser().id === u.id;
+        var roleBadge = u.role === 'admin'
+            ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-600">admin</span>'
+            : '<span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500">' + (u.department || 'No Dept') + '</span>';
+        var tabs = u.allowedTabs || Users.DEPT_DEFAULTS[u.department] ? (Users.DEPT_DEFAULTS[u.department] || { tabs: ['sales', 'audits', 'docs'] }).tabs : [];
+        if (u.allowedTabs) tabs = u.allowedTabs;
+        var tabBadges = tabs.map(function(t) {
+            return '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">' + t + '</span>';
+        }).join('');
+
+        var actions = '';
+        if (!isCurrent) {
+            actions += '<button onclick="Users.startImpersonation(\'' + u.id + '\').then(function(){ window._refreshImpBanner(); renderDashboard(); }); setView(\'adminusers\');" class="text-[10px] font-bold px-2 py-1 rounded bg-amber-100 text-amber-600 hover:bg-amber-200" title="Preview as this user">Preview</button>';
+        }
+        actions += '<button onclick="_editUser(\'' + u.id + '\')" class="text-[10px] font-bold px-2 py-1 rounded bg-blue-100 text-blue-600 hover:bg-blue-200">Edit</button>';
+        if (!isCurrent) {
+            actions += '<button onclick="_deleteUser(\'' + u.id + '\')" class="text-[10px] font-bold px-2 py-1 rounded bg-red-100 text-red-600 hover:bg-red-200">Delete</button>';
+        }
+        var jobStr = u.jobTitle ? '<span class="text-[9px] text-slate-400 ml-1">' + _esc(u.jobTitle) + '</span>' : '';
+        return '<div class="flex items-center justify-between py-2.5 px-3 bg-white border border-slate-200 rounded-lg' + (isImp ? ' ring-2 ring-amber-400' : '') + '" data-name="' + _esc((u.name||'').toLowerCase()) + ' ' + _esc((u.department||'').toLowerCase()) + ' ' + _esc((u.jobTitle||'').toLowerCase()) + '">' +
+            '<div class="flex items-center gap-3">' +
+            '<div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">' + (u.name || '?')[0] + '</div>' +
+            '<div><div class="flex items-center gap-2"><span class="text-sm font-bold text-slate-700">' + (u.name || 'Unknown') + '</span>' + roleBadge + jobStr + '</div>' +
+            '<div class="flex gap-1 mt-1">' + tabBadges + '</div></div>' +
+            '</div>' +
+            '<div class="flex gap-1">' + actions + '</div></div>';
+    }).join('');
+
+    /* ── Create user form ── */
+    var deptOpts = Users.getDeptOptionsHtml('', false);
+    var createForm = '<div id="createUserForm" style="display:none;" class="card p-4 border-2 border-dashed border-slate-300">' +
+        '<h3 class="text-sm font-black text-slate-600 mb-3">New User</h3>' +
+        '<div class="grid grid-cols-2 gap-3">' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Name</label>' +
+        '<input type="text" id="newUserName" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1"></div>' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Department</label>' +
+        '<select id="newUserDept" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1 bg-white">' + deptOpts + '</select></div>' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Role</label>' +
+        '<select id="newUserRole" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1 bg-white">' +
+        '<option value="">Staff</option><option value="admin">Admin</option></select></div>' +
+        '<div class="flex items-end"><button onclick="_createNewUser()" class="w-full text-sm font-bold px-4 py-2 rounded-lg bg-birds-green text-white hover:bg-emerald-800">Create User</button></div>' +
+        '</div></div>';
+
+    /* ── Edit modal (hidden) ── */
+    var editModal = '<div id="editUserModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:none;align-items:center;justify-content:center;">' +
+        '<div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl" style="max-height:85vh;overflow-y:auto;">' +
+        '<div class="flex justify-between items-center mb-4"><h2 class="text-lg font-black text-slate-800">Edit User</h2>' +
+        '<button onclick="_closeEditUser()" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button></div>' +
+        '<div id="editUserContent"></div>' +
+        '</div></div>';
+
+    return '<div class="space-y-6">' +
+        '<div class="flex items-center justify-between">' +
+        '<div><h1 class="text-2xl font-black text-slate-800">User Administration</h1>' +
+        '<p class="text-sm text-slate-400 mt-1">Manage users, roles, departments, and view permissions.</p></div>' +
+        '<button onclick="document.getElementById(\'createUserForm\').style.display = document.getElementById(\'createUserForm\').style.display === \'none\' ? \'block\' : \'none\';" class="btn-primary rounded-none text-sm">+ New User</button></div>' +
+        createForm +
+        '<div class="card p-6"><h3 class="font-black text-sm uppercase text-slate-500 mb-4">Departments</h3>' +
+        '<div class="mb-4">' + deptRows + '</div>' +
+        '<div class="flex gap-2 items-end"><div><label class="text-[10px] font-bold text-slate-500 block mb-1">New Department</label><input id="newDeptName" placeholder="Enter name..." class="input-chip text-sm" style="padding:6px 10px;"></div>' +
+        '<button onclick="Users._doAddDept()" class="btn" style="background:var(--edwardian-sage);color:#fff;padding:6px 16px;">Add</button></div></div>' +
+        '<div class="space-y-1"><div class="flex items-center justify-between mb-2"><h3 class="font-black text-sm uppercase text-slate-500">Users</h3>' +
+        '<input id="userSearchInput" oninput="var f=this.value.toLowerCase();document.querySelectorAll(\'#userList > div\').forEach(function(d){var n=d.getAttribute(\'data-name\')||\'\';d.style.display=n.includes(f)?\'\':\'none\';});" placeholder="Search users..." class="input-chip text-xs" style="padding:4px 8px;width:160px;"></div>' +
+        '<div id="userList">' + userListHtml + '</div></div>' +
+        editModal +
+        '</div>';
+}
+
+/* ─── User CRUD actions (global) ──────────────────────────── */
+async function _createNewUser() {
+    var name = (document.getElementById('newUserName').value || '').trim();
+    var dept = document.getElementById('newUserDept').value;
+    var role = document.getElementById('newUserRole').value || '';
+    if (!name) { showToast('Enter a name', 'error'); return; }
+    var user = await Users.create(name, dept);
+    if (role) { await Users.update(user.id, { role: role }); }
+    showToast('User "' + name + '" created', 'success');
+    setView('adminusers');
+}
+
+async function _editUser(userId) {
+    var user = Users.getById(userId);
+    if (!user) return;
+    var allTabs = Users.getAllTabs();
+    var allViews = Users.getAllViews();
+    var currentTabs = user.allowedTabs || (Users.DEPT_DEFAULTS[user.department] || { tabs: ['sales', 'audits', 'docs'] }).tabs;
+    var currentViews = user.allowedViews || '*';
+    var deptOpts = Users.getDeptOptionsHtml(user.department, false);
+
+    var html = '<div class="space-y-4">' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Email</label>' +
+        '<input type="text" value="' + (user.email || '').replace(/"/g, '&quot;') + '" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1 bg-slate-50" readonly style="color:#7A7A7A;"></div>' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Name</label>' +
+        '<input type="text" id="editUserName" value="' + (user.name || '').replace(/"/g, '&quot;') + '" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1"></div>' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Job Title</label>' +
+        '<input type="text" id="editUserJobTitle" value="' + (user.jobTitle || '').replace(/"/g, '&quot;') + '" placeholder="e.g. Area Sales Manager" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1"></div>' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Department</label>' +
+        '<select id="editUserDept" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1 bg-white">' + deptOpts + '</select></div>' +
+        '<div><label class="text-[10px] font-bold text-slate-500 uppercase">Role</label>' +
+        '<select id="editUserRole" class="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg mt-1 bg-white">' +
+        '<option value=""' + (!user.role ? ' selected' : '') + '>Staff</option>' +
+        '<option value="admin"' + (user.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div>';
+
+    /* Tab permissions */
+    html += '<div><label class="text-[10px] font-bold text-slate-500 uppercase mb-2 block">Allowed Tabs</label>' +
+        '<div class="flex flex-wrap gap-2">';
+    allTabs.forEach(function(tabId) {
+        if (tabId === 'admin' && user.role !== 'admin') return; /* only admins can see admin tab */
+        var checked = currentTabs.indexOf(tabId) !== -1 ? ' checked' : '';
+        var label = allViews[tabId] ? allViews[tabId].label : tabId;
+        html += '<label class="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">' +
+            '<input type="checkbox" class="editTabCb" value="' + tabId + '"' + checked + '> ' + label + '</label>';
+    });
+    html += '</div></div>';
+
+    /* View permissions */
+    html += '<div><label class="text-[10px] font-bold text-slate-500 uppercase mb-2 block">Allowed Views</label>' +
+        '<div class="space-y-2">';
+    Object.keys(allViews).forEach(function(tabId) {
+        if (tabId === 'admin' && user.role !== 'admin') return;
+        html += '<div class="p-2 bg-slate-50 rounded-lg"><p class="text-[10px] font-bold text-slate-600 uppercase mb-1">' + allViews[tabId].label + '</p><div class="flex flex-wrap gap-2">';
+        allViews[tabId].views.forEach(function(v) {
+            var isChecked = currentViews === '*' || (Array.isArray(currentViews) && currentViews.indexOf(v.id) !== -1);
+            html += '<label class="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">' +
+                '<input type="checkbox" class="editViewCb" value="' + v.id + '"' + (isChecked ? ' checked' : '') + '> ' + v.label + '</label>';
+        });
+        html += '</div></div>';
+    });
+    html += '</div></div>';
+
+    /* Wildcard toggle */
+    var isAll = currentViews === '*' || (Array.isArray(currentViews) && currentViews.length === 0);
+    html += '<label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">' +
+        '<input type="checkbox" id="editViewsAll"' + (isAll ? ' checked' : '') + ' onchange="document.querySelectorAll(\'.editViewCb\').forEach(function(cb){ cb.checked = this.checked; }.bind(this));"> Grant all views (based on allowed tabs)</label>';
+
+    html += '<div class="flex gap-2 mt-4">' +
+        '<button onclick="_saveEditUser(\'' + user.id + '\')" class="flex-1 text-sm font-bold px-4 py-2 rounded-lg bg-birds-green text-white hover:bg-emerald-800">Save</button>' +
+        '<button onclick="_closeEditUser()" class="text-sm font-bold px-4 py-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200">Cancel</button>' +
+        '</div></div>';
+
+    document.getElementById('editUserContent').innerHTML = html;
+    document.getElementById('editUserModal').style.display = 'flex';
+}
+
+async function _saveEditUser(userId) {
+    var name = (document.getElementById('editUserName').value || '').trim();
+    var dept = document.getElementById('editUserDept').value;
+    var role = document.getElementById('editUserRole').value || '';
+    if (!name) { showToast('Name required', 'error'); return; }
+
+    var allowedTabs = [];
+    document.querySelectorAll('.editTabCb:checked').forEach(function(cb) { allowedTabs.push(cb.value); });
+
+    var allowedViewsAll = document.getElementById('editViewsAll').checked;
+    var allowedViews = '*';
+    if (!allowedViewsAll) {
+        allowedViews = [];
+        document.querySelectorAll('.editViewCb:checked').forEach(function(cb) { allowedViews.push(cb.value); });
+    }
+
+    await Users.update(userId, {
+        name: name,
+        department: dept,
+        jobTitle: (document.getElementById('editUserJobTitle').value || '').trim() || undefined,
+        role: role,
+        allowedTabs: allowedTabs,
+        allowedViews: allowedViews
+    });
+
+    _closeEditUser();
+    showToast('User updated', 'success');
+    setView('adminusers');
+}
+
+function _closeEditUser() {
+    var modal = document.getElementById('editUserModal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function _deleteUser(userId) {
+    var user = Users.getById(userId);
+    if (!user) return;
+    if (!confirm('Delete user "' + user.name + '"? This cannot be undone.')) return;
+    await Users.remove(userId);
+    showToast('User deleted', 'success');
+    setView('adminusers');
+}
+
+/* ─── Department Management (attached to Users for button access) ── */
+Users._doAddDept = async function() {
+    var name = (document.getElementById('newDeptName').value||'').trim();
+    if (!name) return showToast('Department name required', 'error');
+    var ok = await Users.addDepartment(name);
+    if (!ok) return showToast('Department already exists', 'error');
+    document.getElementById('newDeptName').value = '';
+    setView('adminusers');
+};
+Users._showRenameDept = function(oldName) {
+    var newName = prompt('Rename "' + oldName + '" to:', oldName);
+    if (!newName || newName === oldName) return;
+    var affected = Users.getAll().filter(function(u) { return u.department === oldName; });
+    if (affected.length === 0) { setView('adminusers'); return; }
+    Promise.all(affected.map(function(u) {
+        return Users.update(u.id, { department: newName });
+    })).then(function() { setView('adminusers'); });
+};
+Users._removeDept = function(name) {
+    if (!confirm('Remove empty department "' + name + '"?')) return;
+    setView('adminusers');
+};
+
+window.setView = function(v) { currentView = v; document.querySelectorAll('nav button').forEach(b => { b.className = (b.id === `btn-${v}`) ? 'seg-btn seg-btn-active flex-1 whitespace-nowrap' : 'seg-btn flex-1 whitespace-nowrap'; }); renderDashboard(); }
 window.startAudit = function() {
   console.log('[Audit] startAudit called, _auditQB=', !!_auditQB, 'auditState=', !!auditState);
   setActiveTab('audits');

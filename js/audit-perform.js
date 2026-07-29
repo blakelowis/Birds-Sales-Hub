@@ -286,16 +286,14 @@ function renderAuditMetaView() {
       console.log('[Audit] Retry fetch succeeded:', Object.keys(data).length, 'sectors');
       if (auditState && auditState.view === 'meta') renderAuditMetaView();
     }).catch(function(e) {
-      console.warn('[Audit] Retry fetch failed:', e.message, '— trying local folder');
-      if (typeof directoryHandle !== 'undefined' && directoryHandle) {
-        directoryHandle.getFileHandle('AuditQuestions.json').then(function(fh) {
-          return fh.getFile();
-        }).then(function(file) {
-          return file.text();
-        }).then(function(text) {
-          _auditQB = JSON.parse(text);
-          console.log('[Audit] Loaded from local folder:', Object.keys(_auditQB).length, 'sectors');
-          if (auditState && auditState.view === 'meta') renderAuditMetaView();
+      console.warn('[Audit] Retry fetch failed:', e.message, '— trying IndexedDB');
+      if (typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
+        idbGet('questionBank', 'current').then(function(rec) {
+          if (rec && rec.data && !_auditQB) {
+            _auditQB = rec.data;
+            console.log('[Audit] Loaded cached question bank from', rec.fileName || 'IndexedDB');
+            if (auditState && auditState.view === 'meta') renderAuditMetaView();
+          }
         }).catch(function() {});
       }
     });
@@ -1160,12 +1158,36 @@ async function writeAuditActionsToXlsx(state) {
     var fileName = safeStore + '-' + safeDate + '.json';
     var jsonStr = JSON.stringify(payload, null, 2);
 
-    // Save to local storage
-    var saved = JSON.parse(localStorage.getItem('audit_actions') || '[]');
-    saved.push({ fileName: fileName, payload: payload, savedAt: new Date().toISOString() });
-    localStorage.setItem('audit_actions', JSON.stringify(saved));
-    console.log('[Audit Actions] Saved locally — ' + fileName);
-    return { method: 'local', count: payload.actions.length };
+    // Write JSON file to Open/ folder for Power Automate (shared — all users see this)
+    try {
+      if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+        await GraphClient.ensureFolder('Open');
+        await GraphClient.writeFile('Open/' + fileName, jsonStr);
+        console.log('[Audit Actions] Saved to SharePoint Open/ folder — ' + fileName);
+        return { method: 'sharepoint', count: payload.actions.length, fileName: fileName };
+      } else if (window.directoryHandle) {
+        var openFolder = null;
+        for await (var entry of window.directoryHandle.values()) {
+          if (entry.kind === 'directory' && entry.name === 'Open') { openFolder = entry; break; }
+        }
+        if (!openFolder) {
+          // Try to find the parent data folder and create Open/ subfolder
+          openFolder = await window.directoryHandle.getDirectoryHandle('Open', { create: true });
+        }
+        var fileHandle = await openFolder.getFileHandle(fileName, { create: true });
+        var writable = await fileHandle.createWritable();
+        await writable.write(jsonStr);
+        await writable.close();
+        console.log('[Audit Actions] Saved to local Open/ folder — ' + fileName);
+        return { method: 'folder', count: payload.actions.length, fileName: fileName };
+      } else {
+        console.warn('[Audit Actions] No shared folder available — action not saved');
+        return { method: 'no_folder', count: payload.actions.length, fileName: fileName, error: 'No data folder connected. Sign in to SharePoint or anchor a data folder.' };
+      }
+    } catch (folderErr) {
+      console.error('[Audit Actions] Open/ folder write FAILED:', folderErr.message);
+      return { method: 'error', count: payload.actions.length, error: folderErr.message, fileName: fileName };
+    }
   } catch (e) {
     console.error('[Audit Actions] Save FAILED:', e.message);
     return { method: 'error', count: actionItems.length, error: e.message };
@@ -1173,7 +1195,7 @@ async function writeAuditActionsToXlsx(state) {
 }
 
 async function readJsonFolder(folderName) {
-  // v148: Try Graph first
+  /* Try Graph first */
   if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
     try {
       var items = await GraphClient.listJsonFiles(folderName);
@@ -1191,10 +1213,142 @@ async function readJsonFolder(folderName) {
       if (results.length) return results;
     } catch(e) {}
   }
-  // No data source available
-  console.log('[Audit Actions] No data source available');
+
+  /* Filesystem fallback — read from data folder */
+  if (window.directoryHandle) {
+    try {
+      var targetFolder = null;
+      for await (var entry of window.directoryHandle.values()) {
+        if (entry.kind === 'directory' && entry.name === folderName) { targetFolder = entry; break; }
+      }
+      if (targetFolder) {
+        var results = [];
+        for await (var fileHandle of targetFolder.values()) {
+          if (fileHandle.kind === 'file' && fileHandle.name.endsWith('.json')) {
+            try {
+              var file = await fileHandle.getFile();
+              var text = await file.text();
+              var data = JSON.parse(text);
+              data._fileName = fileHandle.name;
+              results.push(data);
+            } catch(e) {}
+          }
+        }
+        return results;
+      }
+    } catch(e) { console.warn('[readJsonFolder] Filesystem fallback failed:', e.message); }
+  }
+
+  /* IDB fallback — try _localDocsGet */
+  try {
+    var allText = await _localDocsGetText(folderName + '/');
+    if (allText) {
+      var parsed = JSON.parse(allText);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(function(item) { if (!item._fileName) item._fileName = folderName; });
+        return parsed;
+      }
+    }
+  } catch(e) {}
+
+  console.log('[Audit Actions] No data source for', folderName);
   return [];
 }
+
+// ── Cached wrapper for readJsonFolder ────────────────────────
+// Stores parsed results + file manifest in IndexedDB via the settings store.
+// Only re-reads from disk/SharePoint when file list or timestamps change.
+window.readJsonFolderCached = async function(folderName) {
+  var cacheKey = 'audit_cache_' + folderName;
+  var manifestKey = 'audit_manifest_' + folderName;
+
+  var currentManifest = await _buildFolderManifest(folderName);
+
+  try {
+    var cachedManifest = await idbGet('settings', manifestKey);
+    if (cachedManifest && cachedManifest.files && window._manifestsEqual(currentManifest, cachedManifest.files)) {
+      var cachedData = await idbGet('settings', cacheKey);
+      if (cachedData && cachedData.data) {
+        console.log('[Cache] Using cached', folderName, 'folder data (' + cachedData.data.length + ' files)');
+        return cachedData.data;
+      }
+    }
+  } catch(e) {}
+
+  console.log('[Cache] Reading', folderName, 'folder (cache miss)');
+  var data = await readJsonFolder(folderName);
+
+  try {
+    await idbPut('settings', { id: cacheKey, data: data, cachedAt: Date.now() });
+    await idbPut('settings', { id: manifestKey, files: currentManifest, cachedAt: Date.now() });
+  } catch(e) {
+    console.warn('[Cache] Failed to cache', folderName, ':', e.message);
+  }
+
+  return data;
+};
+
+// Clear cached folder data (call after completing an audit that writes new files)
+window.invalidateAuditCache = async function(folderName) {
+  if (folderName) {
+    try { await idbPut('settings', { id: 'audit_cache_' + folderName, data: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_manifest_' + folderName, files: null, cachedAt: 0 }); } catch(e) {}
+    console.log('[Cache] Invalidated cache for', folderName);
+  } else {
+    try { await idbPut('settings', { id: 'audit_cache_Open', data: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_manifest_Open', files: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_cache_Closed', data: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_manifest_Closed', files: null, cachedAt: 0 }); } catch(e) {}
+    console.log('[Cache] Invalidated all audit folder caches');
+  }
+};
+
+async function _buildFolderManifest(folderName) {
+  var files = {};
+
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    try {
+      var items = await GraphClient.listJsonFiles(folderName);
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        files[item.name] = item.lastModified || item.lastModifiedDateTime || Date.now();
+      }
+      return files;
+    } catch(e) {}
+  }
+
+  if (window.directoryHandle) {
+    try {
+      var targetFolder = null;
+      for await (var entry of window.directoryHandle.values()) {
+        if (entry.kind === 'directory' && entry.name === folderName) { targetFolder = entry; break; }
+      }
+      if (targetFolder) {
+        for await (var fileHandle of targetFolder.values()) {
+          if (fileHandle.kind === 'file' && fileHandle.name.endsWith('.json')) {
+            try {
+              var file = await fileHandle.getFile();
+              files[fileHandle.name] = file.lastModified || 0;
+            } catch(e) {}
+          }
+        }
+      }
+    } catch(e) { console.warn('[Cache] Manifest build failed for', folderName, ':', e.message); }
+  }
+
+  return files;
+}
+
+window._manifestsEqual = function(a, b) {
+  var aKeys = Object.keys(a).sort();
+  var bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  for (var i = 0; i < aKeys.length; i++) {
+    if (aKeys[i] !== bKeys[i]) return false;
+    if (a[aKeys[i]] !== b[aKeys[i]]) return false;
+  }
+  return true;
+};
 
 window.writeAuditResults = async function(state) {
   if (!state) { console.warn('[Audit] writeAuditResults called with null state'); return; }
@@ -1232,7 +1386,7 @@ window.writeAuditResults = async function(state) {
     auditRecord.date = isoDate;
     auditRecord.traineeName = state.manager || '';
     await idbPut('training_audits', auditRecord);
-    console.log('[Audit] Saved training audit to training_audits store (not audits store)');
+    console.log('[Audit] Saved training audit to training_audits store');
 
     var actionItems = auditGetActions();
     for (var i = 0; i < actionItems.length; i++) {
@@ -1265,12 +1419,8 @@ window.writeAuditResults = async function(state) {
       });
     }
     console.log('[Audit] Saved', actionItems.length, 'training action items to IndexedDB');
-
-    console.log('[Audit] Skipping xlsx write for training audit');
-    window._lastXlsxResult = { method: 'training', count: actionItems.length };
-    console.log('[Audit] writeAuditResults COMPLETE (training mode)');
-    return;
-  }
+    // Fall through to also write the JSON file for Power Automate
+  } else {
 
   await idbPut('audits', auditRecord);
   console.log('[Audit] Saved audit record to IndexedDB');
@@ -1324,6 +1474,12 @@ window.writeAuditResults = async function(state) {
     console.error('[Audit] XLSX append FAILED:', xlsxErr.message, xlsxErr);
     window._lastXlsxResult = { method: 'error', count: 0, error: xlsxErr.message };
   }
+
+  // Invalidate Open cache since a new audit JSON was written to the folder
+  if (typeof invalidateAuditCache === 'function') {
+    try { await invalidateAuditCache('Open'); } catch(e) { console.warn('[Audit] Cache invalidation failed:', e.message); }
+  }
+
   console.log('[Audit] writeAuditResults COMPLETE');
 };
 
@@ -1859,36 +2015,8 @@ window.importMobileAuditZIP = async function(event) {
       }
     }
   }).catch(function(e) {
-    console.warn('[Audit] Fetch failed:', e.message, '— trying local folder then IndexedDB');
-    // Try reading from local folder handle (file:// CORS workaround)
-    if (typeof directoryHandle !== 'undefined' && directoryHandle && !_auditQB) {
-      directoryHandle.getFileHandle('AuditQuestions.json').then(function(fh) {
-        return fh.getFile();
-      }).then(function(file) {
-        return file.text();
-      }).then(function(text) {
-        var data = JSON.parse(text);
-        if (!_auditQB) {
-          _auditQB = data;
-          console.log('[Audit] Loaded AuditQuestions.json from local folder (' + Object.keys(data).length + ' sectors)');
-          updateQBStatusUI();
-          if (typeof idbPut === 'function' && typeof db !== 'undefined' && db) {
-            idbPut('questionBank', { id: 'current', data: _auditQB, loadedAt: new Date().toISOString(), fileName: 'AuditQuestions.json (local folder)' });
-          }
-        }
-      }).catch(function() {
-        // Local folder also failed, try IndexedDB
-        if (typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
-          idbGet('questionBank', 'current').then(function(rec) {
-            if (rec && rec.data && !_auditQB) {
-              _auditQB = rec.data;
-              console.log('[Audit] Loaded cached question bank from', rec.fileName || 'IndexedDB');
-              updateQBStatusUI();
-            }
-          }).catch(function() {});
-        }
-      });
-    } else if (!_auditQB && typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
+    console.warn('[Audit] Fetch failed:', e.message, '— trying IndexedDB');
+    if (!_auditQB && typeof idbGet === 'function' && typeof db !== 'undefined' && db) {
       idbGet('questionBank', 'current').then(function(rec) {
         if (rec && rec.data && !_auditQB) {
           _auditQB = rec.data;
