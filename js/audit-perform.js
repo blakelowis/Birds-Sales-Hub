@@ -2025,4 +2025,4 @@ window.importMobileAuditZIP = async function(event) {
         }
       }).catch(function() {});
     }
-  });
+  })();
