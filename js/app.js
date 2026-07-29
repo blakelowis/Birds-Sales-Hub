@@ -1145,6 +1145,8 @@ Users._removeDept = function(name) {
     setView('adminusers');
 };
 
+var _auditQB = null;
+var auditState = null;
 window.setView = function(v) { currentView = v; document.querySelectorAll('nav button').forEach(b => { b.className = (b.id === `btn-${v}`) ? 'seg-btn seg-btn-active flex-1 whitespace-nowrap' : 'seg-btn flex-1 whitespace-nowrap'; }); renderDashboard(); }
 window.startAudit = function() {
   console.log('[Audit] startAudit called, _auditQB=', !!_auditQB, 'auditState=', !!auditState);

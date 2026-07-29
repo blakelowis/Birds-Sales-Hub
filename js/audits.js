@@ -174,18 +174,10 @@ async function getAuditActionsForReport(){
     var closedMap = {};
     rawClosed.forEach(function(f) {
       if (f.questionId) {
-        closedMap[f.questionId] = {
-          closedOn: f.closedOn || '',
-          howClosed: f.howClosed || '',
-          extraComment: f.extraComment || ''
-        };
+        closedMap[f.questionId] = { closedOn: f.closedOn || '', howClosed: f.howClosed || '', extraComment: f.extraComment || '' };
       } else if (f.actions) {
         f.actions.forEach(function(a) {
-          if (a.questionId) closedMap[a.questionId] = {
-            closedOn: a.closedOn || '',
-            howClosed: a.howClosed || '',
-            extraComment: a.extraComment || ''
-          };
+          if (a.questionId) closedMap[a.questionId] = { closedOn: a.closedOn || '', howClosed: a.howClosed || '', extraComment: a.extraComment || '' };
         });
       }
     });
@@ -198,28 +190,18 @@ async function getAuditActionsForReport(){
         var closed = closedMap[a.questionId];
         all.push({
           ActionID: storeName + '_' + a.questionId + '_' + (f.date || ''),
-          QuestionID: a.questionId || '',
-          Store: storeName,
-          StoreEmail: f.storeEmail || '',
-          Auditor: f.auditor || '',
-          Manager: f.manager || '',
-          AreaManager: f.areaManager || '',
-          AuditDate: f.date || '',
-          Week: f.week || 0,
-          Year: f.year || 0,
-          Sector: a.sector || '',
-          Category: a.category || '',
-          Question: a.question || '',
-          Answer: a.answer || '',
-          Description: a.description || '',
-          PersonResponsible: a.personResponsible || '',
+          QuestionID: a.questionId || '', Store: storeName, StoreEmail: f.storeEmail || '',
+          Auditor: f.auditor || '', Manager: f.manager || '', AreaManager: f.areaManager || '',
+          AuditDate: f.date || '', Week: f.week || 0, Year: f.year || 0,
+          Sector: a.sector || '', Category: a.category || '',
+          Question: a.question || '', Answer: a.answer || '',
+          Description: a.description || '', PersonResponsible: a.personResponsible || '',
           ActionNeeded: a.actionNeeded || '',
           Status: closed ? 'Closed' : a.status || 'Open',
           ClosedOn: closed ? (closed.closedOn || '') : (a.closedOn || ''),
           HowClosed: closed ? (closed.howClosed || '') : (a.howClosed || ''),
           ExtraComment: closed ? (closed.extraComment || '') : (a.extraComment || ''),
-          Critical: a.critical || 'No',
-          DaysToClose: null
+          Critical: a.critical || 'No', DaysToClose: null
         });
       });
     });
