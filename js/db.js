@@ -103,16 +103,6 @@ req.onsuccess = async e => {
         renderDashboard();
     }
 
-    /* Load module registry config and bakery module scripts */
-    if (typeof ModuleRegistry !== 'undefined') {
-        try {
-            await ModuleRegistry.loadConfig();
-            await ModuleRegistry.loadModuleScripts('bakery');
-            console.log('[DB] Module registry loaded');
-            await _renderBakeryNav();
-        } catch(e) { console.warn('[DB] Module registry failed:', e.message); }
-    }
-
     /* Show admin tab if user has admin role */
     var _user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
     if (_user && _user.role === 'admin') {
