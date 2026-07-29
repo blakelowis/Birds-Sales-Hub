@@ -4,56 +4,64 @@
         "department":  "Technical",
         "name":  "Nicola McKay",
         "id":  "user-01c89f7b",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "nichola.mckay@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Production Manager",
+        "department":  "Management",
         "name":  "Adam Thompson",
         "id":  "user-054f7007",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "adam.thompson@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Project Manager",
+        "department":  "Management",
         "name":  "Tim Bird",
         "id":  "user-1efa195e",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "tim.bird@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Training \u0026 Development",
+        "department":  "Development",
         "name":  "Jennifer MacPherson",
         "id":  "user-24153567",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "jennifer.macpherson@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Area Sales Team",
+        "department":  "Sales",
         "name":  "Craig White",
         "id":  "user-3bb37639",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "craig.white@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Area Sales Team",
+        "department":  "Sales",
         "name":  "Suzanne Green",
         "id":  "user-524808d8",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "suzanne.green@birdsofderby.co.uk"
     },
     {
         "pin":  "",
         "department":  "Technical",
         "name":  "Kate Dewhirst",
         "id":  "user-6ff3ccee",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "kate.dewhirst@birdsofderby.co.uk"
     },
     {
         "pin":  "",
         "department":  "Technical",
         "name":  "Andy Barker",
         "id":  "user-7c07d532",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "andy.barker@birdsofderby.co.uk"
     },
     {
         "pin":  "",
@@ -64,24 +72,46 @@
     },
     {
         "pin":  "",
-        "department":  "Retail Auditor",
+        "department":  "Auditor",
         "name":  "Blake Lowis",
         "id":  "user-86486611",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "role":  "admin",
+        "email":  "blake.lowis@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Head of Retail",
+        "department":  "I.T.",
+        "name":  "Glen Arrowsmith",
+        "id":  "user-ga00001",
+        "created":  "2026-07-28",
+        "role":  "admin",
+        "email":  "glen.arrowsmith@birdsofderby.co.uk"
+    },
+    {
+        "pin":  "",
+        "department":  "I.T.",
+        "name":  "Sam Pike",
+        "id":  "user-sp00001",
+        "created":  "2026-07-28",
+        "role":  "admin",
+        "email":  "sam.pike@birdsofderby.co.uk"
+    },
+    {
+        "pin":  "",
+        "department":  "Management",
         "name":  "Mel Hughes",
         "id":  "user-8b1c19d6",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "mel.hughes@birdsofderby.co.uk"
     },
     {
         "pin":  "",
         "department":  "Technical",
         "name":  "Katie Cartwright",
         "id":  "user-993928ee",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "katie.cartwright@birdsofderby.co.uk"
     },
     {
         "pin":  "",
@@ -92,23 +122,34 @@
     },
     {
         "pin":  "",
-        "department":  "Director",
+        "department":  "Management",
         "name":  "Jamie Bird",
         "id":  "user-c4359265",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "jamie.bird@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Area Sales Team",
+        "department":  "Sales",
         "name":  "Thomas Henson",
         "id":  "user-d6ed929a",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "tom.henson@birdsofderby.co.uk"
     },
     {
         "pin":  "",
-        "department":  "Area Sales Team",
+        "department":  "Sales",
         "name":  "Paul Reeves",
         "id":  "user-f305298c",
-        "created":  "2026-07-26"
+        "created":  "2026-07-26",
+        "email":  "paul.reeves@birdsofderby.co.uk"
+    },
+    {
+        "pin":  "",
+        "department":  "I.T.",
+        "name":  "Mirel Dinu",
+        "id":  "user-md00001",
+        "created":  "2026-07-29",
+        "email":  "mirel.dinu@birdsofderby.co.uk"
     }
 ]

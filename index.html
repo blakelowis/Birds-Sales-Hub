@@ -77,12 +77,20 @@
       </div>
     </header>
 
+    <!-- Impersonation Banner (persistent across all views) -->
+    <div id="impersonateBanner" style="display:none;background:#FFF7ED;border-bottom:2px solid #F59E0B;padding:8px 20px;align-items:center;justify-content:space-between;">
+      <div><span style="font-size:13px;font-weight:800;color:#92400E;">Preview Mode</span> <span id="impersonateBannerDetail" style="font-size:12px;font-weight:600;color:#B45309;margin-left:8px;"></span></div>
+      <button onclick="Users.stopImpersonation(); window._refreshImpBanner(); setView(currentView);" style="background:#D97706;color:#fff;font-size:11px;font-weight:700;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;">Exit Preview</button>
+    </div>
+
     <!-- Horizontal Tab Navigation -->
     <nav>
       <div class="nav-tab-bar">
         <div class="nav-tab active" data-tab="sales" onclick="setActiveTab('sales')">Sales &amp; KPIs</div>
         <div class="nav-tab" data-tab="audits" onclick="setActiveTab('audits')">Audits &amp; Complaints</div>
+        <div class="nav-tab" data-tab="bakery" onclick="setActiveTab('bakery')">Bakery</div>
         <div class="nav-tab" data-tab="docs" onclick="setActiveTab('docs')">Documents</div>
+        <div class="nav-tab" data-tab="admin" onclick="setActiveTab('admin')" id="adminTab" style="display:none;">Admin</div>
       </div>
       <div class="nav-panel open" data-panel="sales">
         <button onclick="setView('overview')" id="btn-overview" class="seg-btn seg-btn-active flex-1 whitespace-nowrap">Overview</button>
@@ -93,8 +101,6 @@
         <button onclick="setView('storecards')" id="btn-storecards" class="seg-btn flex-1 whitespace-nowrap">Scorecards</button>
         <button onclick="setView('storereports')" id="btn-storereports" class="seg-btn flex-1 whitespace-nowrap">Store Report</button>
         <button onclick="setView('leaderboard')" id="btn-leaderboard" class="seg-btn flex-1 whitespace-nowrap">Leaderboard</button>
-        <button onclick="setView('banding')" id="btn-banding" class="seg-btn flex-1 whitespace-nowrap" style="display:none;">Banding</button>
-        <span class="nav-divider"></span>
         <button onclick="setView('halloffame')" id="btn-halloffame" class="seg-btn flex-1 whitespace-nowrap">YTD Awards</button>
         <button onclick="setView('winners')" id="btn-winners" class="seg-btn flex-1 whitespace-nowrap">Podium</button>
         <button onclick="setView('champions')" id="btn-champions" class="seg-btn flex-1 whitespace-nowrap">Champions</button>
@@ -113,6 +119,11 @@
         <button onclick="setView('templatelibrary')" id="btn-templatebuilder" class="seg-btn flex-1 whitespace-nowrap">+ Template</button>
         <button onclick="setView('documentarchive')" id="btn-documentarchive" class="seg-btn flex-1 whitespace-nowrap">Archive</button>
       </div>
+      <div class="nav-panel" data-panel="bakery" id="bakeryNav"></div>
+      <div class="nav-panel" data-panel="admin">
+        <button onclick="setView('adminmodules')" id="btn-adminmodules" class="seg-btn flex-1 whitespace-nowrap">Module Management</button>
+        <button onclick="setView('adminusers')" id="btn-adminusers" class="seg-btn flex-1 whitespace-nowrap">User Admin</button>
+      </div>
     </nav>
 
     <!-- Main Content Area -->
@@ -121,19 +132,27 @@
 
 
   <!-- Scripts: db first (defines globals + DB), utils (helpers), then features, app last -->
-  <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
-  <script src="js/db.js?v=148"></script>
-  <script src="js/auth.js?v=148"></script>
-  <script src="js/graph.js?v=148"></script>
+  <script src="xlsx.full.min.js?v=100"></script>
+  <script src="chart.js?v=100"></script>
+  <script src="jspdf.umd.min.js?v=100"></script>
+  <script src="jspdf.plugin.autotable.min.js?v=100"></script>
+  <script src="html2canvas.min.js?v=100"></script>
+  <script src="jszip.min.js?v=100"></script>
+  <script src="papaparse.min.js?v=100"></script>
+  <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
+  <script src="js/auth.js?v=160"></script>
+  <script src="js/graph.js?v=160"></script>
+  <script src="js/db.js?v=160"></script>
   <script src="js/utils.js?v=128"></script>
-  <script src="js/data.js?v=148"></script>
+  <script src="js/data.js?v=159"></script>
   <script src="js/charts.js?v=116"></script>
   <script src="js/scorecards.js?v=116"></script>
   <script src="js/reports.js?v=121"></script>
   <script src="js/complaints.js?v=116"></script>
-  <script src="js/documents.js?v=148"></script>
-  <script src="js/users.js?v=148"></script>
-  <script src="js/projects.js?v=148"></script>
+  <script src="js/documents.js?v=150"></script>
+  <script src="js/users.js?v=159"></script>
+  <script src="js/projects.js?v=150"></script>
+  <script src="js/module-registry.js?v=150"></script>
   <script src="js/template-builder.js?v=132"></script>
   <script src="js/audits.js?v=116"></script>
   <script src="js/tracker_defaults.js?v=116"></script>
@@ -141,13 +160,13 @@
   <script src="js/awards.js?v=116"></script>
   <script src="js/audit-perform.js?v=116"></script>
   <script src="js/overview.js?v=116"></script>
-  <script src="js/app.js?v=148"></script>
+  <script src="js/app.js?v=160"></script>
   <script>
-    // Tab switching (the only new UI addition - maps 3-tab layout to original setView)
     var _activeTab = 'sales';
     var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'mywork' };
+
     function setActiveTab(tab) {
-      if (tab === _activeTab) return; // Already on this tab, skip
+      if (tab === _activeTab) return;
       _activeTab = tab;
       document.querySelectorAll('.nav-tab').forEach(function(t) {
         t.classList.toggle('active', t.getAttribute('data-tab') === tab);
@@ -155,9 +174,31 @@
       document.querySelectorAll('.nav-panel').forEach(function(p) {
         p.classList.toggle('open', p.getAttribute('data-panel') === tab);
       });
-      // Switch view to default for this tab
       var defaultView = _tabDefaults[tab];
       if (defaultView && typeof setView === 'function') setView(defaultView);
+    }
+
+    function applyNavPermissions() {
+      if (typeof Users === 'undefined') return;
+      document.querySelectorAll('.nav-tab').forEach(function(tab) {
+        var tabId = tab.getAttribute('data-tab');
+        if (tabId === 'admin') {
+          var user = Users.getEffectiveUser();
+          tab.style.display = (user && user.role === 'admin') ? '' : 'none';
+          return;
+        }
+        var canSee = Users.canSeeTab(tabId);
+        tab.style.display = canSee ? '' : 'none';
+      });
+      /* Hide views the user can't see */
+      document.querySelectorAll('.nav-panel button').forEach(function(btn) {
+        var onclick = btn.getAttribute('onclick') || '';
+        var match = onclick.match(/setView\('([^']+)'\)/);
+        if (match) {
+          var viewId = match[1];
+          btn.style.display = Users.canSeeView(viewId) ? '' : 'none';
+        }
+      });
     }
 
     // PNG export for scorecards and audit views
@@ -194,10 +235,14 @@
       btn.innerHTML = '&#x21bb; Syncing...';
       btn.disabled = true;
       btn.classList.add('opacity-50','cursor-not-allowed');
-      try {
-        const stores = ['kpi','audits','complaints','ingest_log',
-                        'area_winners_log','area_metric_winners_log','store_winners_log'];
-        for (const s of stores) { try { await idbClear(s); } catch(e) {} }
+        try {
+            _clearCache();
+            const stores = ['kpi','audits','complaints','ingest_log',
+                            'area_winners_log','area_metric_winners_log','store_winners_log'];
+            for (const s of stores) { try { await idbClear(s); } catch(e) {} }
+            // Clear cached manifests so data is re-read from source
+            try { await idbPut('settings', { id: 'weekly_file_manifest', files: null, cachedAt: 0 }); } catch(e) {}
+            if (typeof invalidateAuditCache === 'function') { try { await invalidateAuditCache(); } catch(e) {} }
         storeMap.clear(); originalStoreNames.clear();
         window.ComplaintsData = null;
         await syncData();
@@ -211,16 +256,24 @@
       }
     }
     async function clearAllData() {
-      if (!confirm('This will delete ALL stored data. Continue?')) return;
+      if (!confirm('This will delete ALL stored data and sign you out. Continue?')) return;
       if (!db) { alert('Database not ready.'); return; }
       await idbClear('kpi'); await idbClear('audits'); await idbClear('stores');
       await idbClear('actions'); await idbClear('settings'); await idbClear('area_winners_log');
       await idbClear('area_metric_winners_log'); await idbClear('store_winners_log');
       await idbClear('ingest_log'); await idbClear('tracker_audits'); await idbClear('eho_data');
       await idbClear('complaints');
+      _clearCache();
       storeMap.clear(); originalStoreNames.clear();
       window.ComplaintsData = null;
-      document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">Data Cleared</h2><p class="text-slate-500 mb-6">Refresh to reload data from your folder.</p></div>';
+      // Clear login session so login screen shows on reload
+      if (typeof Users !== 'undefined') {
+        Users.clearCurrentUser();
+        if (typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+          try { BirdsAuth.logout(); } catch(e) {}
+        }
+      }
+      document.getElementById('mainView').innerHTML = '<div class="p-20 text-center"><h2 class="text-2xl font-black outfit text-slate-800 mb-2">All Data Cleared</h2><p class="text-slate-500 mb-6">You have been signed out. <a href="#" onclick="location.reload()" style="color:#6E8E6D;font-weight:700;">Reload</a> to start fresh.</p></div>';
     }
 
     // Boot: auto-sync from local folder on load
@@ -243,7 +296,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=132').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=150').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
