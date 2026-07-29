@@ -202,9 +202,13 @@ window.BirdsAuth = (function() {
                 var targetDrive = drives.find(function(d) {
                     return d.name === CONFIG.drivePath || d.name === 'Shared Documents' || d.name === 'Documents';
                 });
+                // Fallback: use the first available drive if no name match
+                if (!targetDrive && drives.length > 0) {
+                    console.warn('[Auth] No drive matched expected names, using first available drive:', drives[0].name);
+                    targetDrive = drives[0];
+                }
                 if (!targetDrive) {
-                    console.warn('[Auth] Drives found:', drives.map(function(d) { return d.name; }).join(', '));
-                    throw new Error('Drive "' + CONFIG.drivePath + '" not found. Available: ' + drives.map(function(d) { return d.name; }).join(', '));
+                    throw new Error('No drives found on this SharePoint site. Check Sites.ReadWrite.All permission is granted.');
                 }
                 _driveId = targetDrive.id;
                 console.log('[Auth] Drive resolved:', _driveId);
