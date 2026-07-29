@@ -178,6 +178,8 @@
 
     function applyNavPermissions() {
       if (typeof Users === 'undefined') return;
+      var user = Users.getEffectiveUser();
+      if (!user) return; // No user logged in — show all tabs, login screen will handle it
       document.querySelectorAll('.nav-tab').forEach(function(tab) {
         var tabId = tab.getAttribute('data-tab');
         if (tabId === 'admin') {
