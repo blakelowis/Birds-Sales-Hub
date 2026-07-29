@@ -104,8 +104,6 @@
         <button onclick="setView('halloffame')" id="btn-halloffame" class="seg-btn flex-1 whitespace-nowrap">YTD Awards</button>
         <button onclick="setView('winners')" id="btn-winners" class="seg-btn flex-1 whitespace-nowrap">Podium</button>
         <button onclick="setView('champions')" id="btn-champions" class="seg-btn flex-1 whitespace-nowrap">Champions</button>
-        <span class="nav-divider"></span>
-        <button onclick="setView('activity')" id="btn-activity" class="seg-btn flex-1 whitespace-nowrap">Calendar</button>
       </div>
       <div class="nav-panel" data-panel="audits">
         <button onclick="setView('auditexport')" id="btn-auditexport" class="seg-btn flex-1 whitespace-nowrap">Audit Action Hub</button>
@@ -142,8 +140,8 @@
   <script src="jszip.min.js?v=100"></script>
   <script src="papaparse.min.js?v=100"></script>
   <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
-  <script src="js/auth.js?v=160"></script>
-  <script src="js/graph.js?v=160"></script>
+  <script src="js/auth.js?v=162"></script>
+  <script src="js/graph.js?v=161"></script>
   <script src="js/db.js?v=161"></script>
   <script src="js/utils.js?v=128"></script>
   <script src="js/data.js?v=165"></script>
@@ -162,7 +160,6 @@
   <script src="js/awards.js?v=116"></script>
   <script src="js/audit-perform.js?v=116"></script>
   <script src="js/overview.js?v=117"></script>
-  <script src="js/activity.js?v=166"></script>
   <script src="js/app.js?v=160"></script>
   <script>
     var _activeTab = 'sales';
@@ -299,7 +296,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=150').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=153').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
