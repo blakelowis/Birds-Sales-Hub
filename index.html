@@ -88,7 +88,6 @@
       <div class="nav-tab-bar">
         <div class="nav-tab active" data-tab="sales" onclick="setActiveTab('sales')">Sales &amp; KPIs</div>
         <div class="nav-tab" data-tab="audits" onclick="setActiveTab('audits')">Audits &amp; Complaints</div>
-        <div class="nav-tab" data-tab="bakery" onclick="setActiveTab('bakery')">Bakery</div>
         <div class="nav-tab" data-tab="docs" onclick="setActiveTab('docs')">Documents</div>
         <div class="nav-tab" data-tab="admin" onclick="setActiveTab('admin')" id="adminTab" style="display:none;">Admin</div>
       </div>
@@ -200,6 +199,7 @@
         }
       });
     }
+    setActiveTab('sales', true);
 
     // PNG export for scorecards and audit views
     function exportToPNG(elementId, filename) {
