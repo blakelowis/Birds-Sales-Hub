@@ -781,6 +781,29 @@ body, #mainView, #mainView p, #mainView span, #mainView td,
   border-color: var(--edwardian-rule) !important;
 }
 
+/* Login team grid pills */
+.login-dept-pill {
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #d4cfc7;
+  background: #f8f6f2;
+  color: #6b5e50;
+  cursor: pointer;
+  transition: all .15s;
+}
+.login-dept-pill:hover {
+  background: #6E8E6D;
+  color: #fff;
+  border-color: #6E8E6D;
+}
+.login-dept-pill-active {
+  background: #6E8E6D !important;
+  color: #fff !important;
+  border-color: #6E8E6D !important;
+}
+
 /* Report and scorecard labels should remain readable beside large KPI values. */
 .area-card-export h4, .area-card-export th,
 .area-card-export .text-\[10px\], .area-card-export .text-\[11px\] {
