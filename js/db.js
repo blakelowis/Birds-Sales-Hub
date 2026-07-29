@@ -49,23 +49,58 @@ req.onsuccess = async e => {
     try { await loadStoreMap(); } catch(e) { console.warn('[DB] loadStoreMap failed:', e.message); }
     populateExportDropdown();
 
-    // BOOT: No auth — straight to dashboard (filesystem mode)
+    // v148: Auth-first boot — try silent Entra login, then load via Graph
+    var _authReady = false;
+    var _msalOk = false;
+    if (typeof BirdsAuth !== 'undefined') {
+        try {
+            _msalOk = BirdsAuth.init();
+            if (_msalOk) {
+                try {
+                    await BirdsAuth.loginSilent();
+                    await BirdsAuth.resolveSharePointIds();
+                    _authReady = true;
+                    console.log('[DB] Entra silent login OK');
+                } catch(e) {
+                    console.log('[DB] Silent login not available');
+                }
+            } else {
+                console.log('[DB] MSAL not available (HTTP context) — running without Entra auth');
+            }
+        } catch(e) { console.warn('[DB] MSAL init failed:', e.message); }
+    }
 
+    // Init documents IDB connection so projects/documents can load
     if (typeof _localDocsInit === 'function') { try { await _localDocsInit(); } catch(e) { console.warn('[DB] _localDocsInit failed:', e.message); } }
 
-    if (typeof Users !== 'undefined') {
+    if (_authReady) {
+        // Logged in — load everything via Graph
+        if (typeof Users !== 'undefined') {
+            await Users.init();
+            if (typeof Projects !== 'undefined') await Projects.load();
+            Users.updateHeaderBadge();
+        }
+        // Trigger data sync from SharePoint FIRST, then render
+        if (typeof window.syncData === 'function') {
+            try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
+        }
+        renderDashboard();
+    } else if (typeof Users !== 'undefined') {
         await Users.init();
-        Users.updateHeaderBadge();
-    }
-
-    renderDashboard();
-
-    if (typeof window.syncData === 'function') {
-        try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
-    }
-
-    if (typeof Projects !== 'undefined') {
-        try { await Projects.load(); } catch(e) { console.warn('[DB] Projects.load failed:', e.message); }
+        var _stored = Users.getCurrentUser();
+        if (_stored) {
+            // Restored previous session — sync data first then render
+            Users.updateHeaderBadge();
+            if (typeof window.syncData === 'function') {
+                try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
+            }
+            renderDashboard();
+        } else {
+            // No stored user — show login screen
+            Users.renderLoginScreen();
+        }
+    } else {
+        renderDashboard();
     }
 
     /* Load module registry config and bakery module scripts */
@@ -74,7 +109,6 @@ req.onsuccess = async e => {
             await ModuleRegistry.loadConfig();
             await ModuleRegistry.loadModuleScripts('bakery');
             console.log('[DB] Module registry loaded');
-            /* Build bakery nav from loaded modules */
             await _renderBakeryNav();
         } catch(e) { console.warn('[DB] Module registry failed:', e.message); }
     }
@@ -88,9 +122,6 @@ req.onsuccess = async e => {
 
     /* Apply tab/view permissions */
     if (typeof applyNavPermissions === 'function') applyNavPermissions();
-
-    /* Re-render to show bakery tab content if on that tab */
-    renderDashboard();
 
     if (window.ComplaintsData && window.ComplaintsData.length) {
         window.__dataStatus.complaintsRows = window.ComplaintsData.length;

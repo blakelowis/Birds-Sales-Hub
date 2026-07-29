@@ -10,11 +10,71 @@ window._manifestsEqual = function(a, b) {
 };
 
 window.syncData = async function() {
+  if (window._syncGuard) { console.log('[Sync] Already syncing — skipping duplicate'); return; }
+  window._syncGuard = true;
+  try {
   window.__dataStatus.syncRan = true;
   window.ComplaintsData = null;
   window.__dataStatus.complaintsRows = 0;
   window.__complaintsSourceCSV = false;
   document.getElementById('ingestStatus').innerText = "Scanning... Please wait.";
+
+  // SHAREPOINT PATH — read from SharePoint via Graph API
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    document.getElementById('ingestStatus').innerText = "Reading files from SharePoint...";
+    try {
+      var items = await GraphClient.listFolder('');
+      var localFiles = [];
+      var trackerJsonText = null;
+      for (var item of items) {
+        if (item.isFolder) continue;
+        var name = item.name;
+        if (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.csv')) {
+          document.getElementById('ingestStatus').innerText = "Downloading " + name + "...";
+          var buffer = await GraphClient.readFileBinary(name);
+          if (buffer) {
+            var blob = new Blob([buffer], { type: name.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' });
+            blob.name = name;
+            localFiles.push(blob);
+          }
+        }
+        if (name === 'tracker_data.json') {
+          trackerJsonText = await GraphClient.readFile(name);
+        }
+      }
+      window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
+      if (localFiles.length === 0 && !trackerJsonText) {
+        document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in SharePoint.";
+        window.__dataStatus.syncOk = false;
+        return;
+      }
+      if (trackerJsonText) {
+        try {
+          const trackerData = JSON.parse(trackerJsonText);
+          const storeObj = trackerData.stores || trackerData.updates || trackerData;
+          const storeEntries = (typeof storeObj === 'object' && !Array.isArray(storeObj))
+            ? Object.entries(storeObj)
+            : (Array.isArray(storeObj) ? storeObj.map(r => [r.StoreId || r.id, r]) : []);
+          if (storeEntries.length > 0) {
+            for (const [storeId, rec] of storeEntries) {
+              if (rec && typeof rec === 'object') {
+                if (!rec.StoreId) rec.StoreId = storeId;
+                await idbPut('eho_data', rec);
+              }
+            }
+            console.log('[Sync] Loaded', storeEntries.length, 'tracker records from SharePoint');
+          }
+        } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
+      }
+      if (localFiles.length > 0) await processFiles(localFiles, 'SharePoint');
+      window.__dataStatus.syncOk = true;
+      window.__dataStatus.ts = Date.now();
+      window.__dataStatus.source = 'SharePoint';
+      return;
+    } catch(e) {
+      console.warn('[Sync] SharePoint sync failed, falling back to local:', e.message);
+    }
+  }
 
   // FILESYSTEM PATH — read from local folder via folder picker
   if (window.directoryHandle) {
@@ -80,6 +140,9 @@ window.syncData = async function() {
       document.getElementById('ingestStatus').innerText = "Folder picker failed.";
     }
     window.__dataStatus.syncOk = false;
+  }
+  } finally {
+    window._syncGuard = false;
   }
 };
 
