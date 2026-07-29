@@ -69,6 +69,102 @@ function shortQuestionLabel(q, maxLen=96){
 // Reads Open/ and Closed/ JSON files via cached folder reads.
 // Uses IndexedDB to cache file contents — only re-reads when files change.
 // Open JSON = open actions. If a matching questionId exists in Closed/, it's closed.
+
+async function readJsonFolder(folderName) {
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    try {
+      var items = await GraphClient.listJsonFiles(folderName);
+      var results = [];
+      for (var item of items) {
+        try {
+          var text = await GraphClient.readFile(folderName + '/' + item.name);
+          if (text) { var data = JSON.parse(text); data._fileName = item.name; results.push(data); }
+        } catch(e) {}
+      }
+      if (results.length) return results;
+    } catch(e) {}
+  }
+  if (window.directoryHandle) {
+    try {
+      var targetFolder = null;
+      for await (var entry of window.directoryHandle.values()) {
+        if (entry.kind === 'directory' && entry.name === folderName) { targetFolder = entry; break; }
+      }
+      if (targetFolder) {
+        var results = [];
+        for await (var fileHandle of targetFolder.values()) {
+          if (fileHandle.kind === 'file' && fileHandle.name.endsWith('.json')) {
+            try { var file = await fileHandle.getFile(); var text = await file.text(); var data = JSON.parse(text); data._fileName = fileHandle.name; results.push(data); } catch(e) {}
+          }
+        }
+        return results;
+      }
+    } catch(e) { console.warn('[readJsonFolder] Filesystem fallback failed:', e.message); }
+  }
+  try {
+    var allText = await _localDocsGetText(folderName + '/');
+    if (allText) { var parsed = JSON.parse(allText); if (Array.isArray(parsed)) { parsed.forEach(function(item) { if (!item._fileName) item._fileName = folderName; }); return parsed; } }
+  } catch(e) {}
+  return [];
+}
+
+window.readJsonFolderCached = async function(folderName) {
+  var cacheKey = 'audit_cache_' + folderName;
+  var manifestKey = 'audit_manifest_' + folderName;
+  var currentManifest = await _buildFolderManifest(folderName);
+  try {
+    var cachedManifest = await idbGet('settings', manifestKey);
+    if (cachedManifest && cachedManifest.files && window._manifestsEqual(currentManifest, cachedManifest.files)) {
+      var cachedData = await idbGet('settings', cacheKey);
+      if (cachedData && cachedData.data) { return cachedData.data; }
+    }
+  } catch(e) {}
+  var data = await readJsonFolder(folderName);
+  try {
+    await idbPut('settings', { id: cacheKey, data: data, cachedAt: Date.now() });
+    await idbPut('settings', { id: manifestKey, files: currentManifest, cachedAt: Date.now() });
+  } catch(e) {}
+  return data;
+};
+
+window.invalidateAuditCache = async function(folderName) {
+  if (folderName) {
+    try { await idbPut('settings', { id: 'audit_cache_' + folderName, data: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_manifest_' + folderName, files: null, cachedAt: 0 }); } catch(e) {}
+  } else {
+    try { await idbPut('settings', { id: 'audit_cache_Open', data: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_manifest_Open', files: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_cache_Closed', data: null, cachedAt: 0 }); } catch(e) {}
+    try { await idbPut('settings', { id: 'audit_manifest_Closed', files: null, cachedAt: 0 }); } catch(e) {}
+  }
+};
+
+async function _buildFolderManifest(folderName) {
+  var files = {};
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    try { var items = await GraphClient.listJsonFiles(folderName); for (var i = 0; i < items.length; i++) { files[items[i].name] = items[i].lastModified || items[i].lastModifiedDateTime || Date.now(); } return files; } catch(e) {}
+  }
+  if (window.directoryHandle) {
+    try {
+      var targetFolder = null;
+      for await (var entry of window.directoryHandle.values()) { if (entry.kind === 'directory' && entry.name === folderName) { targetFolder = entry; break; } }
+      if (targetFolder) { for await (var fileHandle of targetFolder.values()) { if (fileHandle.kind === 'file' && fileHandle.name.endsWith('.json')) { try { var file = await fileHandle.getFile(); files[fileHandle.name] = file.lastModified || 0; } catch(e) {} } } }
+    } catch(e) {}
+  }
+  return files;
+}
+
+window._manifestsEqual = function(a, b) {
+  var aKeys = Object.keys(a).sort();
+  var bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  for (var mi = 0; mi < aKeys.length; mi++) {
+    if (aKeys[mi] !== bKeys[mi]) return false;
+    if (a[aKeys[mi]] !== b[aKeys[mi]]) return false;
+  }
+  return true;
+};
+
 async function getAuditActionsForReport(){
   var all = [];
   try {
