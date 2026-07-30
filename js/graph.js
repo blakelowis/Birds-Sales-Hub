@@ -60,6 +60,40 @@ window.GraphClient = (function() {
         });
     }
 
+    /* ─── Ensure a parent folder exists (auto-create if needed) ── */
+    function _ensureFolder(folderPath) {
+        if (!folderPath) return Promise.resolve(true);
+        var parts = folderPath.split('/').filter(function(p) { return p; });
+        if (parts.length === 0) return Promise.resolve(true);
+        /* Build path incrementally: create one folder at a time */
+        function createOne(idx) {
+            if (idx >= parts.length) return Promise.resolve(true);
+            var parentPath = parts.slice(0, idx).join('/');
+            var folderName = parts[idx];
+            var childrenUrl = _itemPath(parentPath) + ':/children';
+            return BirdsAuth.getAccessToken().then(function(token) {
+                return fetch('https://graph.microsoft.com/v1.0' + childrenUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: folderName,
+                        folder: {},
+                        '@microsoft.graph.conflictBehavior': 'fail'
+                    })
+                });
+            }).then(function(resp) {
+                if (resp.status === 409) { /* folder already exists */ return createOne(idx + 1); }
+                if (!resp.ok) throw new Error('Folder create failed: ' + resp.status);
+                delete _folderChildrenCache[parentPath];
+                return createOne(idx + 1);
+            });
+        }
+        return createOne(0);
+    }
+
     /* ─── Write text content to a file (with optional eTag for conditional write) ─ */
     function writeFile(relativePath, text, etag) {
         var path = _itemPath(relativePath) + ':/content';
@@ -76,6 +110,14 @@ window.GraphClient = (function() {
             });
         }).then(function(resp) {
             if (resp.status === 412) { console.warn('[Graph] Write conflict (412) — file modified by another user'); return false; }
+            if (resp.status === 404) {
+                /* Parent folder doesn't exist — auto-create it and retry */
+                var parentFolder = relativePath.lastIndexOf('/') >= 0 ? relativePath.substring(0, relativePath.lastIndexOf('/')) : '';
+                if (!parentFolder) throw new Error('File write failed: 404');
+                return _ensureFolder(parentFolder).then(function() {
+                    return writeFile(relativePath, text, etag);
+                });
+            }
             if (!resp.ok) throw new Error('File write failed: ' + resp.status);
             /* Invalidate cache */
             delete _fileCache[relativePath];
@@ -263,6 +305,38 @@ window.GraphClient = (function() {
         return chain;
     }
 
+    /* ─── Write binary data to a file (e.g. XLSX) ──────────────── */
+    function writeFileBinary(relativePath, data) {
+        var path = _itemPath(relativePath) + ':/content';
+        return BirdsAuth.getAccessToken().then(function(token) {
+            return fetch('https://graph.microsoft.com/v1.0' + path, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/octet-stream'
+                },
+                body: data
+            });
+        }).then(function(resp) {
+            if (resp.status === 412) { console.warn('[Graph] Binary write conflict (412)'); return false; }
+            if (resp.status === 404) {
+                var parentFolder = relativePath.lastIndexOf('/') >= 0 ? relativePath.substring(0, relativePath.lastIndexOf('/')) : '';
+                if (!parentFolder) throw new Error('Binary write failed: 404');
+                return _ensureFolder(parentFolder).then(function() {
+                    return writeFileBinary(relativePath, data);
+                });
+            }
+            if (!resp.ok) throw new Error('Binary write failed: ' + resp.status);
+            delete _fileCache[relativePath];
+            var parentFolder = relativePath.lastIndexOf('/') >= 0 ? relativePath.substring(0, relativePath.lastIndexOf('/')) : '';
+            delete _folderChildrenCache[parentFolder];
+            return true;
+        }).catch(function(e) {
+            console.warn('[Graph] Binary write failed:', relativePath, e.message);
+            return false;
+        });
+    }
+
     /* ─── Clear all caches ─────────────────────────────────────── */
     function clearCache() {
         _fileCache = {};
@@ -275,6 +349,7 @@ window.GraphClient = (function() {
         readFileBinary: readFileBinary,
         readFileWithEtag: readFileWithEtag,
         writeFile: writeFile,
+        writeFileBinary: writeFileBinary,
         renameFile: renameFile,
         deleteFile: deleteFile,
         listFolder: listFolder,
