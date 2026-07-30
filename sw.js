@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v153';
+const CACHE_NAME = 'birds-hub-v154';
 
 const ASSETS = [
   './',
@@ -7,7 +7,6 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './logo.png',
-  './favicon.ico',
   './tailwind.min.css',
   './css/app.css',
   './fonts/fonts.css',
@@ -33,7 +32,6 @@ const ASSETS = [
   './js/documents.js',
   './js/users.js',
   './js/projects.js',
-  './js/module-registry.js',
   './js/template-builder.js',
   './js/audits.js',
   './js/tracker_defaults.js',
@@ -41,7 +39,18 @@ const ASSETS = [
   './js/awards.js',
   './js/audit-perform.js',
   './js/overview.js',
-  './js/app.js'
+  './js/activity.js',
+  './js/app.js',
+  './fonts/inter-v20-latin-regular.woff2',
+  './fonts/inter-v20-latin-600.woff2',
+  './fonts/inter-v20-latin-700.woff2',
+  './fonts/inter-v20-latin-800.woff2',
+  './fonts/outfit-v15-latin-regular.woff2',
+  './fonts/outfit-v15-latin-700.woff2',
+  './fonts/outfit-v15-latin-800.woff2',
+  './fonts/merriweather-v33-latin-regular.woff2',
+  './fonts/merriweather-v33-latin-700.woff2',
+  './fonts/merriweather-v33-latin-900.woff2'
 ];
 
 self.addEventListener('install', (event) => {

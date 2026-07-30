@@ -64,6 +64,7 @@
           <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
           <button onclick="document.getElementById('mobileAuditZipInput').click()" style="background:#7A7A7A;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
           <button onclick="doRefresh()" style="background:transparent;color:#4A4A4A;font-size:11px;font-weight:600;padding:6px 14px;border-radius:8px;border:1px solid #E8E5E0;cursor:pointer;white-space:nowrap;" id="syncBtn" title="Refresh Data">&#x21bb; Refresh</button>
+          <button onclick="buildMasterJson()" style="background:#14532d;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" id="buildMasterBtn" title="Build kpi_master.json from all weekly XLSX files">Build Master JSON</button>
           <span id="folderStatus" style="font-size:10px;font-weight:600;color:#aaa;"></span>
 
         </div>
@@ -131,26 +132,27 @@
   <script src="jszip.min.js?v=100"></script>
   <script src="papaparse.min.js?v=100"></script>
   <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
-  <script src="js/auth.js?v=162"></script>
-  <script src="js/graph.js?v=161"></script>
-  <script src="js/db.js?v=162"></script>
+  <script src="js/auth.js?v=163"></script>
+  <script src="js/graph.js?v=162"></script>
+  <script src="js/db.js?v=163"></script>
   <script src="js/utils.js?v=128"></script>
   <script src="js/data.js?v=165"></script>
   <script src="js/charts.js?v=116"></script>
   <script src="js/scorecards.js?v=116"></script>
   <script src="js/reports.js?v=121"></script>
   <script src="js/complaints.js?v=116"></script>
-  <script src="js/documents.js?v=150"></script>
-  <script src="js/users.js?v=159"></script>
-  <script src="js/projects.js?v=150"></script>
+  <script src="js/documents.js?v=151"></script>
+  <script src="js/users.js?v=160"></script>
+  <script src="js/projects.js?v=151"></script>
   <script src="js/template-builder.js?v=132"></script>
-  <script src="js/audits.js?v=165"></script>
+  <script src="js/audits.js?v=166"></script>
   <script src="js/tracker_defaults.js?v=116"></script>
   <script src="js/tracker.js?v=116"></script>
   <script src="js/awards.js?v=116"></script>
-  <script src="js/audit-perform.js?v=165"></script>
+  <script src="js/audit-perform.js?v=1872"></script>
   <script src="js/overview.js?v=117"></script>
-  <script src="js/app.js?v=161"></script>
+  <script src="js/app.js?v=171"></script>
+  <script src="js/build-master.js?v=1"></script>
   <script>
     var _activeTab = 'sales';
     var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'mywork' };
@@ -192,7 +194,7 @@
         }
       });
     }
-    setActiveTab('sales', true);
+    // Initial tab set — view is rendered by db.js boot flow
 
     // PNG export for scorecards and audit views
     function exportToPNG(elementId, filename) {
@@ -289,7 +291,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=153').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=154').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
