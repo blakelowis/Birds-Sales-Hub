@@ -1,4 +1,4 @@
-﻿async function rebuildAwardsFromData(){
+async function rebuildAwardsFromData(){
   try {
     const year = currentAwardsYear || new Date().getFullYear();
     const allKpis = await idbGetAll('kpi');
@@ -764,6 +764,12 @@ function exportAllChampions(){
         const ws = XLSX.utils.aoa_to_sheet(rows);
         XLSX.utils.book_append_sheet(wb, ws, 'Champions');
         const stamp=new Date().toISOString().slice(0,10);
-        XLSX.writeFile(wb, 'Champions_'+stamp+'.xlsx');
+        if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+          var xlsxOut = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+          var ok = await GraphClient.writeFileBinary('Open/Champions_' + stamp + '.xlsx', xlsxOut);
+          if (!ok) { XLSX.writeFile(wb, 'Champions_'+stamp+'.xlsx'); }
+        } else {
+          XLSX.writeFile(wb, 'Champions_'+stamp+'.xlsx');
+        }
     }catch(e){ console.error('Export champions failed', e); alert('Export failed.'); }
 }
