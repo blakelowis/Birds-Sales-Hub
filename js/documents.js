@@ -109,8 +109,8 @@ async function _localDocsGet(folder) {
 }
 
 async function _masterFolderDocs(folder) {
-    /* Try Graph API first if available */
-    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        /* v148: Graph API — read from SharePoint */
         var paths = [
             'Documents/' + folder,
             folder
@@ -129,40 +129,7 @@ async function _masterFolderDocs(folder) {
                 if (docs.length) return docs;
             } catch(e) {}
         }
-    }
-    /* Filesystem fallback — read from folder picker */
-    if (window.directoryHandle) {
-        try {
-            var docsFolder = null;
-            /* Try Documents/{folder} first, then just {folder} */
-            var tryPaths = ['Documents/' + folder, folder];
-            for (var tryPath of tryPaths) {
-                var parts = tryPath.split('/');
-                var current = window.directoryHandle;
-                for (var part of parts) {
-                    var found = null;
-                    for await (var entry of current.values()) {
-                        if (entry.kind === 'directory' && entry.name === part) { found = entry; break; }
-                    }
-                    if (!found) { current = null; break; }
-                    current = found;
-                }
-                if (current) { docsFolder = current; break; }
-            }
-            if (!docsFolder) return [];
-            var docs = [];
-            for await (var subEntry of docsFolder.values()) {
-                if (subEntry.kind === 'file' && subEntry.name.endsWith('.json')) {
-                    try {
-                        var file = await subEntry.getFile();
-                        var text = await file.text();
-                        var obj = JSON.parse(text);
-                        if (obj && obj.id) docs.push(obj);
-                    } catch(e) {}
-                }
-            }
-            return docs;
-        } catch(e) { console.warn('[Docs] Filesystem read failed:', e.message); }
+        return [];
     }
     return [];
 }
@@ -179,8 +146,8 @@ async function _localDocsPut(folder, id, data) {
             } catch(e) { resolve(false); }
         });
     }
-    /* Save to Graph if logged in */
-    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    /* v148: Save to SharePoint via Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
         try {
             var relPath = 'Documents/' + folder + '/' + id + '.json';
             await GraphClient.ensureFolder('Documents/' + folder);
@@ -188,60 +155,12 @@ async function _localDocsPut(folder, id, data) {
         } catch(e) { console.warn('[Docs] Graph save failed:', e.message); }
         return;
     }
-    /* Filesystem fallback */
-    if (window.directoryHandle) {
-        try {
-            var docsFolder = null;
-            var tryPaths = ['Documents/' + folder, folder];
-            for (var tryPath of tryPaths) {
-                var fp = tryPath.split('/');
-                var cur = window.directoryHandle;
-                for (var fp2 of fp) {
-                    var found = null;
-                    for await (var entry of cur.values()) {
-                        if (entry.kind === 'directory' && entry.name === fp2) { found = entry; break; }
-                    }
-                    if (!found) found = await cur.getDirectoryHandle(fp2, { create: true });
-                    cur = found;
-                }
-                docsFolder = cur;
-                break;
-            }
-            if (!docsFolder) docsFolder = await window.directoryHandle.getDirectoryHandle(folder, { create: true });
-            var fh = await docsFolder.getFileHandle(id + '.json', { create: true });
-            var ws = await fh.createWritable();
-            await ws.write(JSON.stringify(data, null, 2));
-            await ws.close();
-        } catch(e) { console.warn('[Docs] Filesystem save failed:', e.message); }
-    }
 }
 async function _localDocsDelete(folder, id) {
     if (!window._localDocsConnection) await _localDocsInit();
-    /* Delete from Graph if logged in */
-    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    /* v148: Delete from SharePoint via Graph if logged in */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
         try { await GraphClient.deleteFile('Documents/' + folder + '/' + id + '.json'); } catch(e) {}
-    }
-    /* Delete from filesystem */
-    if (window.directoryHandle) {
-        try {
-            var tryPaths = ['Documents/' + folder, folder];
-            for (var tryPath of tryPaths) {
-                var fp = tryPath.split('/');
-                var cur = window.directoryHandle;
-                for (var fp2 of fp) {
-                    var found = null;
-                    for await (var entry of cur.values()) {
-                        if (entry.kind === 'directory' && entry.name === fp2) { found = entry; break; }
-                    }
-                    if (!found) { cur = null; break; }
-                    cur = found;
-                }
-                if (cur) {
-                    await cur.removeEntry(id + '.json');
-                    break;
-                }
-            }
-        } catch(e) {}
     }
     /* Delete from IDB + write tombstone */
     if (!window._localDocsConnection) return;
@@ -266,8 +185,8 @@ async function _localDocsGetText(path) {
 }
 
 async function _localDocsGetTextFromMasterFolder(paths) {
-    /* Try Graph first */
-    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    /* v148: Try Graph first */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
         for (var p of paths) {
             try {
                 var text = await GraphClient.readFile(p);
@@ -275,37 +194,6 @@ async function _localDocsGetTextFromMasterFolder(paths) {
             } catch(e) {}
         }
         return null;
-    }
-    /* Filesystem fallback */
-    if (window.directoryHandle) {
-        for (var p of paths) {
-            try {
-                var parts = p.split('/');
-                var current = window.directoryHandle;
-                for (var part of parts) {
-                    var found = null;
-                    for await (var entry of current.values()) {
-                        if (entry.kind === 'directory' && entry.name === part) { found = entry; break; }
-                    }
-                    if (entry && entry.kind === 'file' && entry.name === part) {
-                        var file = await entry.getFile();
-                        return await file.text();
-                    }
-                    if (!found) { current = null; break; }
-                    current = found;
-                }
-                if (current) {
-                    /* It's a directory — look for the file inside */
-                    var fileName = parts[parts.length - 1];
-                    for await (var subEntry of current.values()) {
-                        if (subEntry.kind === 'file' && subEntry.name === fileName) {
-                            var file = await subEntry.getFile();
-                            return await file.text();
-                        }
-                    }
-                }
-            } catch(e) {}
-        }
     }
     return null;
 }
@@ -323,33 +211,13 @@ async function _localDocsPutText(path, text) {
         });
     }
     /* v148: Save to SharePoint via Graph if logged in */
-    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
         try {
             var folderPart = path.substring(0, path.lastIndexOf('/'));
             if (folderPart) await GraphClient.ensureFolder(folderPart);
             await GraphClient.writeFile(path, text);
         } catch(e) { console.warn('[Docs] Graph text save failed:', e.message); }
         return;
-    }
-    /* Filesystem fallback */
-    if (window.directoryHandle) {
-        try {
-            var parts = path.split('/');
-            var current = window.directoryHandle;
-            for (var i = 0; i < parts.length - 1; i++) {
-                var found = null;
-                for await (var entry of current.values()) {
-                    if (entry.kind === 'directory' && entry.name === parts[i]) { found = entry; break; }
-                }
-                if (!found) found = await current.getDirectoryHandle(parts[i], { create: true });
-                current = found;
-            }
-            var fileName = parts[parts.length - 1];
-            var fh = await current.getFileHandle(fileName, { create: true });
-            var ws = await fh.createWritable();
-            await ws.write(text);
-            await ws.close();
-        } catch(e) { console.warn('[Docs] Filesystem text save failed:', e.message); }
     }
 }
 

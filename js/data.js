@@ -1,25 +1,11 @@
-window._manifestsEqual = function(a, b) {
-  var aKeys = Object.keys(a).sort();
-  var bKeys = Object.keys(b).sort();
-  if (aKeys.length !== bKeys.length) return false;
-  for (var mi = 0; mi < aKeys.length; mi++) {
-    if (aKeys[mi] !== bKeys[mi]) return false;
-    if (a[aKeys[mi]] !== b[aKeys[mi]]) return false;
-  }
-  return true;
-};
-
 window.syncData = async function() {
-  if (window._syncGuard) { console.log('[Sync] Already syncing — skipping duplicate'); return; }
-  window._syncGuard = true;
-  try {
   window.__dataStatus.syncRan = true;
   window.ComplaintsData = null;
   window.__dataStatus.complaintsRows = 0;
   window.__complaintsSourceCSV = false;
   document.getElementById('ingestStatus').innerText = "Scanning... Please wait.";
 
-  // SHAREPOINT PATH — read from SharePoint via Graph API
+  // v148: GRAPH API PATH — read from SharePoint if logged in
   if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
     document.getElementById('ingestStatus').innerText = "Reading files from SharePoint...";
     try {
@@ -76,115 +62,16 @@ window.syncData = async function() {
     }
   }
 
-  // FILESYSTEM PATH — read from local folder via folder picker
-  if (window.directoryHandle) {
-    document.getElementById('ingestStatus').innerText = "Reading files from folder...";
-    try {
-      var localFiles = [];
-      var trackerJsonText = null;
-      for await (const entry of window.directoryHandle.values()) {
-        var name = entry.name;
-        if (entry.kind === 'file' && (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.csv'))) {
-          document.getElementById('ingestStatus').innerText = "Reading " + name + "...";
-          var file = await entry.getFile();
-          localFiles.push(file);
-        }
-        if (entry.kind === 'file' && name === 'tracker_data.json') {
-          var file = await entry.getFile();
-          trackerJsonText = await file.text();
-        }
-      }
-      window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
-      if (localFiles.length === 0 && !trackerJsonText) {
-        document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in folder.";
-        window.__dataStatus.syncOk = false;
-        return;
-      }
-      if (trackerJsonText) {
-        try {
-          const trackerData = JSON.parse(trackerJsonText);
-          const storeObj = trackerData.stores || trackerData.updates || trackerData;
-          const storeEntries = (typeof storeObj === 'object' && !Array.isArray(storeObj))
-            ? Object.entries(storeObj)
-            : (Array.isArray(storeObj) ? storeObj.map(r => [r.StoreId || r.id, r]) : []);
-          if (storeEntries.length > 0) {
-            for (const [storeId, rec] of storeEntries) {
-              if (rec && typeof rec === 'object') {
-                if (!rec.StoreId) rec.StoreId = storeId;
-                await idbPut('eho_data', rec);
-              }
-            }
-            console.log('[Sync] Loaded', storeEntries.length, 'tracker records from folder');
-          }
-        } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
-      }
-      if (localFiles.length > 0) await processFiles(localFiles, 'Folder');
-      window.__dataStatus.syncOk = true;
-      window.__dataStatus.ts = Date.now();
-      window.__dataStatus.source = 'Folder';
-      return;
-    } catch(e) {
-      console.warn('[Sync] Folder read failed:', e.message);
-      document.getElementById('ingestStatus').innerText = "Folder read failed — click Refresh to retry.";
-      window.__dataStatus.syncOk = false;
-      return;
-    }
-  }
-
-  // No folder connected — open picker directly
-  try {
-    window.directoryHandle = await window.showDirectoryPicker();
-    await syncData();
-  } catch(e) {
-    if (e.name !== 'AbortError') {
-      document.getElementById('ingestStatus').innerText = "Folder picker failed.";
-    }
-    window.__dataStatus.syncOk = false;
-  }
-  } finally {
-    window._syncGuard = false;
-  }
-};
-
-window.pickFolder = async function() {
-  try {
-    window.directoryHandle = await window.showDirectoryPicker();
-    await syncData();
-  } catch(e) {
-    if (e.name !== 'AbortError') {
-      console.error('[Folder] Picker failed:', e);
-      document.getElementById('ingestStatus').innerText = "Folder picker failed.";
-    }
-  }
+  // Not connected to Graph — show error
+  document.getElementById('ingestStatus').innerText = "Not connected to SharePoint — sign in to sync data.";
+  window.__dataStatus.syncOk = false;
 };
 
 // ===== SHAREPOINT AUTO-SYNC =====
 // Processes raw XLSX ArrayBuffers through the same pipeline as local folder sync.
 async function processFiles(cachedFiles, sourceLabel) {
-  // ── Weekly file change detection ──────────────────────────
-  // Build manifest of current weekly files (name + lastModified)
-  var currentWeeklyManifest = {};
-  for (var fi = 0; fi < cachedFiles.length; fi++) {
-    var fc = cachedFiles[fi];
-    if (fc.name && fc.name.toLowerCase().includes('weekly')) {
-      currentWeeklyManifest[fc.name] = fc.lastModified || 0;
-    }
-  }
-  var weeklyManifestKey = 'weekly_file_manifest';
-  var weeklyChanged = true;
-  try {
-    var cachedManifest = await idbGet('settings', weeklyManifestKey);
-    if (cachedManifest && cachedManifest.files && window._manifestsEqual(currentWeeklyManifest, cachedManifest.files)) {
-      weeklyChanged = false;
-      console.log('[Sync] Weekly files unchanged — skipping re-parse');
-    }
-  } catch(e) {}
-
-  // Only clear kpi if weekly files have changed
-  if (weeklyChanged) {
-    try { await idbClear('kpi'); } catch(e) { console.warn('[processFiles] kpi clear failed:', e); }
-  }
-
+  // Clear kpi before re-import to prevent stale data from removed/renamed files
+  try { await idbClear('kpi'); } catch(e) { console.warn('[processFiles] kpi clear failed:', e); }
   const weeksTouched = new Set(); const yearsTouched = new Set(); const seenWeeksByYear = {};
   var weeklyCount = 0; var scorecardCount = 0;
   let filesProcessed = 0;
@@ -255,121 +142,120 @@ async function processFiles(cachedFiles, sourceLabel) {
       if(file.name.toLowerCase().includes('weekly')) {
         weeklyCount++;
         
-        if (!weeklyChanged) {
-          // Files unchanged — skip heavy parsing, data already in IndexedDB
-          console.log('[Sync] Skipping', file.name, '(unchanged)');
-        } else {
-          // Files changed — full re-parse
-          // Helper: parse one sheet's rows and insert KPI records for a given week
-          async function parseSheetRows(sheetRows, wkNum, yrNum) {
-            const cols = findCols(sheetRows);
-            if (!cols) return 0;
-            let count = 0;
-            for (let i = cols.hr + 1; i < sheetRows.length; i++) {
-              const r = sheetRows[i];
-              if (!r || !r[cols.idxB] || String(r[cols.idxB]).toLowerCase().includes('total')) continue;
-              let rawBranch = cleanStoreName(r[cols.idxB]);
-              let branchId = canonicalStoreId(rawBranch);
-              if (!storeMap.has(branchId)) {
-                let defaultAM = 'Unassigned';
-                const bLower = branchId.toLowerCase();
-                for (const [am, branches] of Object.entries(DEFAULT_AREA_MAPPING)) {
-                  if (branches.some(b => {
-                    const bId = canonicalStoreId(b).toLowerCase();
-                    return bLower === bId || bLower.startsWith(bId) || bId.startsWith(bLower);
-                  })) { defaultAM = am; break; }
-                }
-                await idbPut('stores', { BranchId: branchId, originalName: rawBranch, AM: defaultAM });
-                storeMap.set(branchId, defaultAM);
-                originalStoreNames.set(branchId, rawBranch);
+        // Helper: parse one sheet's rows and insert KPI records for a given week
+        async function parseSheetRows(sheetRows, wkNum, yrNum) {
+          const cols = findCols(sheetRows);
+          if (!cols) return 0;
+          let count = 0;
+          for (let i = cols.hr + 1; i < sheetRows.length; i++) {
+            const r = sheetRows[i];
+            if (!r || !r[cols.idxB] || String(r[cols.idxB]).toLowerCase().includes('total')) continue;
+            let rawBranch = cleanStoreName(r[cols.idxB]);
+            let branchId = canonicalStoreId(rawBranch);
+            if (!storeMap.has(branchId)) {
+              let defaultAM = 'Unassigned';
+              const bLower = branchId.toLowerCase();
+              for (const [am, branches] of Object.entries(DEFAULT_AREA_MAPPING)) {
+                if (branches.some(b => {
+                  const bId = canonicalStoreId(b).toLowerCase();
+                  return bLower === bId || bLower.startsWith(bId) || bId.startsWith(bLower);
+                })) { defaultAM = am; break; }
               }
-              await idbPut('kpi', {
-                BranchId: branchId, Branch: rawBranch, Week: wkNum, Year: yrNum, AM: resolveStoreAM(r, branchId),
-                Sales: cols.idxS >= 0 ? parseVal(r[cols.idxS]) : 0, SalesActual: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : 0, __rawSales: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : undefined, Product: cols.idxP >= 0 ? parseVal(r[cols.idxP]) : 0,
-                Waste: cols.idxW >= 0 ? parseVal(r[cols.idxW]) : 0, Labour: cols.idxL >= 0 ? parseVal(r[cols.idxL]) : 0,
-                ATV: cols.idxA >= 0 ? parseVal(r[cols.idxA]) : 0, Energy: cols.idxE >= 0 ? parseVal(r[cols.idxE]) : 0,
-                FilledRolls: cols.idxFR >= 0 ? parseVal(r[cols.idxFR]) : 0, Sandwiches: cols.idxSW >= 0 ? parseVal(r[cols.idxSW]) : 0,
-                HotRolls: cols.idxHR >= 0 ? parseVal(r[cols.idxHR]) : 0, HotBev: cols.idxHB >= 0 ? parseVal(r[cols.idxHB]) : 0,
-                IsAnomaly: false
-              });
-              count++;
+              await idbPut('stores', { BranchId: branchId, originalName: rawBranch, AM: defaultAM });
+              storeMap.set(branchId, defaultAM);
+              originalStoreNames.set(branchId, rawBranch);
             }
-            return count;
+            await idbPut('kpi', {
+              BranchId: branchId, Branch: rawBranch, Week: wkNum, Year: yrNum, AM: resolveStoreAM(r, branchId),
+              Sales: cols.idxS >= 0 ? parseVal(r[cols.idxS]) : 0, SalesActual: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : 0, __rawSales: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : undefined, Product: cols.idxP >= 0 ? parseVal(r[cols.idxP]) : 0,
+              Waste: cols.idxW >= 0 ? parseVal(r[cols.idxW]) : 0, Labour: cols.idxL >= 0 ? parseVal(r[cols.idxL]) : 0,
+              ATV: cols.idxA >= 0 ? parseVal(r[cols.idxA]) : 0, Energy: cols.idxE >= 0 ? parseVal(r[cols.idxE]) : 0,
+              FilledRolls: cols.idxFR >= 0 ? parseVal(r[cols.idxFR]) : 0, Sandwiches: cols.idxSW >= 0 ? parseVal(r[cols.idxSW]) : 0,
+              HotRolls: cols.idxHR >= 0 ? parseVal(r[cols.idxHR]) : 0, HotBev: cols.idxHB >= 0 ? parseVal(r[cols.idxHB]) : 0,
+              IsAnomaly: false
+            });
+            count++;
           }
-
-          // Scan ALL sheets for week-numbered sheets (e.g. "W1 26", "W 13 26", "Wk17")
-          let sheetsWithWeekData = 0;
-          for (const sName of wb.SheetNames) {
-            const wkMatch = sName.match(/^W\s*(\d{1,2})\s+\d{2,4}$/i) || sName.match(/^Wk\s*(\d{1,2})$/i);
-            if (wkMatch) {
-              const sheetWeek = parseInt(wkMatch[1], 10);
-              if (sheetWeek < 1 || sheetWeek > 53) continue;
-              const sheetRows = XLSX.utils.sheet_to_json(wb.Sheets[sName], { header: 1 });
-              const count = await parseSheetRows(sheetRows, sheetWeek, fileYr);
-              if (count > 0) {
-                sheetsWithWeekData++;
-                seenWeeksByYear[fileYr].add(sheetWeek);
-                weeksTouched.add(sheetWeek);
-                if (sheetWeek > latestWkGlobal) latestWkGlobal = sheetWeek;
-                insertedRows += count;
-                console.log('[Weekly] Sheet "' + sName + '" -> Wk' + sheetWeek + ':', count, 'rows');
-              }
-            }
-          }
-
-          // Find the data sheet: prefer non-template, handle typos (Reprt, report, Detailsd)
-          if (fileWk) {
-            let weeklySheet = null;
-            let reportSheetName = null;
-
-            const exactNames = ['Report 1 (Detailed)', 'Reprt 1 (Detailed)', 'report 1 (Detailed)', 'Report 1 (Detailsd)'];
-            for (const name of wb.SheetNames) {
-              if (exactNames.includes(name) && !name.includes('(Template)')) {
-                weeklySheet = wb.Sheets[name];
-                reportSheetName = name;
-                break;
-              }
-            }
-
-            if (!weeklySheet) {
-              const fuzzyName = wb.SheetNames.find(n => {
-                const lower = n.toLowerCase().replace(/\s+/g, '');
-                return (lower.includes('detailed') || lower.includes('detailsd') || lower.includes('detaild')) && !lower.includes('template');
-              });
-              if (fuzzyName) { weeklySheet = wb.Sheets[fuzzyName]; reportSheetName = fuzzyName; }
-            }
-
-            if (!weeklySheet) {
-              const anyName = wb.SheetNames.find(n => {
-                const lower = n.toLowerCase().replace(/\s+/g, '');
-                return (lower.includes('report') || lower.includes('reprt')) && (lower.includes('detailed') || lower.includes('detailsd'));
-              });
-              if (anyName) { weeklySheet = wb.Sheets[anyName]; reportSheetName = anyName; }
-            }
-
-            if (!weeklySheet && wb.SheetNames.length > 0) {
-              weeklySheet = wb.Sheets[wb.SheetNames[0]];
-              reportSheetName = wb.SheetNames[0];
-            }
-
-            const alreadyParsed = reportSheetName && reportSheetName.match(/^W\s*\d{1,2}\s+\d{2,4}$/i);
-            if (weeklySheet && !alreadyParsed) {
-              const rows = XLSX.utils.sheet_to_json(weeklySheet, { header: 1 });
-              const count = await parseSheetRows(rows, fileWk, fileYr);
-              if (count > 0) {
-                seenWeeksByYear[fileYr].add(fileWk);
-                weeksTouched.add(fileWk);
-                if (fileWk > latestWkGlobal) latestWkGlobal = fileWk;
-                insertedRows += count;
-                console.log('[Weekly] Sheet "' + reportSheetName + '" -> Wk' + fileWk + ':', count, 'rows');
-              } else {
-                console.warn('[Weekly] Sheet "' + reportSheetName + '" produced 0 rows for Wk' + fileWk + ' in ' + file.name);
-              }
-            }
-          }
-
-          console.log('[Weekly] ' + file.name + ':', sheetsWithWeekData, 'week sheets + report,', insertedRows, 'total rows');
+          return count;
         }
+
+        // Scan ALL sheets for week-numbered sheets (e.g. "W1 26", "W 13 26", "Wk17")
+        let sheetsWithWeekData = 0;
+        for (const sName of wb.SheetNames) {
+          const wkMatch = sName.match(/^W\s*(\d{1,2})\s+\d{2,4}$/i) || sName.match(/^Wk\s*(\d{1,2})$/i);
+          if (wkMatch) {
+            const sheetWeek = parseInt(wkMatch[1], 10);
+            if (sheetWeek < 1 || sheetWeek > 53) continue;
+            const sheetRows = XLSX.utils.sheet_to_json(wb.Sheets[sName], { header: 1 });
+            const count = await parseSheetRows(sheetRows, sheetWeek, fileYr);
+            if (count > 0) {
+              sheetsWithWeekData++;
+              seenWeeksByYear[fileYr].add(sheetWeek);
+              weeksTouched.add(sheetWeek);
+              if (sheetWeek > latestWkGlobal) latestWkGlobal = sheetWeek;
+              insertedRows += count;
+              console.log('[Weekly] Sheet "' + sName + '" -> Wk' + sheetWeek + ':', count, 'rows');
+            }
+          }
+        }
+
+        // Find the data sheet: prefer non-template, handle typos (Reprt, report, Detailsd)
+        if (fileWk) {
+          let weeklySheet = null;
+          let reportSheetName = null;
+
+          // 1. Try exact name matches (non-template only)
+          const exactNames = ['Report 1 (Detailed)', 'Reprt 1 (Detailed)', 'report 1 (Detailed)', 'Report 1 (Detailsd)'];
+          for (const name of wb.SheetNames) {
+            if (exactNames.includes(name) && !name.includes('(Template)')) {
+              weeklySheet = wb.Sheets[name];
+              reportSheetName = name;
+              break;
+            }
+          }
+
+          // 2. Fuzzy match: find sheets containing 'detailed'/'detailsd' but NOT 'template'
+          if (!weeklySheet) {
+            const fuzzyName = wb.SheetNames.find(n => {
+              const lower = n.toLowerCase().replace(/\s+/g, '');
+              return (lower.includes('detailed') || lower.includes('detailsd') || lower.includes('detaild')) && !lower.includes('template');
+            });
+            if (fuzzyName) { weeklySheet = wb.Sheets[fuzzyName]; reportSheetName = fuzzyName; }
+          }
+
+          // 3. Last resort: any sheet with 'report' or 'reprt' (even template)
+          if (!weeklySheet) {
+            const anyName = wb.SheetNames.find(n => {
+              const lower = n.toLowerCase().replace(/\s+/g, '');
+              return (lower.includes('report') || lower.includes('reprt')) && (lower.includes('detailed') || lower.includes('detailsd'));
+            });
+            if (anyName) { weeklySheet = wb.Sheets[anyName]; reportSheetName = anyName; }
+          }
+
+          // 4. Ultimate fallback: first sheet in workbook
+          if (!weeklySheet && wb.SheetNames.length > 0) {
+            weeklySheet = wb.Sheets[wb.SheetNames[0]];
+            reportSheetName = wb.SheetNames[0];
+          }
+
+          // Skip if this sheet was already parsed as a W<n> sheet
+          const alreadyParsed = reportSheetName && reportSheetName.match(/^W\s*\d{1,2}\s+\d{2,4}$/i);
+          if (weeklySheet && !alreadyParsed) {
+            const rows = XLSX.utils.sheet_to_json(weeklySheet, { header: 1 });
+            const count = await parseSheetRows(rows, fileWk, fileYr);
+            if (count > 0) {
+              seenWeeksByYear[fileYr].add(fileWk);
+              weeksTouched.add(fileWk);
+              if (fileWk > latestWkGlobal) latestWkGlobal = fileWk;
+              insertedRows += count;
+              console.log('[Weekly] Sheet "' + reportSheetName + '" -> Wk' + fileWk + ':', count, 'rows');
+            } else {
+              console.warn('[Weekly] Sheet "' + reportSheetName + '" produced 0 rows for Wk' + fileWk + ' in ' + file.name);
+            }
+          }
+        }
+
+        console.log('[Weekly] ' + file.name + ':', sheetsWithWeekData, 'week sheets + report,', insertedRows, 'total rows');
       }
       await logIngest({ file: file.name, kind: 'weekly', year: fileYr, week: fileWk, rowsInserted: insertedRows });
       if(file.name.toLowerCase().includes('scorecard')) {
@@ -520,23 +406,6 @@ async function processFiles(cachedFiles, sourceLabel) {
     console.log('[Sync] Records per week:', sorted.map(([w, c]) => w + ':' + c).join(', '));
     const lowWeeks = sorted.filter(([, c]) => c < 10);
     if (lowWeeks.length) console.warn('[Sync] LOW DATA WEEKS:', lowWeeks.map(([w, c]) => w + '(' + c + ')').join(', '));
-  }
-
-  // Persist weekly manifest so unchanged files are skipped next sync
-  if (weeklyChanged && Object.keys(currentWeeklyManifest).length > 0) {
-    try { await idbPut('settings', { id: weeklyManifestKey, files: currentWeeklyManifest, cachedAt: Date.now() }); } catch(e) {}
-  }
-
-  // If weekly files unchanged, populate week info from existing kpi data
-  if (!weeklyChanged && weeksTouched.size === 0) {
-    var allKpisExisting = await idbGetAll('kpi');
-    for (var ke of allKpisExisting) {
-      if (ke.Week) weeksTouched.add(ke.Week);
-      if (ke.Year) yearsTouched.add(ke.Year);
-      var yr = ke.Year || 0;
-      if (!seenWeeksByYear[yr]) seenWeeksByYear[yr] = new Set();
-      if (ke.Week) seenWeeksByYear[yr].add(ke.Week);
-    }
   }
 
   document.getElementById('ingestStatus').innerText = "Last Updated: " + new Date().toLocaleTimeString();

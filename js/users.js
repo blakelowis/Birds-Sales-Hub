@@ -1,158 +1,32 @@
-/* ─── Users Module v150 ────────────────────────────────────────── */
-/* User authentication: IDB + Graph (SharePoint) + localStorage   */
-/* + permissions system: per-user tab/view access + impersonation */
+/* ─── Users Module v134 ────────────────────────────────────────── */
+/* User authentication: IDB + filesystem (users/) + localStorage  */
 window.Users = (function() {
     var _db = null;
     var _users = [];
     var _currentUser = null;
     var _customDepts = [];
-    var _impersonating = null; /* admin is previewing as another user */
     var DB_NAME = 'birds_users';
     var DB_VER = 1;
 
     var BUILTIN_DEPARTMENTS = [
-        'Sales',
+        'General',
+        'Area Sales Team',
         'Technical',
-        'Development',
-        'Auditor',
-        'I.T.',
-        'Management'
+        'Training & Development',
+        'Retail Auditor',
+        '--- Senior Leadership ---',
+        'Production Manager',
+        'Head of Retail',
+        'Project Manager',
+        'Director'
     ];
 
-    /* ─── ALL available tabs and views ──────────────────────── */
-    var ALL_TABS = ['sales', 'audits', 'bakery', 'docs', 'admin'];
-
-    var ALL_VIEWS = {
-        sales: {
-            label: 'Sales & KPIs',
-            views: [
-                { id: 'overview', label: 'Overview' },
-                { id: 'trends', label: 'Trends' },
-                { id: 'masterreview', label: 'Quarterly Summary' },
-                { id: 'areas', label: 'Area Report' },
-                { id: 'storecards', label: 'Scorecards' },
-                { id: 'storereports', label: 'Store Report' },
-                { id: 'leaderboard', label: 'Leaderboard' },
-                { id: 'halloffame', label: 'YTD Awards' },
-                { id: 'winners', label: 'Podium' },
-                { id: 'champions', label: 'Champions' }
-            ]
-        },
-        audits: {
-            label: 'Audits & Complaints',
-            views: [
-                { id: 'auditexport', label: 'Audit Action Hub' },
-                { id: 'tracker', label: 'Tracker' },
-                { id: 'complaints', label: 'Complaints Hub' }
-            ]
-        },
-        bakery: {
-            label: 'Bakery',
-            views: [
-                { id: 'production', label: 'Production' },
-                { id: 'tastepanels', label: 'Taste Panels' },
-                { id: 'trials', label: 'Trials' },
-                { id: 'productdev', label: 'Product Dev' }
-            ]
-        },
-        docs: {
-            label: 'Documents',
-            views: [
-                { id: 'mywork', label: 'My Work' },
-                { id: 'documents', label: 'Documents' },
-                { id: 'projects', label: 'Projects' },
-                { id: 'documentcreate', label: '+ Create' },
-                { id: 'templatelibrary', label: '+ Template' },
-                { id: 'documentarchive', label: 'Archive' }
-            ]
-        },
-        admin: {
-            label: 'Admin',
-            views: [
-                { id: 'adminmodules', label: 'Module Management' },
-                { id: 'adminusers', label: 'User Admin' }
-            ]
-        }
-    };
-
-    /* ─── Default permissions per department ──────────────── */
-    var DEPT_DEFAULTS = {
-        'Sales':       { tabs: ['sales', 'audits', 'docs'], views: '*' },
-        'Technical':   { tabs: ['sales', 'audits', 'docs'], views: '*' },
-        'Development': { tabs: ['sales', 'audits', 'bakery', 'docs'], views: '*' },
-        'Auditor':     { tabs: ['audits', 'docs'], views: '*' },
-        'I.T.':        { tabs: ['sales', 'audits', 'bakery', 'docs', 'admin'], views: '*' },
-        'Management':  { tabs: ['sales', 'audits', 'bakery', 'docs', 'admin'], views: '*' }
-    };
-
-    function _getDefaultTabs(dept) {
-        var d = DEPT_DEFAULTS[dept] || DEPT_DEFAULTS['General'];
-        return d.tabs.slice();
-    }
-
-    function _getDefaultViews(dept) {
-        var d = DEPT_DEFAULTS[dept] || DEPT_DEFAULTS['General'];
-        return d.views;
-    }
-
-    /* ─── Permission resolution ──────────────────────────── */
-    function getEffectiveUser() {
-        return _impersonating || _currentUser;
-    }
-
-    function getAllTabs() { return ALL_TABS; }
-    function getAllViews() { return ALL_VIEWS; }
-
-    function canSeeTab(tabId) {
-        var user = getEffectiveUser();
-        if (!user) return false;
-        if (user.role === 'admin') return true;
-        var tabs = user.allowedTabs || _getDefaultTabs(user.department);
-        return tabs.indexOf(tabId) !== -1;
-    }
-
-    function canSeeView(viewId) {
-        var user = getEffectiveUser();
-        if (!user) return false;
-        if (user.role === 'admin') return true;
-        /* Check if view is in the views array (or wildcard) */
-        var views = user.allowedViews;
-        if (!views || views === '*') return true;
-        if (Array.isArray(views)) return views.indexOf(viewId) !== -1;
-        return true;
-    }
-
-    function canAccessView(viewId) {
-        if (!canSeeView(viewId)) return false;
-        /* Find which tab this view belongs to */
-        Object.keys(ALL_VIEWS).forEach(function(tabId) {
-            var tab = ALL_VIEWS[tabId];
-            tab.views.forEach(function(v) {
-                if (v.id === viewId && !canSeeTab(tabId)) return false;
-            });
-        });
-        return canSeeView(viewId);
-    }
-
-    function isImpersonating() { return !!_impersonating; }
-    function getImpersonatingUser() { return _impersonating; }
-
-    async function startImpersonation(userId) {
-        var target = getById(userId);
-        if (!target || target.id === _currentUser.id) return false;
-        _impersonating = target;
-        updateHeaderBadge();
-        if (typeof window._refreshImpBanner === 'function') window._refreshImpBanner();
-        if (typeof applyNavPermissions === 'function') applyNavPermissions();
-        return true;
-    }
-
-    function stopImpersonation() {
-        _impersonating = null;
-        updateHeaderBadge();
-        if (typeof window._refreshImpBanner === 'function') window._refreshImpBanner();
-        if (typeof applyNavPermissions === 'function') applyNavPermissions();
-    }
+    var SENIOR_DEPARTMENTS = [
+        'Production Manager',
+        'Head of Retail',
+        'Project Manager',
+        'Director'
+    ];
 
     function getDepartments() {
         var seen = {};
@@ -166,11 +40,18 @@ window.Users = (function() {
 
     function getDeptOptionsHtml(selected, includeAll) {
         var depts = getDepartments();
+        var seniorSet = {};
+        SENIOR_DEPARTMENTS.forEach(function(d) { seniorSet[d] = true; });
         var html = '';
         if (includeAll) {
             html += '<option value="__ALL__"' + (selected === '__ALL__' ? ' selected' : '') + '>All Departments</option>';
         }
+        var seenSenior = false;
         depts.forEach(function(d) {
+            if (seniorSet[d] && !seenSenior) {
+                html += '<option disabled style="font-weight:800;color:#5a6577;background:#f1ede8;">── Senior Leadership ──</option>';
+                seenSenior = true;
+            }
             var members = Users.getByDepartment(d);
             var names = members.map(function(m) { return m.name.split(' ')[0]; }).join(', ');
             html += '<option value="' + d + '"' + (selected === d ? ' selected' : '') + '>' + d + (names ? ' (' + names + ')' : '') + '</option>';
@@ -330,17 +211,15 @@ window.Users = (function() {
             } catch(e) {}
         }
 
-        /* Verify stored user still exists — only restore if MSAL is also logged in */
-        var _msalSession = (typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn());
+        /* Verify stored user still exists */
         _currentUser = _getStored();
         if (_currentUser) {
             var found = _users.find(function(u) { return u.id === _currentUser.id; });
-            if (found && _msalSession) {
+            if (found) {
                 _currentUser = found;
                 _setStored(found);
             } else {
-                _currentUser = null;
-                _clearStored();
+                _currentUser = null; _clearStored();
             }
         }
     }
@@ -368,35 +247,6 @@ window.Users = (function() {
         await _idbPut(user);
         await _saveUserToGraph(user);
         return user;
-    }
-
-    async function update(userId, updates) {
-        var user = getById(userId);
-        if (!user) return null;
-        Object.keys(updates).forEach(function(k) { user[k] = updates[k]; });
-        await _idbPut(user);
-        await _saveUserToGraph(user);
-        if (_currentUser && _currentUser.id === userId) {
-            _currentUser = user;
-            _setStored(user);
-        }
-        return user;
-    }
-
-    async function remove(userId) {
-        var idx = _users.findIndex(function(u) { return u.id === userId; });
-        if (idx === -1) return false;
-        _users.splice(idx, 1);
-        await _idbDelete(userId);
-        if (_currentUser && _currentUser.id === userId) {
-            _currentUser = null;
-            _clearStored();
-        }
-        return true;
-    }
-
-    function _uid(prefix) {
-        return prefix + Math.random().toString(36).substring(2, 10);
     }
 
     function getCurrentUser() { return _currentUser; }
@@ -495,20 +345,11 @@ window.Users = (function() {
         }
     }
 
-    function _extractNameFromEmail(email) {
-        var local = (email || '').split('@')[0] || '';
-        var parts = local.split('.');
-        var first = parts[0] || '';
-        var last = parts.slice(1).join(' ') || '';
-        return { first: first.charAt(0).toUpperCase() + first.slice(1), last: last.split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ') };
-    }
-
     function _renderEntraConfirmScreen(profile) {
-        var email = profile.email || '';
-        var extracted = _extractNameFromEmail(email);
-        var firstName = extracted.first;
-        var lastName = extracted.last;
-        var deptHtml = getDeptOptionsHtml('Sales', false);
+        var nameParts = (profile.name || '').split(/\s+/);
+        var firstName = nameParts[0] || '';
+        var lastName = nameParts.slice(1).join(' ') || '';
+        var deptHtml = getDeptOptionsHtml('General', false);
         document.getElementById('mainView').innerHTML = `
         <div style="max-width:500px;margin:40px auto;padding:0 16px;">
             <div class="card" style="padding:32px;text-align:center;">
@@ -516,12 +357,8 @@ window.Users = (function() {
                     ${firstName[0] || ''}${lastName[0] || ''}
                 </div>
                 <h2 style="font-family:'Merriweather',Georgia,serif;font-size:18px;color:#4A4A4A;margin:0 0 4px;">Welcome to The Hub</h2>
-                <p style="color:#7A7A7A;font-size:12px;margin:0 0 20px;">Please confirm your details to get started.</p>
+                <p style="color:#7A7A7A;font-size:12px;margin:0 0 20px;">We don't have an account for <strong>${escapeHtml(profile.email)}</strong> yet.<br>Please confirm your details to get started.</p>
 
-                <div style="text-align:left;margin-bottom:12px;">
-                    <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Email</label>
-                    <input type="email" id="entraEmail" value="${escapeAttr(email)}" readonly style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;background:#f5f3f0;color:#7A7A7A;" />
-                </div>
                 <div style="text-align:left;margin-bottom:12px;">
                     <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">First Name</label>
                     <input type="text" id="entraFirstName" value="${escapeAttr(firstName)}" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;" />
@@ -529,23 +366,6 @@ window.Users = (function() {
                 <div style="text-align:left;margin-bottom:12px;">
                     <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Last Name</label>
                     <input type="text" id="entraLastName" value="${escapeAttr(lastName)}" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;" />
-                </div>
-                <div style="text-align:left;margin-bottom:12px;">
-                    <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Job Title</label>
-                    <select id="entraJobTitle" onchange="Users._toggleCustomJobTitle()" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;background:#fff;box-sizing:border-box;">
-                        <option value="">Select job title...</option>
-                        <option value="Area Sales Manager">Area Sales Manager</option>
-                        <option value="Technical Manager">Technical Manager</option>
-                        <option value="Development Chef">Development Chef</option>
-                        <option value="Auditor">Auditor</option>
-                        <option value="IT Support">IT Support</option>
-                        <option value="IT Manager">IT Manager</option>
-                        <option value="Management Accountant">Management Accountant</option>
-                        <option value="General Manager">General Manager</option>
-                        <option value="Director">Director</option>
-                        <option value="__OTHER__">Other (type below)</option>
-                    </select>
-                    <input type="text" id="entraJobTitleCustom" placeholder="Enter your job title..." style="display:none;width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;margin-top:6px;" />
                 </div>
                 <div style="text-align:left;margin-bottom:20px;">
                     <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Department</label>
@@ -566,24 +386,15 @@ window.Users = (function() {
         var firstName = (document.getElementById('entraFirstName').value || '').trim();
         var lastName = (document.getElementById('entraLastName').value || '').trim();
         var dept = document.getElementById('entraDept').value;
-        var jobTitleEl = document.getElementById('entraJobTitle');
-        var jobTitle = '';
-        if (jobTitleEl) {
-            jobTitle = jobTitleEl.value === '__OTHER__'
-                ? (document.getElementById('entraJobTitleCustom').value || '').trim()
-                : jobTitleEl.value;
-        }
         var errEl = document.getElementById('entraConfirmError');
         if (!firstName) { if (errEl) { errEl.textContent = 'Please enter your first name'; errEl.style.display = 'block'; } return; }
-        if (!jobTitle) { if (errEl) { errEl.textContent = 'Please select or enter your job title'; errEl.style.display = 'block'; } return; }
         var fullName = firstName + (lastName ? ' ' + lastName : '');
         var profile = _pendingEntraProfile;
         var user = {
             id: 'entra-' + (profile.localAccountId || _uid('user-')),
             name: fullName,
             email: profile.email,
-            department: dept || 'Sales',
-            jobTitle: jobTitle,
+            department: dept || 'General',
             pin: null,
             created: new Date().toISOString().substring(0, 10)
         };
@@ -636,15 +447,11 @@ window.Users = (function() {
         var deptEl = document.getElementById('userBadgeDept');
         if (!badge) return;
 
-        var display = getEffectiveUser();
-        if (display) {
+        if (_currentUser) {
             badge.classList.remove('hidden');
             badge.classList.add('flex');
-            if (nameEl) nameEl.textContent = display.name + (_impersonating ? ' (Preview)' : '');
-            var parts = [];
-            if (display.jobTitle) parts.push(display.jobTitle);
-            if (display.department) parts.push(display.department);
-            if (deptEl) deptEl.textContent = parts.join(' · ');
+            if (nameEl) nameEl.textContent = _currentUser.name;
+            if (deptEl) deptEl.textContent = _currentUser.department;
         } else {
             badge.classList.add('hidden');
             badge.classList.remove('flex');
@@ -669,24 +476,17 @@ window.Users = (function() {
         return String(v || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    /* ─── Admin helpers ────────────────────────────────────────── */
-    function isAdmin() {
-        if (!_currentUser) return false;
-        return _currentUser.role === 'admin';
-    }
-
     /* ─── Expose public API ─────────────────────────────────────── */
     return {
         getDepartments: getDepartments,
         getDeptOptionsHtml: getDeptOptionsHtml,
+        SENIOR_DEPARTMENTS: SENIOR_DEPARTMENTS,
         addDepartment: addDepartment,
         init: init,
         getAll: getAll,
         getByDepartment: getByDepartment,
         getById: getById,
         create: create,
-        update: update,
-        remove: remove,
         getCurrentUser: getCurrentUser,
         setCurrentUser: setCurrentUser,
         clearCurrentUser: clearCurrentUser,
@@ -696,27 +496,6 @@ window.Users = (function() {
         _confirmEntraUser: _confirmEntraUser,
         _cancelEntraConfirm: _cancelEntraConfirm,
         doLogout: doLogout,
-        showLogin: showLogin,
-        isAdmin: isAdmin,
-        /* Permissions */
-        getAllTabs: getAllTabs,
-        getAllViews: getAllViews,
-        canSeeTab: canSeeTab,
-        canSeeView: canSeeView,
-        canAccessView: canAccessView,
-        getEffectiveUser: getEffectiveUser,
-        isImpersonating: isImpersonating,
-        getImpersonatingUser: getImpersonatingUser,
-        startImpersonation: startImpersonation,
-        stopImpersonation: stopImpersonation,
-        DEPT_DEFAULTS: DEPT_DEFAULTS,
-        _toggleCustomJobTitle: function() {
-            var sel = document.getElementById('entraJobTitle');
-            var custom = document.getElementById('entraJobTitleCustom');
-            if (sel && custom) {
-                custom.style.display = sel.value === '__OTHER__' ? 'block' : 'none';
-                if (sel.value !== '__OTHER__') custom.value = '';
-            }
-        }
+        showLogin: showLogin
     };
 })();

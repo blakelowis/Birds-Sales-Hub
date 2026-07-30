@@ -176,19 +176,6 @@ window.BirdsAuth = (function() {
     /* ─── Resolve SharePoint site and drive IDs ────────────────── */
     function resolveSharePointIds() {
         if (_siteId && _driveId) return Promise.resolve();
-        // Check localStorage cache first
-        try {
-            var cached = localStorage.getItem('birds_sp_ids');
-            if (cached) {
-                var sp = JSON.parse(cached);
-                if (sp && sp.siteId && sp.driveId) {
-                    _siteId = sp.siteId;
-                    _driveId = sp.driveId;
-                    console.log('[Auth] SharePoint IDs restored from cache');
-                    return Promise.resolve();
-                }
-            }
-        } catch(e) {}
         /* Get site */
         return _graphGet('/sites/' + CONFIG.sharepointHostname + ':' + CONFIG.sitePath)
             .then(function(site) {
@@ -198,22 +185,12 @@ window.BirdsAuth = (function() {
                 return _graphGet('/sites/' + _siteId + '/drives');
             }).then(function(drivesResp) {
                 var drives = drivesResp.value || [];
-                console.log('[Auth] Available drives:', drives.map(function(d) { return d.name + ' (' + d.id + ')'; }).join(', '));
                 var targetDrive = drives.find(function(d) {
-                    return d.name === CONFIG.drivePath || d.name === 'Shared Documents' || d.name === 'Documents';
+                    return d.name === CONFIG.drivePath || d.name === 'Shared Documents';
                 });
-                // Fallback: use the first available drive if no name match
-                if (!targetDrive && drives.length > 0) {
-                    console.warn('[Auth] No drive matched expected names, using first available drive:', drives[0].name);
-                    targetDrive = drives[0];
-                }
-                if (!targetDrive) {
-                    throw new Error('No drives found on this SharePoint site. Check Sites.ReadWrite.All permission is granted.');
-                }
+                if (!targetDrive) throw new Error('Drive "' + CONFIG.drivePath + '" not found');
                 _driveId = targetDrive.id;
                 console.log('[Auth] Drive resolved:', _driveId);
-                // Cache for next time
-                try { localStorage.setItem('birds_sp_ids', JSON.stringify({ siteId: _siteId, driveId: _driveId })); } catch(e) {}
             });
     }
 

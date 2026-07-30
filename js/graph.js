@@ -11,9 +11,7 @@ window.GraphClient = (function() {
 
     /* ─── Helper: build SharePoint item path ───────────────────── */
     function _itemPath(relativePath) {
-        var driveId = BirdsAuth.getDriveId();
-        if (!driveId) throw new Error('SharePoint drive not resolved. Sign in again or check permissions.');
-        var base = '/drives/' + driveId + '/root:/' + BirdsAuth.getConfig().dataFolderPath;
+        var base = '/drives/' + BirdsAuth.getDriveId() + '/root:/' + BirdsAuth.getConfig().dataFolderPath;
         if (relativePath) base += '/' + relativePath;
         return encodeURI(base).replace(/#/g, '%23');
     }

@@ -51,23 +51,18 @@ req.onsuccess = async e => {
 
     // v148: Auth-first boot — try silent Entra login, then load via Graph
     var _authReady = false;
-    var _msalOk = false;
     if (typeof BirdsAuth !== 'undefined') {
+        try { BirdsAuth.init(); } catch(e) { console.warn('[DB] MSAL init failed:', e.message); }
         try {
-            _msalOk = BirdsAuth.init();
-            if (_msalOk) {
-                try {
-                    await BirdsAuth.loginSilent();
-                    await BirdsAuth.resolveSharePointIds();
-                    _authReady = true;
-                    console.log('[DB] Entra silent login OK');
-                } catch(e) {
-                    console.log('[DB] Silent login not available');
-                }
-            } else {
-                console.log('[DB] MSAL not available (HTTP context) — running without Entra auth');
-            }
-        } catch(e) { console.warn('[DB] MSAL init failed:', e.message); }
+            await BirdsAuth.loginSilent();
+            await BirdsAuth.resolveSharePointIds();
+            _authReady = true;
+            console.log('[DB] Entra silent login OK');
+            var fsEl = document.getElementById('folderStatus');
+            if (fsEl) fsEl.textContent = 'Connected via SharePoint';
+        } catch(e) {
+            console.log('[DB] Silent login not available, showing login screen');
+        }
     }
 
     // Init documents IDB connection so projects/documents can load
@@ -79,39 +74,23 @@ req.onsuccess = async e => {
             await Users.init();
             if (typeof Projects !== 'undefined') await Projects.load();
             Users.updateHeaderBadge();
+            renderDashboard();
+        } else {
+            renderDashboard();
         }
-        // Trigger data sync from SharePoint FIRST, then render
+        // Trigger data sync from SharePoint
         if (typeof window.syncData === 'function') {
             try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
         }
-        renderDashboard();
     } else if (typeof Users !== 'undefined') {
+        // Not logged in — show Entra login screen
         await Users.init();
-        var _stored = Users.getCurrentUser();
-        if (_stored) {
-            // Restored previous session — sync data first then render
-            Users.updateHeaderBadge();
-            if (typeof window.syncData === 'function') {
-                try { await window.syncData(); } catch(e) { console.warn('[DB] syncData failed:', e.message); }
-            }
-            renderDashboard();
-        } else {
-            // No stored user — show login screen
-            Users.renderLoginScreen();
-        }
+        Users.renderLoginScreen();
+        var fsEl2 = document.getElementById('folderStatus');
+        if (fsEl2) fsEl2.textContent = 'Sign in required';
     } else {
         renderDashboard();
     }
-
-    /* Show admin tab if user has admin role */
-    var _user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
-    if (_user && _user.role === 'admin') {
-        var adminTab = document.getElementById('adminTab');
-        if (adminTab) adminTab.style.display = '';
-    }
-
-    /* Apply tab/view permissions */
-    if (typeof applyNavPermissions === 'function') applyNavPermissions();
 
     if (window.ComplaintsData && window.ComplaintsData.length) {
         window.__dataStatus.complaintsRows = window.ComplaintsData.length;
@@ -172,31 +151,11 @@ async function checkDataFreshness() {
   } catch (_) {}
 }
 
-var _idbCache = {};
-function _clearCache(store) { if (store) { delete _idbCache[store]; } else { _idbCache = {}; } }
-
-const idbGetAll = s => {
-  if (_idbCache[s]) return Promise.resolve(_idbCache[s]);
-  if (!db || db.closed) { _reconnectDB(); return Promise.resolve([]); }
-  try {
-    return new Promise(res => {
-      const r = db.transaction(s).objectStore(s).getAll();
-      r.onsuccess = () => {
-        var data = r.result || [];
-        if (s === 'kpi' || s === 'audits' || s === 'stores') _idbCache[s] = data;
-        res(data);
-      };
-      r.onerror = () => res([]);
-    });
-  } catch(e) {
-    if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB();
-    return Promise.resolve([]);
-  }
-};
+const idbGetAll = s => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve([]); } try { return new Promise(res => { const r = db.transaction(s).objectStore(s).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve([]); } };
 const idbGet = (s, k) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(null); } try { return new Promise(res => { const r = db.transaction(s).objectStore(s).get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(null); } };
 const idbAdd = (s, v) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(null); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).add(v); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(null); } };
-const idbPut = (s, v) => { _clearCache(s); if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
-const idbClear = (s) => { _clearCache(s); if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).clear(); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
+const idbPut = (s, v) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
+const idbClear = (s) => { if (!db || db.closed) { _reconnectDB(); return Promise.resolve(false); } try { return new Promise(res => { const r = db.transaction(s,'readwrite').objectStore(s).clear(); r.onsuccess = () => res(true); r.onerror = () => res(false); }); } catch(e) { if (String(e).includes('closing') || String(e).includes('closed')) _reconnectDB(); return Promise.resolve(false); } };
 
 // Auto-reconnect if DB connection closes (e.g. after SW update)
 function _reconnectDB() {

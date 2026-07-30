@@ -66,118 +66,30 @@ function shortQuestionLabel(q, maxLen=96){
   return s.length > maxLen ? s.slice(0, maxLen - 1) + '…' : s;
 }
 
-// Reads Open/ and Closed/ JSON files via cached folder reads.
-// Uses IndexedDB to cache file contents — only re-reads when files change.
+// Reads Open/ and Closed/ JSON files directly from SharePoint or local folder.
+// No IndexedDB caching — two folders are the source of truth.
 // Open JSON = open actions. If a matching questionId exists in Closed/, it's closed.
-
-async function readJsonFolder(folderName) {
-  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
-    try {
-      var items = await GraphClient.listJsonFiles(folderName);
-      var results = [];
-      for (var item of items) {
-        try {
-          var text = await GraphClient.readFile(folderName + '/' + item.name);
-          if (text) { var data = JSON.parse(text); data._fileName = item.name; results.push(data); }
-        } catch(e) {}
-      }
-      if (results.length) return results;
-    } catch(e) {}
-  }
-  if (window.directoryHandle) {
-    try {
-      var targetFolder = null;
-      for await (var entry of window.directoryHandle.values()) {
-        if (entry.kind === 'directory' && entry.name === folderName) { targetFolder = entry; break; }
-      }
-      if (targetFolder) {
-        var results = [];
-        for await (var fileHandle of targetFolder.values()) {
-          if (fileHandle.kind === 'file' && fileHandle.name.endsWith('.json')) {
-            try { var file = await fileHandle.getFile(); var text = await file.text(); var data = JSON.parse(text); data._fileName = fileHandle.name; results.push(data); } catch(e) {}
-          }
-        }
-        return results;
-      }
-    } catch(e) { console.warn('[readJsonFolder] Filesystem fallback failed:', e.message); }
-  }
-  try {
-    var allText = await _localDocsGetText(folderName + '/');
-    if (allText) { var parsed = JSON.parse(allText); if (Array.isArray(parsed)) { parsed.forEach(function(item) { if (!item._fileName) item._fileName = folderName; }); return parsed; } }
-  } catch(e) {}
-  return [];
-}
-
-window.readJsonFolderCached = async function(folderName) {
-  var cacheKey = 'audit_cache_' + folderName;
-  var manifestKey = 'audit_manifest_' + folderName;
-  var currentManifest = await _buildFolderManifest(folderName);
-  try {
-    var cachedManifest = await idbGet('settings', manifestKey);
-    if (cachedManifest && cachedManifest.files && window._manifestsEqual(currentManifest, cachedManifest.files)) {
-      var cachedData = await idbGet('settings', cacheKey);
-      if (cachedData && cachedData.data) { return cachedData.data; }
-    }
-  } catch(e) {}
-  var data = await readJsonFolder(folderName);
-  try {
-    await idbPut('settings', { id: cacheKey, data: data, cachedAt: Date.now() });
-    await idbPut('settings', { id: manifestKey, files: currentManifest, cachedAt: Date.now() });
-  } catch(e) {}
-  return data;
-};
-
-window.invalidateAuditCache = async function(folderName) {
-  if (folderName) {
-    try { await idbPut('settings', { id: 'audit_cache_' + folderName, data: null, cachedAt: 0 }); } catch(e) {}
-    try { await idbPut('settings', { id: 'audit_manifest_' + folderName, files: null, cachedAt: 0 }); } catch(e) {}
-  } else {
-    try { await idbPut('settings', { id: 'audit_cache_Open', data: null, cachedAt: 0 }); } catch(e) {}
-    try { await idbPut('settings', { id: 'audit_manifest_Open', files: null, cachedAt: 0 }); } catch(e) {}
-    try { await idbPut('settings', { id: 'audit_cache_Closed', data: null, cachedAt: 0 }); } catch(e) {}
-    try { await idbPut('settings', { id: 'audit_manifest_Closed', files: null, cachedAt: 0 }); } catch(e) {}
-  }
-};
-
-async function _buildFolderManifest(folderName) {
-  var files = {};
-  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
-    try { var items = await GraphClient.listJsonFiles(folderName); for (var i = 0; i < items.length; i++) { files[items[i].name] = items[i].lastModified || items[i].lastModifiedDateTime || Date.now(); } return files; } catch(e) {}
-  }
-  if (window.directoryHandle) {
-    try {
-      var targetFolder = null;
-      for await (var entry of window.directoryHandle.values()) { if (entry.kind === 'directory' && entry.name === folderName) { targetFolder = entry; break; } }
-      if (targetFolder) { for await (var fileHandle of targetFolder.values()) { if (fileHandle.kind === 'file' && fileHandle.name.endsWith('.json')) { try { var file = await fileHandle.getFile(); files[fileHandle.name] = file.lastModified || 0; } catch(e) {} } } }
-    } catch(e) {}
-  }
-  return files;
-}
-
-window._manifestsEqual = function(a, b) {
-  var aKeys = Object.keys(a).sort();
-  var bKeys = Object.keys(b).sort();
-  if (aKeys.length !== bKeys.length) return false;
-  for (var mi = 0; mi < aKeys.length; mi++) {
-    if (aKeys[mi] !== bKeys[mi]) return false;
-    if (a[aKeys[mi]] !== b[aKeys[mi]]) return false;
-  }
-  return true;
-};
-
 async function getAuditActionsForReport(){
   var all = [];
   try {
-    var rawOpen = await readJsonFolderCached('Open');
-    var rawClosed = await readJsonFolderCached('Closed');
+    var rawOpen = await readJsonFolder('Open');
+    var rawClosed = await readJsonFolder('Closed');
     // Build lookup of closed actions by questionId
     var closedMap = {};
     rawClosed.forEach(function(f) {
       if (f.questionId) {
-        closedMap[f.questionId] = { closedOn: f.closedOn || '', howClosed: f.howClosed || '', extraComment: f.extraComment || '' };
+        closedMap[f.questionId] = {
+          closedOn: f.closedOn || '',
+          howClosed: f.howClosed || '',
+          extraComment: f.extraComment || ''
+        };
       } else if (f.actions) {
         f.actions.forEach(function(a) {
-          if (a.questionId) closedMap[a.questionId] = { closedOn: a.closedOn || '', howClosed: a.howClosed || '', extraComment: a.extraComment || '' };
+          if (a.questionId) closedMap[a.questionId] = {
+            closedOn: a.closedOn || '',
+            howClosed: a.howClosed || '',
+            extraComment: a.extraComment || ''
+          };
         });
       }
     });
@@ -190,18 +102,28 @@ async function getAuditActionsForReport(){
         var closed = closedMap[a.questionId];
         all.push({
           ActionID: storeName + '_' + a.questionId + '_' + (f.date || ''),
-          QuestionID: a.questionId || '', Store: storeName, StoreEmail: f.storeEmail || '',
-          Auditor: f.auditor || '', Manager: f.manager || '', AreaManager: f.areaManager || '',
-          AuditDate: f.date || '', Week: f.week || 0, Year: f.year || 0,
-          Sector: a.sector || '', Category: a.category || '',
-          Question: a.question || '', Answer: a.answer || '',
-          Description: a.description || '', PersonResponsible: a.personResponsible || '',
+          QuestionID: a.questionId || '',
+          Store: storeName,
+          StoreEmail: f.storeEmail || '',
+          Auditor: f.auditor || '',
+          Manager: f.manager || '',
+          AreaManager: f.areaManager || '',
+          AuditDate: f.date || '',
+          Week: f.week || 0,
+          Year: f.year || 0,
+          Sector: a.sector || '',
+          Category: a.category || '',
+          Question: a.question || '',
+          Answer: a.answer || '',
+          Description: a.description || '',
+          PersonResponsible: a.personResponsible || '',
           ActionNeeded: a.actionNeeded || '',
           Status: closed ? 'Closed' : a.status || 'Open',
           ClosedOn: closed ? (closed.closedOn || '') : (a.closedOn || ''),
           HowClosed: closed ? (closed.howClosed || '') : (a.howClosed || ''),
           ExtraComment: closed ? (closed.extraComment || '') : (a.extraComment || ''),
-          Critical: a.critical || 'No', DaysToClose: null
+          Critical: a.critical || 'No',
+          DaysToClose: null
         });
       });
     });
@@ -311,7 +233,7 @@ function breakdownHtml(title, rows, clickType){
 }
 function tooltipTitle(a){ return escapeHtml(`Question: ${a.Question} Closed comment: ${a.HowClosed || '—'} Extra comment: ${a.ExtraComment || '—'}`); }
 async function renderAuditActionHub(){
-  // Read Open/ and Closed/ JSON files via IndexedDB cache
+  // Read Open/ and Closed/ JSON files directly — two folders are the source of truth
   document.getElementById('mainView').innerHTML = '<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">Loading actions from Open/ and Closed/ folders...</p></div>';
   __auditHubCache = await getAuditActionsForReport();
   if(!__auditHubCache.length){ document.getElementById('mainView').innerHTML = `<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">No audit actions found. Check that your data folder has <b>Open/</b> and <b>Closed/</b> subfolders with JSON action files.</p></div>`; return; }
