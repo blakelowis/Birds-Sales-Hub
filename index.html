@@ -133,10 +133,10 @@
   <script src="papaparse.min.js?v=100"></script>
   <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
   <script src="js/auth.js?v=164"></script>
-  <script src="js/graph.js?v=163"></script>
+  <script src="js/graph.js?v=164"></script>
   <script src="js/db.js?v=164"></script>
   <script src="js/utils.js?v=128"></script>
-  <script src="js/data.js?v=167"></script>
+  <script src="js/data.js?v=168"></script>
   <script src="js/charts.js?v=116"></script>
   <script src="js/scorecards.js?v=116"></script>
   <script src="js/reports.js?v=121"></script>
@@ -145,10 +145,10 @@
   <script src="js/users.js?v=160"></script>
   <script src="js/projects.js?v=151"></script>
   <script src="js/template-builder.js?v=132"></script>
-  <script src="js/audits.js?v=166"></script>
+  <script src="js/audits.js?v=167"></script>
   <script src="js/tracker_defaults.js?v=116"></script>
   <script src="js/tracker.js?v=116"></script>
-  <script src="js/awards.js?v=116"></script>
+  <script src="js/awards.js?v=117"></script>
   <script src="js/audit-perform.js?v=1873"></script>
   <script src="js/overview.js?v=117"></script>
   <script src="js/app.js?v=171"></script>
@@ -291,7 +291,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=154').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=155').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
