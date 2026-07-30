@@ -186,9 +186,12 @@ window.BirdsAuth = (function() {
             }).then(function(drivesResp) {
                 var drives = drivesResp.value || [];
                 var targetDrive = drives.find(function(d) {
-                    return d.name === CONFIG.drivePath || d.name === 'Shared Documents';
+                    return d.name === CONFIG.drivePath || d.name === 'Shared Documents' || d.name === 'Documents';
                 });
-                if (!targetDrive) throw new Error('Drive "' + CONFIG.drivePath + '" not found');
+                if (!targetDrive) {
+                    console.warn('[Auth] Drives found:', drives.map(function(d) { return d.name; }));
+                    throw new Error('Drive not found — tried "' + CONFIG.drivePath + '", "Shared Documents", "Documents"');
+                }
                 _driveId = targetDrive.id;
                 console.log('[Auth] Drive resolved:', _driveId);
             });
