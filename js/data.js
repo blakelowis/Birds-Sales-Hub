@@ -10,47 +10,102 @@ window.syncData = async function() {
     document.getElementById('ingestStatus').innerText = "Reading files from SharePoint...";
     try {
       var items = await GraphClient.listFolder('');
+      var csvFiles = [];
+      var xlsxNames = [];
       var localFiles = [];
       var trackerJsonText = null;
       var masterJsonText = null;
+      var master = null;
+
+      // First pass: collect metadata, download tracker_data.json and kpi_master.json
       for (var item of items) {
         if (item.isFolder) continue;
         var name = item.name;
-        if (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.csv')) {
-          document.getElementById('ingestStatus').innerText = "Downloading " + name + "...";
-          var buffer = await GraphClient.readFileBinary(name);
-          if (buffer) {
-            var blob = new Blob([buffer], { type: name.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' });
-            blob.name = name;
-            localFiles.push(blob);
-          }
-        }
         if (name === 'tracker_data.json') {
           trackerJsonText = await GraphClient.readFile(name);
-        }
-        if (name === 'kpi_master.json') {
+        } else if (name === 'kpi_master.json') {
           masterJsonText = await GraphClient.readFile(name);
+          if (masterJsonText) { try { master = JSON.parse(masterJsonText); } catch(e) {} }
+        } else if (name.toLowerCase().endsWith('.xlsx')) {
+          xlsxNames.push(name);
+        } else if (name.toLowerCase().endsWith('.csv')) {
+          csvFiles.push(name);
         }
       }
+
+      // Check if master JSON has all XLSX files already processed
+      var allXlsxInMaster = false;
+      var needsMasterResave = false;
+      if (master && master.files && master.files.length > 0) {
+        var masterFileSet = {};
+        for (var fi = 0; fi < master.files.length; fi++) { masterFileSet[master.files[fi].toLowerCase()] = true; }
+        allXlsxInMaster = xlsxNames.every(function(n) { return masterFileSet[n.toLowerCase()]; });
+      } else if (master && master.fileCount > 0 && master.records && master.records.length > 0 && xlsxNames.length > 0) {
+        // Old-format master (no files array) — treat all current XLSX as covered
+        master.files = xlsxNames.slice();
+        needsMasterResave = true;
+        allXlsxInMaster = true;
+        console.log('[Sync] Migrated master: added', master.files.length, 'filenames to files array');
+      }
+
+      if (allXlsxInMaster && master.records && master.records.length > 0) {
+        // Fast path: load KPI from master JSON (1 file instead of 29 XLSX)
+        document.getElementById('ingestStatus').innerText = "Loading " + master.records.length + " records from master...";
+        for (var mi = 0; mi < master.records.length; mi++) {
+          await idbPut('kpi', master.records[mi]);
+        }
+        window.__dataStatus.filesFound = master.records.length;
+        window.__dataStatus.syncOk = true;
+        window.__dataStatus.ts = Date.now();
+        window.__dataStatus.source = 'MasterJSON';
+        // Still download CSV files (complaints, EHO)
+        for (var ci = 0; ci < csvFiles.length; ci++) {
+          document.getElementById('ingestStatus').innerText = "Downloading " + csvFiles[ci] + "...";
+          var csvBuffer = await GraphClient.readFileBinary(csvFiles[ci]);
+          if (csvBuffer) {
+            var csvBlob = new Blob([csvBuffer], { type: 'text/csv' });
+            csvBlob.name = csvFiles[ci];
+            localFiles.push(csvBlob);
+          }
+        }
+        if (localFiles.length > 0) {
+          var origFiles = localFiles.slice();
+          await processFiles(origFiles, 'SharePoint');
+        }
+        // Re-save master with migrated files array if needed
+        if (needsMasterResave) {
+          document.getElementById('ingestStatus').innerText = "Saving master with file list...";
+          master.version = (master.version || 1) + 1;
+          master.generated = new Date().toISOString();
+          var updatedText = JSON.stringify({ version: master.version, generated: master.generated, fileCount: master.files.length, files: master.files, records: master.records }, null, 2);
+          try { await GraphClient.writeFile('kpi_master.json', updatedText, ''); } catch(e) { console.warn('[Sync] Master resave failed:', e.message); }
+        }
+        document.getElementById('ingestStatus').innerText = "Loaded from master: " + master.records.length + " records.";
+        return;
+      }
+
+      // Slow path: download XLSX and CSV files
+      for (var ni = 0; ni < xlsxNames.length; ni++) {
+        document.getElementById('ingestStatus').innerText = "Downloading " + xlsxNames[ni] + "...";
+        var buffer = await GraphClient.readFileBinary(xlsxNames[ni]);
+        if (buffer) {
+          var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          blob.name = xlsxNames[ni];
+          localFiles.push(blob);
+        }
+      }
+      for (var ci2 = 0; ci2 < csvFiles.length; ci2++) {
+        document.getElementById('ingestStatus').innerText = "Downloading " + csvFiles[ci2] + "...";
+        var csvBuffer2 = await GraphClient.readFileBinary(csvFiles[ci2]);
+        if (csvBuffer2) {
+          var csvBlob2 = new Blob([csvBuffer2], { type: 'text/csv' });
+          csvBlob2.name = csvFiles[ci2];
+          localFiles.push(csvBlob2);
+        }
+      }
+
       window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
       if (localFiles.length === 0 && !trackerJsonText) {
-        // If no XLSX/CSV files exist, try loading from kpi_master.json
-        if (masterJsonText) {
-          try {
-            var master = JSON.parse(masterJsonText);
-            if (master.records && master.records.length > 0) {
-              document.getElementById('ingestStatus').innerText = "Loading " + master.records.length + " records from master...";
-              for (var mi = 0; mi < master.records.length; mi++) {
-                await idbPut('kpi', master.records[mi]);
-              }
-              window.__dataStatus.syncOk = true;
-              window.__dataStatus.ts = Date.now();
-              window.__dataStatus.source = 'MasterJSON';
-              document.getElementById('ingestStatus').innerText = "Loaded from master: " + master.records.length + " records.";
-              return;
-            }
-          } catch(mErr) { console.warn('[Sync] Failed to parse kpi_master.json:', mErr); }
-        }
         document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in SharePoint.";
         window.__dataStatus.syncOk = false;
         return;
@@ -95,8 +150,9 @@ window.syncData = async function() {
 // ===== SHAREPOINT AUTO-SYNC =====
 // Processes raw XLSX ArrayBuffers through the same pipeline as local folder sync.
 async function processFiles(cachedFiles, sourceLabel) {
+  var hasXlsx = cachedFiles.some(function(f) { return f.name && f.name.toLowerCase().endsWith('.xlsx'); });
   // Clear kpi before re-import to prevent stale data from removed/renamed files
-  try { await idbClear('kpi'); } catch(e) { console.warn('[processFiles] kpi clear failed:', e); }
+  if (hasXlsx) { try { await idbClear('kpi'); } catch(e) { console.warn('[processFiles] kpi clear failed:', e); } }
   const weeksTouched = new Set(); const yearsTouched = new Set(); const seenWeeksByYear = {};
   var weeklyCount = 0; var scorecardCount = 0;
   let filesProcessed = 0;

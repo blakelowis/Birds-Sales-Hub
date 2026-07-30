@@ -1163,6 +1163,18 @@ async function writeAuditActionsToXlsx(state) {
     saved.push({ fileName: fileName, payload: payload, savedAt: new Date().toISOString() });
     localStorage.setItem('audit_actions', JSON.stringify(saved));
     console.log('[Audit Actions] Saved locally — ' + fileName);
+
+    // Write to SharePoint Open/ folder
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+      try {
+        var written = await GraphClient.writeFile('Open/' + fileName, jsonStr);
+        if (written) {
+          console.log('[Audit Actions] Written to SharePoint Open/ — ' + fileName);
+          return { method: 'folder', count: payload.actions.length };
+        }
+      } catch(e) { console.warn('[Audit Actions] SharePoint write failed:', e.message); }
+    }
+
     return { method: 'local', count: payload.actions.length };
   } catch (e) {
     console.error('[Audit Actions] Save FAILED:', e.message);
