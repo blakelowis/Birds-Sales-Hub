@@ -12,6 +12,7 @@ window.syncData = async function() {
       var items = await GraphClient.listFolder('');
       var localFiles = [];
       var trackerJsonText = null;
+      var masterJsonText = null;
       for (var item of items) {
         if (item.isFolder) continue;
         var name = item.name;
@@ -27,9 +28,29 @@ window.syncData = async function() {
         if (name === 'tracker_data.json') {
           trackerJsonText = await GraphClient.readFile(name);
         }
+        if (name === 'kpi_master.json') {
+          masterJsonText = await GraphClient.readFile(name);
+        }
       }
       window.__dataStatus.filesFound = localFiles.length + (trackerJsonText ? 1 : 0);
       if (localFiles.length === 0 && !trackerJsonText) {
+        // If no XLSX/CSV files exist, try loading from kpi_master.json
+        if (masterJsonText) {
+          try {
+            var master = JSON.parse(masterJsonText);
+            if (master.records && master.records.length > 0) {
+              document.getElementById('ingestStatus').innerText = "Loading " + master.records.length + " records from master...";
+              for (var mi = 0; mi < master.records.length; mi++) {
+                await idbPut('kpi', master.records[mi]);
+              }
+              window.__dataStatus.syncOk = true;
+              window.__dataStatus.ts = Date.now();
+              window.__dataStatus.source = 'MasterJSON';
+              document.getElementById('ingestStatus').innerText = "Loaded from master: " + master.records.length + " records.";
+              return;
+            }
+          } catch(mErr) { console.warn('[Sync] Failed to parse kpi_master.json:', mErr); }
+        }
         document.getElementById('ingestStatus').innerText = "No .xlsx, .csv, or tracker_data.json found in SharePoint.";
         window.__dataStatus.syncOk = false;
         return;
@@ -52,7 +73,11 @@ window.syncData = async function() {
           }
         } catch (tErr) { console.warn('[Sync] Failed to parse tracker_data.json:', tErr); }
       }
-      if (localFiles.length > 0) await processFiles(localFiles, 'SharePoint');
+      if (localFiles.length > 0) {
+        await processFiles(localFiles, 'SharePoint');
+        // Auto-ingest: merge new XLSX files into kpi_master.json and delete originals
+        try { await autoIngest(items); } catch(ingestErr) { console.warn('[Sync] Auto-ingest failed:', ingestErr.message); }
+      }
       window.__dataStatus.syncOk = true;
       window.__dataStatus.ts = Date.now();
       window.__dataStatus.source = 'SharePoint';
@@ -415,5 +440,236 @@ async function processFiles(cachedFiles, sourceLabel) {
   await idbPut('settings', { id: 'lastSynced', timestamp: Date.now() });
   renderDashboard();
   checkDataFreshness();
+}
+
+// ===== AUTO-INGEST NEW XLSX FILES INTO MASTER JSON =====
+// Detects XLSX files in SharePoint not yet in kpi_master.json, parses them,
+// merges into the master, uploads updated master, and deletes originals.
+async function autoIngest(items) {
+  if (typeof GraphClient === 'undefined' || typeof BirdsAuth === 'undefined' || !BirdsAuth.isLoggedIn()) return;
+
+  var statusEl = document.getElementById('ingestStatus');
+  var xlsxFiles = items.filter(function(item) {
+    return !item.isFolder && item.name.toLowerCase().endsWith('.xlsx') && item.name.toLowerCase().includes('weekly');
+  });
+  if (xlsxFiles.length === 0) return;
+
+  // Load current master JSON
+  var master = null;
+  var masterEtag = '';
+  try {
+    var result = await GraphClient.readFileWithEtag('kpi_master.json');
+    if (result) {
+      master = JSON.parse(result.text);
+      masterEtag = result.etag;
+    }
+  } catch(e) { /* will create new */ }
+  if (!master || !master.records) {
+    master = { version: 2, files: [], records: [] };
+  }
+  if (!master.files) master.files = [];
+  var needsResave = false;
+  // Migration: if master built by old code (has fileCount but no files list),
+  // mark all current XLSX files as already processed to avoid re-downloading them.
+  if (master.files.length === 0 && master.fileCount > 0 && xlsxFiles.length > 0) {
+    master.files = xlsxFiles.map(function(f) { return f.name; });
+    needsResave = true;
+    console.log('[Ingest] Migrated master: added', master.files.length, 'filenames to files array');
+  }
+  var processedFiles = {};
+  for (var fi = 0; fi < master.files.length; fi++) {
+    processedFiles[master.files[fi].toLowerCase()] = true;
+  }
+
+  // Handle orphan .processing files before checking for new files
+  var orphans = items.filter(function(item) {
+    return !item.isFolder && item.name.toLowerCase().endsWith('.processing');
+  });
+  for (var oi = 0; oi < orphans.length; oi++) {
+    var orphanName = orphans[oi].name;
+    var oOrig = orphanName.slice(0, -'.processing'.length);
+    if (processedFiles[oOrig.toLowerCase()]) {
+      statusEl.innerText = 'Cleaning up orphan: ' + orphanName;
+      try { await GraphClient.deleteFile(orphanName); } catch(e) {}
+    } else {
+      statusEl.innerText = 'Recovering orphan: ' + orphanName;
+      try { await GraphClient.renameFile(orphanName, oOrig); } catch(e) {}
+    }
+  }
+
+  // Find new files not yet in master
+  var newFiles = xlsxFiles.filter(function(item) {
+    return !processedFiles[item.name.toLowerCase()];
+  });
+  if (newFiles.length === 0) {
+    // No new files, but may need to re-save master with migrated files array
+    if (needsResave) {
+      master.version = (master.version || 1) + 1;
+      master.generated = new Date().toISOString();
+      var updatedText = JSON.stringify({ version: master.version, generated: master.generated, fileCount: master.files.length, files: master.files, records: master.records }, null, 2);
+      try { await GraphClient.writeFile('kpi_master.json', updatedText, masterEtag); } catch(e) { console.warn('[Ingest] Resave failed:', e.message); }
+    }
+    return;
+  }
+
+  statusEl.innerText = 'Ingesting ' + newFiles.length + ' new XLSX file(s)...';
+
+  // Build records map from existing master records
+  var recordsMap = {};
+  for (var ri = 0; ri < master.records.length; ri++) {
+    var rec = master.records[ri];
+    recordsMap[rec.BranchId + '_' + rec.Year + '_' + rec.Week] = rec;
+  }
+
+  var ingested = 0;
+  var errors = [];
+
+  for (var ni = 0; ni < newFiles.length; ni++) {
+    var fileItem = newFiles[ni];
+    var fileName = fileItem.name;
+    var lockName = fileName + '.processing';
+
+    statusEl.innerText = '[' + (ni + 1) + '/' + newFiles.length + '] Locking ' + fileName + '...';
+    var renamed = await GraphClient.renameFile(fileName, lockName);
+    if (!renamed) {
+      errors.push(fileName + ': lock failed (rename)');
+      continue;
+    }
+
+    statusEl.innerText = '[' + (ni + 1) + '/' + newFiles.length + '] Downloading ' + fileName + '...';
+    var buffer;
+    try {
+      buffer = await GraphClient.readFileBinary(lockName);
+    } catch(e) {
+      errors.push(fileName + ': download failed');
+      await GraphClient.renameFile(lockName, fileName);
+      continue;
+    }
+    if (!buffer) {
+      errors.push(fileName + ': download null');
+      await GraphClient.renameFile(lockName, fileName);
+      continue;
+    }
+
+    statusEl.innerText = '[' + (ni + 1) + '/' + newFiles.length + '] Parsing ' + fileName + '...';
+    try {
+      var wb = XLSX.read(buffer, { type: 'array' });
+      var resolved = resolveWeekYear(fileName, wb);
+      var fileWk = resolved.week || 0;
+      var fileYr = resolved.year || new Date().getFullYear();
+
+      async function parseSheetRows(sheetRows, wkNum, yrNum) {
+        var cols = findCols(sheetRows);
+        if (!cols) return 0;
+        var count = 0;
+        for (var ri2 = cols.hr + 1; ri2 < sheetRows.length; ri2++) {
+          var r = sheetRows[ri2];
+          if (!r || !r[cols.idxB] || String(r[cols.idxB]).toLowerCase().includes('total')) continue;
+          var rawBranch = cleanStoreName(r[cols.idxB]);
+          var branchId = canonicalStoreId(rawBranch);
+          var key = branchId + '_' + yrNum + '_' + wkNum;
+          if (!recordsMap[key]) {
+            recordsMap[key] = {
+              BranchId: branchId, Branch: rawBranch, Week: wkNum, Year: yrNum,
+              AM: resolveStoreAM(r, branchId),
+              Sales: cols.idxS >= 0 ? parseVal(r[cols.idxS]) : 0,
+              SalesActual: (cols.idxSA !== undefined && cols.idxSA >= 0) ? parseVal(r[cols.idxSA]) : 0,
+              Product: cols.idxP >= 0 ? parseVal(r[cols.idxP]) : 0,
+              Waste: cols.idxW >= 0 ? parseVal(r[cols.idxW]) : 0,
+              Labour: cols.idxL >= 0 ? parseVal(r[cols.idxL]) : 0,
+              ATV: cols.idxA >= 0 ? parseVal(r[cols.idxA]) : 0,
+              Energy: cols.idxE >= 0 ? parseVal(r[cols.idxE]) : 0,
+              FilledRolls: cols.idxFR >= 0 ? parseVal(r[cols.idxFR]) : 0,
+              Sandwiches: cols.idxSW >= 0 ? parseVal(r[cols.idxSW]) : 0,
+              HotRolls: cols.idxHR >= 0 ? parseVal(r[cols.idxHR]) : 0,
+              HotBev: cols.idxHB >= 0 ? parseVal(r[cols.idxHB]) : 0,
+              IsAnomaly: false
+            };
+            count++;
+          }
+        }
+        return count;
+      }
+
+      for (var si = 0; si < wb.SheetNames.length; si++) {
+        var sName = wb.SheetNames[si];
+        var wkMatch = sName.match(/^W\s*(\d{1,2})\s+\d{2,4}$/i) || sName.match(/^Wk\s*(\d{1,2})$/i);
+        if (wkMatch) {
+          var sheetWeek = parseInt(wkMatch[1], 10);
+          if (sheetWeek >= 1 && sheetWeek <= 53) {
+            var sheetRows = XLSX.utils.sheet_to_json(wb.Sheets[sName], { header: 1 });
+            await parseSheetRows(sheetRows, sheetWeek, fileYr);
+          }
+        }
+      }
+
+      if (fileWk) {
+        var weeklySheet = null, reportSheetName = null;
+        var exactNames = ['Report 1 (Detailed)', 'Reprt 1 (Detailed)', 'report 1 (Detailed)', 'Report 1 (Detailsd)'];
+        for (var ni2 = 0; ni2 < wb.SheetNames.length; ni2++) {
+          var nm = wb.SheetNames[ni2];
+          if (exactNames.indexOf(nm) !== -1 && nm.indexOf('(Template)') === -1) {
+            weeklySheet = wb.Sheets[nm]; reportSheetName = nm; break;
+          }
+        }
+        if (!weeklySheet) {
+          for (var fi2 = 0; fi2 < wb.SheetNames.length; fi2++) {
+            var lower = wb.SheetNames[fi2].toLowerCase().replace(/\s+/g, '');
+            if ((lower.indexOf('detailed') !== -1 || lower.indexOf('detailsd') !== -1 || lower.indexOf('detaild') !== -1) && lower.indexOf('template') === -1) {
+              weeklySheet = wb.Sheets[wb.SheetNames[fi2]]; reportSheetName = wb.SheetNames[fi2]; break;
+            }
+          }
+        }
+        if (!weeklySheet) {
+          for (var ai = 0; ai < wb.SheetNames.length; ai++) {
+            var lc = wb.SheetNames[ai].toLowerCase().replace(/\s+/g, '');
+            if ((lc.indexOf('report') !== -1 || lc.indexOf('reprt') !== -1) && (lc.indexOf('detailed') !== -1 || lc.indexOf('detailsd') !== -1)) {
+              weeklySheet = wb.Sheets[wb.SheetNames[ai]]; reportSheetName = wb.SheetNames[ai]; break;
+            }
+          }
+        }
+        if (!weeklySheet && wb.SheetNames.length > 0) {
+          weeklySheet = wb.Sheets[wb.SheetNames[0]]; reportSheetName = wb.SheetNames[0];
+        }
+        var alreadyParsed = reportSheetName && reportSheetName.match(/^W\s*\d{1,2}\s+\d{2,4}$/i);
+        if (weeklySheet && !alreadyParsed) {
+          var rows = XLSX.utils.sheet_to_json(weeklySheet, { header: 1 });
+          await parseSheetRows(rows, fileWk, fileYr);
+        }
+      }
+
+      master.files.push(fileName);
+    } catch(err) {
+      errors.push(fileName + ': parse error (' + err.message + ')');
+      await GraphClient.renameFile(lockName, fileName);
+      continue;
+    }
+
+    statusEl.innerText = '[' + (ni + 1) + '/' + newFiles.length + '] Cleaning up ' + fileName + '...';
+    try { await GraphClient.deleteFile(lockName); } catch(e) { errors.push(fileName + ': delete failed'); }
+    ingested++;
+  }
+
+  if (ingested > 0) {
+    master.version = (master.version || 1) + 1;
+    master.generated = new Date().toISOString();
+    master.records = Object.keys(recordsMap).map(function(k) { return recordsMap[k]; });
+    var masterJsonText = JSON.stringify({ version: master.version, generated: master.generated, fileCount: master.files.length, files: master.files, records: master.records }, null, 2);
+    statusEl.innerText = 'Uploading master (' + master.records.length + ' records)...';
+    try {
+      var ok = await GraphClient.writeFile('kpi_master.json', masterJsonText, masterEtag);
+      if (ok) {
+        if (errors.length === 0) statusEl.innerText = 'Ingested ' + ingested + ' file(s) successfully.';
+        else statusEl.innerText = 'Ingested ' + ingested + ' file(s) with ' + errors.length + ' error(s).';
+      } else {
+        statusEl.innerText = 'Master upload conflict — ' + ingested + ' files processed but master not saved (concurrent edit).';
+        errors.push('Master JSON upload rejected (412 conflict)');
+      }
+    } catch(e) {
+      statusEl.innerText = 'Master upload error: ' + e.message;
+      errors.push('Master upload: ' + e.message);
+    }
+  }
+  if (errors.length > 0) console.warn('[Ingest] Errors:', errors.join('; '));
 }
 

@@ -60,27 +60,77 @@ window.GraphClient = (function() {
         });
     }
 
-    /* ─── Write text content to a file ─────────────────────────── */
-    function writeFile(relativePath, text) {
+    /* ─── Write text content to a file (with optional eTag for conditional write) ─ */
+    function writeFile(relativePath, text, etag) {
         var path = _itemPath(relativePath) + ':/content';
         return BirdsAuth.getAccessToken().then(function(token) {
+            var headers = {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'text/plain'
+            };
+            if (etag) { headers['If-Match'] = etag; }
             return fetch('https://graph.microsoft.com/v1.0' + path, {
                 method: 'PUT',
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'text/plain'
-                },
+                headers: headers,
                 body: text
             });
         }).then(function(resp) {
+            if (resp.status === 412) { console.warn('[Graph] Write conflict (412) — file modified by another user'); return false; }
             if (!resp.ok) throw new Error('File write failed: ' + resp.status);
             /* Invalidate cache */
             delete _fileCache[relativePath];
-            delete _folderChildrenCache[relativePath.substring(0, relativePath.lastIndexOf('/'))];
+            var parentFolder = relativePath.lastIndexOf('/') >= 0 ? relativePath.substring(0, relativePath.lastIndexOf('/')) : '';
+            delete _folderChildrenCache[parentFolder];
             return true;
         }).catch(function(e) {
             console.warn('[Graph] Write failed:', relativePath, e.message);
             return false;
+        });
+    }
+
+    /* ─── Rename a file (atomic lock mechanism) ────────────────── */
+    function renameFile(oldName, newName) {
+        var path = _itemPath(oldName);
+        return BirdsAuth.getAccessToken().then(function(token) {
+            return fetch('https://graph.microsoft.com/v1.0' + path, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: newName,
+                    '@microsoft.graph.conflictBehavior': 'replace'
+                })
+            });
+        }).then(function(resp) {
+            if (!resp.ok) throw new Error('Rename failed: ' + resp.status);
+            delete _fileCache[oldName];
+            delete _fileCache[newName];
+            delete _folderChildrenCache[''];
+            return resp.json();
+        }).catch(function(e) {
+            console.warn('[Graph] Rename failed:', oldName, '->', newName, e.message);
+            return null;
+        });
+    }
+
+    /* ─── Read file + eTag (for conditional write) ─────────────── */
+    function readFileWithEtag(relativePath) {
+        var path = _itemPath(relativePath) + ':/content';
+        return BirdsAuth.getAccessToken().then(function(token) {
+            return fetch('https://graph.microsoft.com/v1.0' + path, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+        }).then(function(resp) {
+            if (resp.status === 404) return null;
+            if (!resp.ok) throw new Error('File read failed: ' + resp.status);
+            return resp.text().then(function(text) {
+                return { text: text, etag: resp.headers.get('ETag') || '' };
+            });
+        }).catch(function(e) {
+            console.warn('[Graph] Read w/etag failed:', relativePath, e.message);
+            return null;
         });
     }
 
@@ -89,6 +139,7 @@ window.GraphClient = (function() {
         var path = _itemPath(relativePath);
         return BirdsAuth._graphDelete(path).then(function() {
             delete _fileCache[relativePath];
+            delete _folderChildrenCache[''];
             return true;
         }).catch(function(e) {
             console.warn('[Graph] Delete failed:', relativePath, e.message);
@@ -222,7 +273,9 @@ window.GraphClient = (function() {
     return {
         readFile: readFile,
         readFileBinary: readFileBinary,
+        readFileWithEtag: readFileWithEtag,
         writeFile: writeFile,
+        renameFile: renameFile,
         deleteFile: deleteFile,
         listFolder: listFolder,
         listJsonFiles: listJsonFiles,
