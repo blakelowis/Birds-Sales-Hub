@@ -19,7 +19,7 @@ indexedDB.databases && indexedDB.databases().then(function(dbs) {
   });
 }).catch(function() {});
 
-const req = indexedDB.open('BirdsExecutiveHub_v41', 1);
+const req = indexedDB.open('BirdsExecutiveHub_v41', 2);
 req.onupgradeneeded = e => {
   const d = e.target.result;
   if(!d.objectStoreNames.contains('kpi')) d.createObjectStore('kpi', { keyPath: ['BranchId','Year','Week'] });
@@ -48,6 +48,7 @@ req.onupgradeneeded = e => {
   if(!d.objectStoreNames.contains('rota_week')) d.createObjectStore('rota_week', { keyPath: 'id' });
   if(!d.objectStoreNames.contains('rota_leave')) d.createObjectStore('rota_leave', { keyPath: 'id' });
   if(!d.objectStoreNames.contains('shared_views')) d.createObjectStore('shared_views', { keyPath: 'id' });
+  if(!d.objectStoreNames.contains('it_tickets')) d.createObjectStore('it_tickets', { keyPath: 'id' });
 };
 req.onerror = e => {
   console.error('[DB] Failed to open:', e.target.error);

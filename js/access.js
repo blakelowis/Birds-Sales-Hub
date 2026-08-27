@@ -20,7 +20,8 @@ window.Access = (function() {
         'scorecards':       ['hq', 'admin'],
         'charts':           ['hq', 'admin'],
         'auditexport':      ['hq', 'admin'],
-        'masterreview':     ['hq', 'admin']
+        'masterreview':     ['hq', 'admin'],
+        'ith-dashboard':    ['hq', 'admin']
     };
 
     /* ─── Tab → minimum role mapping ───────────────────────────── */
@@ -221,6 +222,61 @@ window.Access = (function() {
         showToast('Shared with ' + names.length + ' person' + (names.length > 1 ? 's' : ''), 'success');
     }
 
+    /* ─── Test View / Impersonation ──────────────────────────────── */
+    var _impersonated = null;
+
+    function startImpersonation(userObj) {
+        if (!userObj || !userObj.id) return;
+        _impersonated = userObj;
+        var banner = document.getElementById('impersonateBanner');
+        var detail = document.getElementById('impersonateBannerDetail');
+        if (banner) { banner.style.display = 'flex'; }
+        if (detail) { detail.textContent = 'Viewing as: ' + userObj.name + ' (' + (userObj.department || user.role || '') + ')'; }
+        applyNavPermissions();
+    }
+
+    function stopImpersonation() {
+        _impersonated = null;
+        var banner = document.getElementById('impersonateBanner');
+        if (banner) { banner.style.display = 'none'; }
+        applyNavPermissions();
+    }
+
+    function getImpersonated() { return _impersonated; }
+
+    function renderTestViewSwitcher() {
+        if (typeof Users === 'undefined') return '';
+        var current = Users.getCurrentUser();
+        if (!current || current.role !== 'admin') return '';
+
+        var users = typeof usersData !== 'undefined' ? usersData : [];
+        if (!users.length && typeof Users.getUsersList === 'function') users = Users.getUsersList();
+
+        var html = '<div class="card p-6" style="border-top:3px solid #7C3AED;">'
+            + '<h3 class="text-lg font-black text-slate-800 mb-2">Test View / Impersonation</h3>'
+            + '<p class="text-sm text-slate-400 mb-4">Switch to see the app as another user. Your admin access is preserved.</p>';
+
+        if (_impersonated) {
+            html += '<div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:8px;padding:12px;margin-bottom:12px;">'
+                + '<p class="text-sm font-bold text-purple-800">Currently viewing as: ' + _esc(_impersonated.name) + '</p>'
+                + '<button onclick="Access.stopImpersonation(); setView(\'adminusers\');" style="margin-top:8px;background:#7C3AED;color:#fff;padding:6px 14px;border-radius:6px;border:none;font-size:12px;font-weight:700;cursor:pointer;">Back to Admin</button></div>';
+        }
+
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;">';
+
+        users.forEach(function(u) {
+            if (u.id === current.id) return;
+            html += '<div class="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg hover:border-purple-300 transition-colors">'
+                + '<div><p class="text-sm font-bold text-slate-700">' + _esc(u.name) + '</p>'
+                + '<p class="text-[10px] text-slate-400">' + _esc(u.department || '') + '</p></div>'
+                + '<button onclick="Access.startImpersonation(' + _esc(JSON.stringify(u).replace(/"/g, '&quot;')) + '); setView(\'overview\');" style="background:#7C3AED;color:#fff;padding:4px 10px;border-radius:5px;border:none;font-size:10px;font-weight:700;cursor:pointer;">View as</button>'
+                + '</div>';
+        });
+
+        html += '</div></div>';
+        return html;
+    }
+
     /* ─── Public API ────────────────────────────────────────────── */
     return {
         canView: canView,
@@ -236,6 +292,10 @@ window.Access = (function() {
         showShareModal: showShareModal,
         closeShareModal: closeShareModal,
         doShare: doShare,
+        startImpersonation: startImpersonation,
+        stopImpersonation: stopImpersonation,
+        getImpersonated: getImpersonated,
+        renderTestViewSwitcher: renderTestViewSwitcher,
         VIEW_ROLES: VIEW_ROLES,
         TAB_ROLES: TAB_ROLES
     };

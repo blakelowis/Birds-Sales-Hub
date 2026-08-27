@@ -251,7 +251,10 @@ window.Users = (function() {
     }
 
     function getCurrentUser() { return _currentUser; }
-    function getEffectiveUser() { return _currentUser || _getStored(); }
+    function getEffectiveUser() {
+        if (typeof Access !== 'undefined' && Access.getImpersonated && Access.getImpersonated()) return Access.getImpersonated();
+        return _currentUser || _getStored();
+    }
     function canSeeTab(tabId) { return true; }
     function canSeeView(viewId) { return true; }
 
@@ -259,7 +262,7 @@ window.Users = (function() {
     /* Roles: 'shop' | 'area_manager' | 'hq' | 'admin'               */
     /* If no role set, infer from shopStoreId (shop) or default to hq  */
     function getRole(user) {
-        user = user || _currentUser;
+        user = user || getEffectiveUser();
         if (!user) return 'hq';
         if (user.role === 'admin') return 'admin';
         if (user.userRole) return user.userRole;
@@ -645,7 +648,13 @@ window.Users = (function() {
         document.getElementById('mainView').innerHTML = '<div style="max-width:1080px;margin:0 auto;padding:16px;"><h2 style="font-family:Merriweather,Georgia,serif;font-size:22px;color:#20231F;margin-bottom:16px;">User Admin</h2>' +
             (canEdit ? '<p style="font-size:12px;color:#6E8E6D;font-weight:700;margin-bottom:12px;">\u270E Edit role, job title, department and Project View, then Save. <b>Role</b> controls what each user can see and access.</p>' : '') +
             '<div style="background:#fff;border:1px solid #d5ddd0;border-radius:12px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:960px;"><thead><tr style="background:#f8f7f4;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;"><th style="padding:10px 12px;text-align:left;">Name</th><th style="padding:10px 12px;text-align:left;">Email</th><th style="padding:10px 12px;text-align:left;">Department</th><th style="padding:10px 12px;text-align:left;">Job Title</th><th style="padding:10px 12px;text-align:left;">Project View</th><th style="padding:10px 12px;text-align:left;">Role</th><th style="padding:10px 12px;text-align:left;"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-            '<p style="font-size:11px;color:#888;margin-top:12px;">' + _users.length + ' users total &mdash; Roles: <b>Shop</b> = own store only, <b>Area Manager</b> = their area, <b>HQ</b> = all stores, <b>Admin</b> = full access</p></div>';
+            '<p style="font-size:11px;color:#888;margin-top:12px;">' + _users.length + ' users total &mdash; Roles: <b>Shop</b> = own store only, <b>Area Manager</b> = their area, <b>HQ</b> = all stores, <b>Admin</b> = full access</p>'
+            + '<div id="testViewSwitcher" style="margin-top:24px;"></div></div>';
+        /* Render test view switcher */
+        if (typeof Access !== 'undefined' && Access.renderTestViewSwitcher) {
+            var switcherEl = document.getElementById('testViewSwitcher');
+            if (switcherEl) switcherEl.innerHTML = Access.renderTestViewSwitcher();
+        }
     }
 
     /* ─── Expose public API ─────────────────────────────────────── */

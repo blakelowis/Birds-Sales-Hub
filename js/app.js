@@ -73,6 +73,11 @@ if(currentView === 'storecards')
   if(currentView === 'shop-complaint') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopComplaint() : null;
   if(currentView === 'shop-uniform') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopUniform() : null;
   if(currentView === 'shop-messages') return (typeof Messages !== 'undefined' && typeof ShopTools !== 'undefined') ? ShopTools.renderShopMessages() : null;
+  if(currentView === 'shop-ith-new') return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderStoreTicketForm() : null;
+  if(currentView === 'shop-ith-list') return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderStoreTicketList() : null;
+  if(currentView === 'shop-ith-detail') { var _ithId = (window._ithDetailId || ''); return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderStoreTicketDetail(_ithId) : null; }
+  if(currentView === 'ith-dashboard') return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderITDashboard() : null;
+  if(currentView === 'ith-detail') { var _ithId2 = (window._ithDetailId || ''); return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderITTicketDetail(_ithId2) : null; }
   if(currentView === 'kanban') return (typeof MyWorkKanban !== 'undefined') ? MyWorkKanban.render() : null;
   if(currentView === 'calendar') return (typeof MyWorkCalendar !== 'undefined') ? MyWorkCalendar.render() : null;
   if(currentView === 'rota') {
