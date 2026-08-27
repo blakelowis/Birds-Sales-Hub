@@ -231,8 +231,12 @@ window.Access = (function() {
         var banner = document.getElementById('impersonateBanner');
         var detail = document.getElementById('impersonateBannerDetail');
         if (banner) { banner.style.display = 'flex'; }
-        if (detail) { detail.textContent = 'Viewing as: ' + userObj.name + ' (' + (userObj.department || user.role || '') + ')'; }
+        if (detail) { detail.textContent = 'Viewing as: ' + userObj.name + ' (' + (userObj.department || userObj.userRole || '') + ')'; }
         applyNavPermissions();
+        /* Re-render current view as the impersonated user */
+        if (typeof setView === 'function' && typeof currentView !== 'undefined') {
+            setView(currentView);
+        }
     }
 
     function stopImpersonation() {
@@ -240,6 +244,25 @@ window.Access = (function() {
         var banner = document.getElementById('impersonateBanner');
         if (banner) { banner.style.display = 'none'; }
         applyNavPermissions();
+        if (typeof setView === 'function') setView('adminusers');
+    }
+
+    function _impersonateById(userId) {
+        try {
+            var users = typeof Users !== 'undefined' && Users.getAll ? Users.getAll() : [];
+            var data = users.find(function(u) { return u.id === userId; });
+            if (!data) { console.warn('[Access] User not found:', userId); return; }
+            startImpersonation(data);
+            /* Route to the appropriate view for this user's role */
+            var role = (typeof Users !== 'undefined' && Users.getRole) ? Users.getRole(data) : 'hq';
+            if (role === 'shop') {
+                setView('shop-home');
+            } else if (role === 'area_manager') {
+                setView('area');
+            } else {
+                setView('overview');
+            }
+        } catch(e) { console.warn('[Access] Impersonate failed:', e); }
     }
 
     function getImpersonated() { return _impersonated; }
@@ -249,8 +272,7 @@ window.Access = (function() {
         var current = Users.getCurrentUser();
         if (!current || current.role !== 'admin') return '';
 
-        var users = typeof usersData !== 'undefined' ? usersData : [];
-        if (!users.length && typeof Users.getUsersList === 'function') users = Users.getUsersList();
+        var users = typeof Users.getAll === 'function' ? Users.getAll() : [];
 
         var html = '<div class="card p-6" style="border-top:3px solid #7C3AED;">'
             + '<h3 class="text-lg font-black text-slate-800 mb-2">Test View / Impersonation</h3>'
@@ -269,7 +291,7 @@ window.Access = (function() {
             html += '<div class="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg hover:border-purple-300 transition-colors">'
                 + '<div><p class="text-sm font-bold text-slate-700">' + _esc(u.name) + '</p>'
                 + '<p class="text-[10px] text-slate-400">' + _esc(u.department || '') + '</p></div>'
-                + '<button onclick="Access.startImpersonation(' + _esc(JSON.stringify(u).replace(/"/g, '&quot;')) + '); setView(\'overview\');" style="background:#7C3AED;color:#fff;padding:4px 10px;border-radius:5px;border:none;font-size:10px;font-weight:700;cursor:pointer;">View as</button>'
+                + '<button onclick="Access._impersonateById(\'' + _esc(u.id) + '\')" style="background:#7C3AED;color:#fff;padding:4px 10px;border-radius:5px;border:none;font-size:10px;font-weight:700;cursor:pointer;">View as</button>'
                 + '</div>';
         });
 
@@ -295,6 +317,7 @@ window.Access = (function() {
         startImpersonation: startImpersonation,
         stopImpersonation: stopImpersonation,
         getImpersonated: getImpersonated,
+        _impersonateById: _impersonateById,
         renderTestViewSwitcher: renderTestViewSwitcher,
         VIEW_ROLES: VIEW_ROLES,
         TAB_ROLES: TAB_ROLES
