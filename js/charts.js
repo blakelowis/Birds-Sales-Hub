@@ -28,7 +28,7 @@ function calculateTrendSummary(storeSeries, companySeries, inverse=false){
 
 async function renderTrendsPanel() {
     const validAMs = Array.from(new Set(Array.from(storeMap.values()))).filter(am => am !== 'Unassigned');
-    const rawKpisAll = await idbGetAll('kpi'); const auditsAll = await idbGetAll('audits');
+    const rawKpisAll = await idbGetAll('kpi'); const auditsAll = (await idbGetAll('audits')).filter(a => !a.isTraining);
     const allYears = [...rawKpisAll.map(k => k.Year), ...auditsAll.map(a => a.Year)].filter(y => y); const effectiveYear = allYears.length ? Math.max(...allYears) : new Date().getFullYear();
     const yearKpis = rawKpisAll.filter(k => (k.Year || effectiveYear) === effectiveYear); const yearAudits = auditsAll.filter(a => (a.Year || effectiveYear) === effectiveYear);
     const allWeeks = new Set([...yearKpis.map(k => k.Week), ...yearAudits.map(a => a.Week)]);
@@ -101,7 +101,7 @@ async function renderTrendsPanel() {
 }
 
 window.drawTrendChart = async function(storeFilterTriggered = false, exportMode = false) {
-  const rawKpis = await idbGetAll('kpi'); const auditsAll = await idbGetAll('audits');
+  const rawKpis = await idbGetAll('kpi'); const auditsAll = (await idbGetAll('audits')).filter(a => !a.isTraining);
   const metric = document.getElementById('trendMetric')?.value || 'Sales'; 
   
   const storeFilterRaw = (document.getElementById('trendStoreFilter')?.value || '').trim(); 

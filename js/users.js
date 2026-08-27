@@ -14,6 +14,7 @@ window.Users = (function() {
         'Technical',
         'Training & Development',
         'Retail Auditor',
+        'I.T.',
         '--- Senior Leadership ---',
         'Production Manager',
         'Head of Retail',
@@ -250,6 +251,61 @@ window.Users = (function() {
     }
 
     function getCurrentUser() { return _currentUser; }
+    function getEffectiveUser() { return _currentUser || _getStored(); }
+    function canSeeTab(tabId) { return true; }
+    function canSeeView(viewId) { return true; }
+
+    /* ─── Role & Area helpers ─────────────────────────────────────── */
+    /* Roles: 'shop' | 'area_manager' | 'hq' | 'admin'               */
+    /* If no role set, infer from shopStoreId (shop) or default to hq  */
+    function getRole(user) {
+        user = user || _currentUser;
+        if (!user) return 'hq';
+        if (user.role === 'admin') return 'admin';
+        if (user.userRole) return user.userRole;
+        if (user.shopStoreId) return 'shop';
+        return 'hq';
+    }
+
+    function getArea(user) {
+        user = user || _currentUser;
+        if (!user) return '';
+        if (user.area) return user.area;
+        /* Auto-derive from KPI data if area_manager */
+        if (getRole(user) === 'area_manager' && user.name && typeof safeGetAM === 'function') {
+            return user.name;
+        }
+        return '';
+    }
+
+    function isShop(user) { return getRole(user) === 'shop'; }
+    function isAreaManager(user) { var r = getRole(user); return r === 'area_manager'; }
+    function isHQ(user) { var r = getRole(user); return r === 'hq' || r === 'admin'; }
+    function isAdmin(user) { return getRole(user) === 'admin'; }
+
+    function getStoresForUser(user) {
+        user = user || _currentUser;
+        var role = getRole(user);
+        if (role === 'shop') {
+            return user && user.shopStoreId ? [user.shopStoreId] : [];
+        }
+        if (role === 'area_manager') {
+            var area = getArea(user);
+            if (!area || typeof originalStoreNames === 'undefined') return [];
+            var stores = [];
+            originalStoreNames.forEach(function(name, id) {
+                if (typeof safeGetAM === 'function' && safeGetAM(name) === area) stores.push(id);
+            });
+            return stores;
+        }
+        /* hq + admin: all stores */
+        if (typeof originalStoreNames !== 'undefined') {
+            var all = [];
+            originalStoreNames.forEach(function(name, id) { all.push(id); });
+            return all;
+        }
+        return [];
+    }
 
     function setCurrentUser(user) {
         _currentUser = { id: user.id, name: user.name, department: user.department };
@@ -349,7 +405,7 @@ window.Users = (function() {
         var nameParts = (profile.name || '').split(/\s+/);
         var firstName = nameParts[0] || '';
         var lastName = nameParts.slice(1).join(' ') || '';
-        var deptHtml = getDeptOptionsHtml('General', false);
+        var deptOpts = ['Sales','HR','Development','Technical','I.T.','Production','Management'].map(function(d){ return '<option value="'+d+'">'+d+'</option>'; }).join('');
         document.getElementById('mainView').innerHTML = `
         <div style="max-width:500px;margin:40px auto;padding:0 16px;">
             <div class="card" style="padding:32px;text-align:center;">
@@ -367,10 +423,14 @@ window.Users = (function() {
                     <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Last Name</label>
                     <input type="text" id="entraLastName" value="${escapeAttr(lastName)}" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;" />
                 </div>
+                <div style="text-align:left;margin-bottom:12px;">
+                    <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Job Title</label>
+                    <input type="text" id="entraJobTitle" value="" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;" />
+                </div>
                 <div style="text-align:left;margin-bottom:20px;">
                     <label style="font-size:11px;font-weight:700;color:#7A7A7A;text-transform:uppercase;letter-spacing:0.04em;display:block;margin-bottom:4px;">Department</label>
                     <select id="entraDept" style="width:100%;padding:10px;border:1px solid #E8E5E0;border-radius:8px;font-size:14px;outline:none;background:#fff;box-sizing:border-box;">
-                        ${deptHtml}
+                        ${deptOpts}
                     </select>
                 </div>
 
@@ -385,6 +445,7 @@ window.Users = (function() {
     async function _confirmEntraUser() {
         var firstName = (document.getElementById('entraFirstName').value || '').trim();
         var lastName = (document.getElementById('entraLastName').value || '').trim();
+        var jobTitle = (document.getElementById('entraJobTitle').value || '').trim();
         var dept = document.getElementById('entraDept').value;
         var errEl = document.getElementById('entraConfirmError');
         if (!firstName) { if (errEl) { errEl.textContent = 'Please enter your first name'; errEl.style.display = 'block'; } return; }
@@ -394,6 +455,7 @@ window.Users = (function() {
             id: 'entra-' + (profile.localAccountId || _uid('user-')),
             name: fullName,
             email: profile.email,
+            jobTitle: jobTitle,
             department: dept || 'General',
             pin: null,
             created: new Date().toISOString().substring(0, 10)
@@ -428,6 +490,26 @@ window.Users = (function() {
         }
     }
 
+    /* Admin: update a stored user's details (department / job title) */
+    async function updateUser(id, updates) {
+        var idx = _users.findIndex(function(u) { return u.id === id; });
+        if (idx < 0) return false;
+        var u = _users[idx];
+        var before = JSON.stringify(u);
+        ['department', 'jobTitle', 'name', 'email', 'role', 'projectView', 'projectViewDepts', 'shopStoreId', 'userRole', 'area'].forEach(function(k) {
+            if (updates && updates[k] !== undefined) u[k] = updates[k];
+        });
+        if (JSON.stringify(u) === before) return true;
+        await _idbPut(u);
+        await _saveUserToGraph(u);
+        if (_currentUser && _currentUser.id === u.id) {
+            _currentUser = u;
+            _setStored(u);
+            updateHeaderBadge();
+        }
+        return true;
+    }
+
     /* ─── Logout ────────────────────────────────────────────────── */
     function doLogout() {
         clearCurrentUser();
@@ -456,6 +538,7 @@ window.Users = (function() {
             badge.classList.add('hidden');
             badge.classList.remove('flex');
         }
+        if (typeof applyNavPermissions === 'function') applyNavPermissions();
     }
 
     /* ─── Helpers ────────────────────────────────────────────────── */
@@ -474,6 +557,95 @@ window.Users = (function() {
 
     function escapeAttr(v) {
         return String(v || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    var _pvLabels = {
+        '': 'Default (involved only)',
+        'mine': 'Only created / assigned to me',
+        'department': 'All in my department',
+        'multichoice': 'Chosen departments',
+        'all': 'All projects (with overview)'
+    };
+    var _pvOpts = [
+        ['', 'Default (involved only)'],
+        ['mine', 'Only created / assigned to me'],
+        ['department', 'All in my department'],
+        ['multichoice', 'Chosen departments'],
+        ['all', 'All projects (with overview)']
+    ];
+
+    function _userPvToggle(idx, val) {
+        var box = document.getElementById('upvd-' + idx);
+        if (box) box.style.display = val === 'multichoice' ? 'block' : 'none';
+    }
+
+    function saveUserRow(idx, id) {
+        var u = _users.find(function(x) { return x.id === id; });
+        if (!u) return;
+        var jobTitle = document.getElementById('ujt-' + idx) ? document.getElementById('ujt-' + idx).value.trim() : '';
+        var department = document.getElementById('udpt-' + idx) ? document.getElementById('udpt-' + idx).value : '';
+        var projectView = document.getElementById('upv-' + idx) ? document.getElementById('upv-' + idx).value : '';
+        var userRole = document.getElementById('urole-' + idx) ? document.getElementById('urole-' + idx).value : '';
+        var depts = [];
+        var cbs = document.querySelectorAll('#upvd-' + idx + ' input[type="checkbox"]:checked');
+        cbs.forEach(function(cb) { depts.push(cb.value); });
+        updateUser(id, { jobTitle: jobTitle, department: department, projectView: projectView, projectViewDepts: depts, userRole: userRole }).then(function() {
+            showToast('User updated', 'success');
+            renderUserAdmin();
+        });
+    }
+
+    function renderUserAdmin() {
+        var current = getCurrentUser();
+        var canEdit = (typeof window.isAdmin === 'function' && isAdmin()) || (current && current.role === 'admin');
+        var depts = getDepartments();
+        var rows = _users.map(function(u, i) {
+            var jobTitleCell = canEdit
+                ? '<input type="text" id="ujt-' + i + '" value="' + escapeHtml(u.jobTitle || '') + '" placeholder="Job title" style="padding:6px 8px;border:1px solid #d5ddd0;border-radius:6px;font-size:12px;width:120px;box-sizing:border-box;">'
+                : escapeHtml(u.jobTitle || '');
+            var deptCell = canEdit
+                ? '<select id="udpt-' + i + '" style="padding:6px 8px;border:1px solid #d5ddd0;border-radius:6px;font-size:12px;">' +
+                  '<option value="">-- Select --</option>' +
+                  depts.map(function(d) { return '<option value="' + escapeHtml(d) + '"' + ((u.department || '') === d ? ' selected' : '') + '>' + escapeHtml(d) + '</option>'; }).join('') +
+                  '</select>'
+                : escapeHtml(u.department || '');
+            var curPv = u.projectView || '';
+            var pvSelect = '<select id="upv-' + i + '" onchange="Users.userPvToggle(' + i + ',this.value)" style="padding:6px 8px;border:1px solid #d5ddd0;border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;">' +
+                _pvOpts.map(function(o) { return '<option value="' + o[0] + '"' + (curPv === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+                '</select>';
+            var selDepts = u.projectViewDepts || [];
+            var pvDepts = '<div id="upvd-' + i + '" style="display:' + (curPv === 'multichoice' ? 'block' : 'none') + ';margin-top:4px;max-height:130px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:4px;background:#fafaf8;">' +
+                depts.map(function(d) { return '<label style="display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#555;padding:2px;"><input type="checkbox" value="' + escapeHtml(d) + '" ' + (selDepts.indexOf(d) >= 0 ? 'checked' : '') + '> ' + escapeHtml(d) + '</label>'; }).join('') +
+                '</div>';
+            var pvCell = canEdit
+                ? (pvSelect + pvDepts)
+                : '<span style="font-size:11px;font-weight:700;color:#555;">' + escapeHtml(_pvLabels[curPv] || 'Default') + '</span>';
+            var saveBtn = canEdit
+                ? '<button onclick="Users.saveUserRow(' + i + ',\'' + u.id + '\')" style="background:#6E8E6D;color:#fff;padding:6px 12px;border:none;border-radius:6px;font-weight:800;font-size:11px;cursor:pointer;white-space:nowrap;">Save</button>'
+                : '';
+            var curRole = u.userRole || (u.role === 'admin' ? 'admin' : (u.shopStoreId ? 'shop' : 'hq'));
+            var roleCell = canEdit
+                ? '<select id="urole-' + i + '" style="padding:6px 8px;border:1px solid #d5ddd0;border-radius:6px;font-size:12px;">'
+                  + '<option value="hq"' + (curRole === 'hq' ? ' selected' : '') + '>HQ</option>'
+                  + '<option value="shop"' + (curRole === 'shop' ? ' selected' : '') + '>Shop</option>'
+                  + '<option value="area_manager"' + (curRole === 'area_manager' ? ' selected' : '') + '>Area Manager</option>'
+                  + '<option value="admin"' + (curRole === 'admin' ? ' selected' : '') + '>Admin</option>'
+                  + '</select>'
+                : '<span style="font-size:11px;font-weight:700;color:#555;text-transform:capitalize;">' + escapeHtml(curRole) + '</span>';
+            return '<tr style="border-bottom:1px solid #eee;font-size:13px;vertical-align:top;">' +
+                '<td style="padding:8px 12px;font-weight:700;">' + escapeHtml(u.name) + '</td>' +
+                '<td style="padding:8px 12px;">' + escapeHtml(u.email || '') + '</td>' +
+                '<td style="padding:8px 12px;">' + deptCell + '</td>' +
+                '<td style="padding:8px 12px;">' + jobTitleCell + '</td>' +
+                '<td style="padding:8px 12px;min-width:190px;">' + pvCell + '</td>' +
+                '<td style="padding:8px 12px;">' + roleCell + '</td>' +
+                '<td style="padding:8px 12px;">' + saveBtn + '</td>' +
+                '</tr>';
+        }).join('');
+        document.getElementById('mainView').innerHTML = '<div style="max-width:1080px;margin:0 auto;padding:16px;"><h2 style="font-family:Merriweather,Georgia,serif;font-size:22px;color:#20231F;margin-bottom:16px;">User Admin</h2>' +
+            (canEdit ? '<p style="font-size:12px;color:#6E8E6D;font-weight:700;margin-bottom:12px;">\u270E Edit role, job title, department and Project View, then Save. <b>Role</b> controls what each user can see and access.</p>' : '') +
+            '<div style="background:#fff;border:1px solid #d5ddd0;border-radius:12px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:960px;"><thead><tr style="background:#f8f7f4;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;"><th style="padding:10px 12px;text-align:left;">Name</th><th style="padding:10px 12px;text-align:left;">Email</th><th style="padding:10px 12px;text-align:left;">Department</th><th style="padding:10px 12px;text-align:left;">Job Title</th><th style="padding:10px 12px;text-align:left;">Project View</th><th style="padding:10px 12px;text-align:left;">Role</th><th style="padding:10px 12px;text-align:left;"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<p style="font-size:11px;color:#888;margin-top:12px;">' + _users.length + ' users total &mdash; Roles: <b>Shop</b> = own store only, <b>Area Manager</b> = their area, <b>HQ</b> = all stores, <b>Admin</b> = full access</p></div>';
     }
 
     /* ─── Expose public API ─────────────────────────────────────── */
@@ -496,6 +668,19 @@ window.Users = (function() {
         _confirmEntraUser: _confirmEntraUser,
         _cancelEntraConfirm: _cancelEntraConfirm,
         doLogout: doLogout,
-        showLogin: showLogin
+        showLogin: showLogin,
+        getEffectiveUser: getEffectiveUser,
+        canSeeTab: canSeeTab,
+        canSeeView: canSeeView,
+        updateUser: updateUser,
+        saveUserRow: saveUserRow,
+        userPvToggle: _userPvToggle,
+        renderUserAdmin: renderUserAdmin,
+        getRole: getRole,
+        getArea: getArea,
+        isShop: isShop,
+        isAreaManager: isAreaManager,
+        isHQ: isHQ,
+        getStoresForUser: getStoresForUser
     };
 })();

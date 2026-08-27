@@ -6,8 +6,15 @@ try {
     return;
   }
 
+  // Access guard — redirect if user can't see this view
+  if (typeof Access !== 'undefined' && currentView && !Access.canView(currentView)) {
+    var fallback = (Users.getRole && Users.getRole() === 'shop') ? 'shop-home' : 'overview';
+    setView(fallback);
+    return;
+  }
+
 if(currentView === 'mywork')
-    return Projects.renderMyWork();
+    return (typeof MyWorkHub !== 'undefined') ? MyWorkHub.render() : Projects.renderMyWork();
 
 if(currentView === 'projects')
     return Projects.renderProjectsList();
@@ -60,6 +67,26 @@ if(currentView === 'storecards')
   // PRIORITY FIX
   
   if(currentView === 'control') return renderControlPanel();
+  if(currentView === 'creator') return (typeof window.renderCreatorView === 'function') ? window.renderCreatorView() : null;
+  if(currentView === 'shop-home') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopHome() : null;
+  if(currentView === 'shop-incident') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopIncident() : null;
+  if(currentView === 'shop-complaint') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopComplaint() : null;
+  if(currentView === 'shop-uniform') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopUniform() : null;
+  if(currentView === 'shop-messages') return (typeof Messages !== 'undefined' && typeof ShopTools !== 'undefined') ? ShopTools.renderShopMessages() : null;
+  if(currentView === 'kanban') return (typeof MyWorkKanban !== 'undefined') ? MyWorkKanban.render() : null;
+  if(currentView === 'calendar') return (typeof MyWorkCalendar !== 'undefined') ? MyWorkCalendar.render() : null;
+  if(currentView === 'rota') {
+    if (typeof Rota === 'undefined') return;
+    var _rRole = (typeof Users !== 'undefined') ? Users.getRole() : 'hq';
+    if (_rRole === 'shop') {
+      return Rota.renderStoreRota((Users.getCurrentUser() || {}).shopStoreId || '');
+    } else {
+      return Rota.renderHQAdmin();
+    }
+  }
+  if(currentView === 'rota-admin') return (typeof Rota !== 'undefined') ? Rota.renderHQAdmin() : null;
+  if(currentView === 'area') return (typeof AreaDashboard !== 'undefined') ? AreaDashboard.render() : null;
+  if(currentView === 'adminusers') return (typeof Users !== 'undefined' && Users.renderUserAdmin) ? Users.renderUserAdmin() : null;
   if(currentView === 'trends') return renderTrendsPanel();
   if(currentView === 'halloffame') return renderHallOfFame();
 if(currentView === 'banding') return renderBandingView();
@@ -67,15 +94,50 @@ if(currentView === 'missingweeks') return renderMissingWeeksReport();
 
   
 
-  const rawKpis = await idbGetAll('kpi'); const allAudits = await idbGetAll('audits'); var allActions = []; if (typeof getAuditActionsForReport === 'function') { try { allActions = await getAuditActionsForReport(); allActions.forEach(function(a) { if (a.Status === 'Closed' && a.ClosedOn && a.AuditDate) { var cd = new Date(a.ClosedOn); var ad = new Date(a.AuditDate); if (!isNaN(cd.getTime()) && !isNaN(ad.getTime())) a.DaysToClose = Math.round((cd - ad) / 86400000); } }); } catch(e) { console.warn('[Dash] Failed to load actions from JSON folders:', e); } } // EHO data: prefer CSV (shared, consistent across users) over IndexedDB
-  var ehoData = []; if (typeof window._ehoRatings !== 'undefined' && window._ehoRatings.size > 0) { window._ehoRatings.forEach(function(v, k) { ehoData.push({StoreId: k, ehoRating: String(v.rating || ''), inspectionDate: v.inspectionDate || '', ehoVisit: '', nextDue: v.nextDue || ''}); }); } else { try { ehoData = await idbGetAll('eho_data'); } catch(e) {} }
-  const combinedData = [...rawKpis, ...allAudits]; if(!combinedData.length && currentView !== 'control') return;
+  const rawKpis = await idbGetAll('kpi'); const allAudits = (await idbGetAll('audits')).filter(a => !a.isTraining);
+  // Use KPI data only for current week (audits may have later weeks that make it blank)
+  if (!rawKpis.length && currentView !== 'control') return;
+  latestWkGlobal = Math.max(...rawKpis.map(k => Number(k.Week) || 0));
+  var allActions = []; try { allActions = await idbGetAll('actions'); } catch(e) {}
+  // EHO data: Primary source is always SharePoint tracker_data.json (the live master file).
+  // Fall back to IDB, then static CSV _ehoRatings.
+  var ehoData = [];
+  try {
+    if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+      var tj = await GraphClient.readFile('tracker_data.json');
+      if (tj) {
+        var parsed = JSON.parse(tj);
+        var stores = parsed.stores || parsed.updates || parsed;
+        if (typeof stores === 'object') {
+          Object.keys(stores).forEach(function(k) { ehoData.push(stores[k]); });
+          console.log('[EHO] Loaded', ehoData.length, 'stores from SharePoint tracker_data.json');
+        }
+      }
+    }
+  } catch(e) { console.warn('[EHO] SharePoint read failed:', e.message); }
+  // Fallback 1: IDB eho_data
+  if (!ehoData.length) {
+    try { ehoData = await idbGetAll('eho_data'); } catch(e) {}
+  }
+  // Fallback 2: static CSV _ehoRatings (never has ehoVisit, but has inspectionDate/nextDue)
+  if (!ehoData.length && typeof window._ehoRatings !== 'undefined' && window._ehoRatings.size > 0) {
+    window._ehoRatings.forEach(function(v, k) { ehoData.push({StoreId: k, ehoRating: String(v.rating || ''), inspectionDate: v.inspectionDate || '', ehoVisit: '', nextDue: v.nextDue || ''}); });
+  }
+  const combinedData = [...rawKpis, ...allAudits];
   const effectiveYear = combinedData.length ? Math.max(...combinedData.map(k => (k.Year || currentAwardsYear || new Date().getFullYear()))) : new Date().getFullYear();
-  latestWkGlobal = combinedData.length ? Math.max(...combinedData.filter(k => (k.Year || effectiveYear) == effectiveYear).map(k => Number(k.Week) || 0)) : 0;
   let effectiveWeek = (archiveWeekOverride && Number.isFinite(archiveWeekOverride)) ? archiveWeekOverride : latestWkGlobal;
   updateActiveWeekBadge(effectiveWeek);
   // BUILD STORE MEDALS MAP (v41)
-  const winners = await idbGetAll('store_winners_log');
+  var winners = await idbGetAll('store_winners_log');
+  if (!winners.length && rawKpis.length && typeof recordPersistentWinnersForWeeks === 'function') {
+    try {
+      var allYears = [...new Set(rawKpis.map(function(k){return k.Year||0;}))].filter(Boolean);
+      var targetYear = allYears.length ? Math.max(...allYears) : new Date().getFullYear();
+      var allWeeks = [...new Set(rawKpis.filter(function(k){return (k.Year||targetYear)===targetYear;}).map(function(k){return k.Week;}))].sort(function(a,b){return a-b;});
+      await recordPersistentWinnersForWeeks(targetYear, allWeeks);
+      winners = await idbGetAll('store_winners_log');
+    } catch(e) { console.warn('[Dash] Awards rebuild failed:', e.message); }
+  }
   window.storeMedalsMap = {}; window.__areaWinsCache = winners;
   winners.filter(w => w.Week == effectiveWeek).forEach(w=>{
     if(!window.storeMedalsMap[w.Branch]) window.storeMedalsMap[w.Branch]=[];
@@ -151,7 +213,19 @@ if(currentView === 'overview'){
     if(typeof renderOverviewFresh === 'function') {
       var bAvgs = { Sales: bAvgSales, Product: bAvgProduct, Waste: bAvgWaste, Labour: bAvgLabour, Energy: bAvgEnergy, ATV: bAvgATV, HotBev: bAvgHotBev, HotRolls: bAvgHotRolls, Sandwiches: bAvgSandwiches, FilledRolls: bAvgFilledRolls };
       var pAvgs = { Sales: pbAvgSales, Product: pbAvgProduct, Waste: pbAvgWaste, Labour: pbAvgLabour, Energy: pbAvgEnergy, ATV: pbAvgATV, HotBev: pbAvgHotBev, HotRolls: pbAvgHotRolls, Sandwiches: pbAvgSandwiches, FilledRolls: pbAvgFilledRolls };
-      return renderOverviewFresh(bAvgs, pAvgs, ehoData, allActions, auditMap, effectiveWeek, amStatsGlobal, curr.length);
+      var complaints = window.ComplaintsData || []; if (!complaints.length) { try { complaints = await idbGetAll('complaints'); } catch(e) {} }
+      // Top 5 stores this week by composite score
+      var topStores = rawKpis.filter(function(k) { return k.Week == effectiveWeek && (k.Year || effectiveYear) == effectiveYear; }).map(function(k) { return { name: k.Branch || k.BranchId, score: calculateStoreScore({ Sales: k.Sales || 0, Product: k.Product || 0, Waste: k.Waste || 0, Labour: k.Labour || 0, Energy: k.Energy || 0 }) }; }).filter(function(s) { return s.name; }).sort(function(a, b) { return b.score - a.score; }).slice(0, 5);
+      // Area medal leaderboard from area_winners_log (same as YTD awards)
+      var areaLeaderboard = [];
+      try {
+        var areaLog = await idbGetAll('area_winners_log');
+        var areaYearLog = areaLog.filter(function(l){ return (l.Year || effectiveYear) == effectiveYear; });
+        var areaWins = {};
+        areaYearLog.forEach(function(l){ areaWins[l.Winner] = (areaWins[l.Winner] || 0) + 1; });
+        areaLeaderboard = Object.entries(areaWins).map(function(e){ return { am: e[0], wins: e[1] }; }).sort(function(a,b){ return b.wins - a.wins; });
+      } catch(e) { console.warn('[Dash] Area leaderboard failed:', e); }
+      return renderOverviewFresh(bAvgs, pAvgs, ehoData, allActions, auditMap, effectiveWeek, amStatsGlobal, curr.length, complaints, topStores, areaLeaderboard);
     }
     const filterLabel = currentTimeFilter === 'latest' ? `Wk ${effectiveWeek}${archiveWeekOverride? ' (Archive)' : ''}` : currentTimeFilter === 'last4' ? 'Rolling 4 Weeks' : 'Year to Date';
     const prevWeekLabel = currentTimeFilter === 'latest' ? `Wk ${effectiveWeek - 1}` : currentTimeFilter === 'last4' ? 'Prev 4 Weeks' : 'Prev YTD';
@@ -261,7 +335,7 @@ if(currentView === 'overview'){
           <p class="col-span-1 lg:col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">EHO Inspections</p>
           <div class="card p-6 border-t-4 border-t-amber-500">
             <h3 class="font-black outfit text-amber-800 text-lg uppercase mb-3">5 Most Recent EHO Visits</h3>
-            <div class="max-h-48 overflow-y-auto space-y-2">${function(){ var list = []; ehoData.forEach(function(d){ var displayName = d.StoreId; if(typeof originalStoreNames !== 'undefined' && originalStoreNames.get(d.StoreId)){displayName = originalStoreNames.get(d.StoreId) || d.StoreId;} var inspDate = d.inspectionDate || d.ehoVisit || d.nextDue || ''; if(!inspDate) return; var parsed = parseUKDate(inspDate); if(!parsed || isNaN(parsed.getTime())) return; var rating = d.ehoRating || ''; var dd = ('0'+parsed.getDate()).slice(-2) + '/' + ('0'+(parsed.getMonth()+1)).slice(-2) + '/' + parsed.getFullYear(); list.push({store: displayName, rating: rating, date: dd, parsed: parsed}); }); list.sort(function(a,b){ return b.parsed - a.parsed; }); list = list.slice(0,5); if(list.length === 0) return '<p class="text-sm text-slate-500 italic">No EHO visit data available.</p>'; return list.map(function(r){ var stars = ''; var n = parseInt(r.rating); if(n > 0) for(var i=0;i<n;i++) stars += '★'; else stars = r.rating; return '<div class="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-4 py-2"><span class="text-sm font-bold text-slate-800">' + r.store + '</span><span class="text-xs text-slate-500"><span class="text-amber-500">' + stars + '</span> <span class="text-amber-700 font-bold ml-2">' + r.date + '</span></span></div>'; }).join(''); }()}</div>
+            <div class="max-h-48 overflow-y-auto space-y-2">${function(){ var list = []; var now = new Date(); ehoData.forEach(function(d){ var displayName = d.StoreId; if(typeof originalStoreNames !== 'undefined' && originalStoreNames.get(d.StoreId)){displayName = originalStoreNames.get(d.StoreId) || d.StoreId;} var inspDate = d.inspectionDate || d.ehoVisit || ''; if(!inspDate) return; var parsed = parseUKDate(inspDate); if(!parsed || isNaN(parsed.getTime())) return; if(parsed > now) return; var rating = d.ehoRating || ''; var dd = ('0'+parsed.getDate()).slice(-2) + '/' + ('0'+(parsed.getMonth()+1)).slice(-2) + '/' + parsed.getFullYear(); list.push({store: displayName, rating: rating, date: dd, parsed: parsed}); }); list.sort(function(a,b){ return b.parsed - a.parsed; }); list = list.slice(0,5); if(list.length === 0) return '<p class="text-sm text-slate-500 italic">No EHO visit data available.</p>'; return list.map(function(r){ var stars = ''; var n = parseInt(r.rating); if(n > 0) for(var i=0;i<n;i++) stars += '★'; else stars = r.rating; return '<div class="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-4 py-2"><span class="text-sm font-bold text-slate-800">' + r.store + '</span><span class="text-xs text-slate-500"><span class="text-amber-500">' + stars + '</span> <span class="text-amber-700 font-bold ml-2">' + r.date + '</span></span></div>'; }).join(''); }()}</div>
           </div>
           <div class="card p-6 border-t-4 border-t-red-500">
             <h3 class="font-black outfit text-red-800 text-lg uppercase mb-3">EHO Overdue Stores</h3>
@@ -370,9 +444,7 @@ if(currentView === 'overview'){
     window.areaKPIBlocks = [
         extraKpisHtml
     ];
-    let validAreaAudits = 0; const totalAreaAuditScore = stores.reduce((a,b) => { const s = auditMap.get(b.Branch.trim().toLowerCase())?.Score; if(s) { validAreaAudits++; return a + s; } return a; }, 0); const aAvg = validAreaAudits > 0 ? totalAreaAuditScore / validAreaAudits : 0;
-      const sFood = aItems.reduce((a,b)=>a+(b['Food']||0),0)/(aItems.length||1); const sFire = aItems.reduce((a,b)=>a+(b['Fire']||0),0)/(aItems.length||1); const sHandS = aItems.reduce((a,b)=>a+(b['HandS']||0),0)/(aItems.length||1); const sJourney = aItems.reduce((a,b)=>a+(b['Journey']||0),0)/(aItems.length||1); const sCoffee = aItems.reduce((a,b)=>a+(b['Coffee']||0),0)/(aItems.length||1); const sFocus = aItems.reduce((a,b)=>a+(b['Focus']||0),0)/(aItems.length||1);
-      const progColor = (val) => val >= 95 ? 'progress-fill' : val >= 90 ? 'progress-fill-warn' : 'progress-fill-crit';
+    const progColor = (val) => val >= 95 ? 'progress-fill' : val >= 90 ? 'progress-fill-warn' : 'progress-fill-crit';
       const safeMin = (p, c, f) => ((p[f]===0||!p[f]?Infinity:p[f]) < (c[f]===0||!c[f]?Infinity:c[f])) ? p : c; const safeMax = (p, c, f) => ((p[f]===0||!p[f]?-Infinity:p[f]) > (c[f]===0||!c[f]?-Infinity:c[f])) ? p : c;
       const bestSales = stores.reduce((p, c) => safeMax(p, c, 'Sales')); const bestProduct = stores.reduce((p, c) => safeMax(p, c, 'Product')); const bestWaste = stores.reduce((p, c) => safeMin(p, c, 'Waste')); const bestLabour = stores.reduce((p, c) => safeMin(p, c, 'Labour')); const bestEnergy = stores.reduce((p, c) => safeMin(p, c, 'Energy')); const bestATV = stores.reduce((p, c) => safeMax(p, c, 'ATV'));
       const bestAudit = stores.reduce((p, c) => { const pScore = auditMap.get(p.Branch.trim().toLowerCase())?.Score || 0; const cScore = auditMap.get(c.Branch.trim().toLowerCase())?.Score || 0; return pScore > cScore ? p : c; });
@@ -455,17 +527,8 @@ if(currentView === 'overview'){
 
             </div>
             <div class="landscape-right">
-              <h4 class="text-[11px] font-black muted uppercase mb-4 flex items-center gap-2"><div class="w-1 h-3  rounded-full"></div> Operational Sectors (Area Avg: ${aAvg.toFixed(1)}%)</h4>
-              <div class="grid grid-cols-2 gap-x-6 gap-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                <div><div class="flex justify-between text-xs font-bold mb-1.5"><span>Food Safety</span><span class="${sFood<90?'text-birds-red':sFood<95?'text-amber-500':''}">${sFood.toFixed(1)}%</span></div><div class="progress-bar h-2"><div class="${progColor(sFood)}" style="width:${sFood}%"></div></div></div>
-                <div><div class="flex justify-between text-xs font-bold mb-1.5"><span>Fire Safety</span><span class="${sFire<90?'text-birds-red':sFire<95?'text-amber-500':''}">${sFire.toFixed(1)}%</span></div><div class="progress-bar h-2"><div class="${progColor(sFire)}" style="width:${sFire}%"></div></div></div>
-                <div><div class="flex justify-between text-xs font-bold mb-1.5"><span>H&S / Legal</span><span class="${sHandS<90?'text-birds-red':sHandS<95?'text-amber-500':''}">${sHandS.toFixed(1)}%</span></div><div class="progress-bar h-2"><div class="${progColor(sHandS)}" style="width:${sHandS}%"></div></div></div>
-                <div><div class="flex justify-between text-xs font-bold mb-1.5"><span>Cust. Journey</span><span class="${sJourney<90?'text-birds-red':sJourney<95?'text-amber-500':''}">${sJourney.toFixed(1)}%</span></div><div class="progress-bar h-2"><div class="${progColor(sJourney)}" style="width:${sJourney}%"></div></div></div>
-                <div><div class="flex justify-between text-xs font-bold mb-1.5"><span>Coffee Standard</span><span class="${sCoffee<90?'text-birds-red':sCoffee<95?'text-amber-500':''}">${sCoffee.toFixed(1)}%</span></div><div class="progress-bar h-2"><div class="${progColor(sCoffee)}" style="width:${sCoffee}%"></div></div></div>
-                <div><div class="flex justify-between text-xs font-bold mb-1.5"><span>Birds Focus</span><span class="${sFocus<90?'text-birds-red':sFocus<95?'text-amber-500':''}">${sFocus.toFixed(1)}%</span></div><div class="progress-bar h-2"><div class="${progColor(sFocus)}" style="width:${sFocus}%"></div></div></div>
-              </div>
-              <div class="mt-8 p-4  rounded-xl border border-emerald-100 flex items-start gap-3 relative group">
-                <div class="h-8 w-8  rounded-lg flex items-center justify-center font-bold text-birds-green shrink-0"></div>
+              <div class="p-4 rounded-xl border border-emerald-100 flex items-start gap-3 relative group">
+                <div class="h-8 w-8 rounded-lg flex items-center justify-center font-bold text-birds-green shrink-0"></div>
                 <div class="flex-1"><h5 contenteditable="true" class="text-xs font-black text-birds-dark mb-1 outline-none border-b border-dashed border-birds-border focus:border-birds-green focus:bg-white pr-6 transition-all">Area Manager Note</h5><p contenteditable="true" class="text-[11px] text-birds-dark leading-tight outline-none focus:bg-white focus:ring-1 focus:ring-birds-green p-1 rounded cursor-text italic transition-all">Current period performance shows <b>${am}</b> maintaining network-leading standards in operational compliance while driving top-tier commercial growth.</p></div>
                 <button onclick="this.parentElement.remove()" class="export-btn absolute -top-2 -right-2 bg-white border border-red-100 text-red-400 hover:text-red-600 rounded-full w-6 h-6 flex items-center justify-center text-[12px] shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"></button>
               </div>

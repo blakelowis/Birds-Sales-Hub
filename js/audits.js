@@ -70,10 +70,39 @@ function shortQuestionLabel(q, maxLen=96){
 // No IndexedDB caching — two folders are the source of truth.
 // Open JSON = open actions. If a matching questionId exists in Closed/, it's closed.
 async function getAuditActionsForReport(){
+  // Check IndexedDB cache first (5 min TTL)
+  try {
+    var cached = await idbGet('settings', 'audit_action_cache');
+    if (cached && cached.data && cached.data.length && Date.now() - cached.ts < 300000) {
+      console.log('[Audit] Using IDB cache —', cached.data.length, 'actions');
+      return cached.data;
+    }
+  } catch(e) {}
   var all = [];
   try {
     var rawOpen = await readJsonFolder('Open');
-    var rawClosed = await readJsonFolder('Closed');
+    // Read audit_master.json (single file) instead of 43 individual Closed/ files
+    var rawClosed = [];
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+      try {
+        var masterText = await GraphClient.readFile('audit_master.json');
+        if (masterText) {
+          var master = JSON.parse(masterText);
+          if (master && master.actions && master.actions.length) {
+            rawClosed = master.actions;
+            console.log('[Audit] Loaded', rawClosed.length, 'closed actions from audit_master.json');
+          }
+        }
+      } catch(e) {}
+    }
+    // Fallback: read individual Closed/ files (first load or after rebuild)
+    if (!rawClosed.length) {
+      rawClosed = await readJsonFolder('Closed');
+      if (rawClosed.length) {
+        // Auto-build master in background for next time
+        setTimeout(function() { window.buildAuditMaster().catch(function() {}); }, 100);
+      }
+    }
     // Build lookup of closed actions by questionId
     var closedMap = {};
     rawClosed.forEach(function(f) {
@@ -93,15 +122,18 @@ async function getAuditActionsForReport(){
         });
       }
     });
-    // Process open files — only non-training
+    // Process open files — include training actions (flagged separately so they render in their own block)
     rawOpen.forEach(function(f) {
-      if (f.isTraining) return;
       if (!f.actions) return;
       var storeName = cleanStoreName(f.storeName || '');
+      var isT = !!f.isTraining;
       f.actions.forEach(function(a) {
         var closed = closedMap[a.questionId];
+        var fileClosed = a.status && normalizeActionStatus(a.status) === 'Closed';
         all.push({
           ActionID: storeName + '_' + a.questionId + '_' + (f.date || ''),
+          _sourceFile: f._fileName || '',
+          _sourceQuestionId: a.questionId || '',
           QuestionID: a.questionId || '',
           Store: storeName,
           StoreEmail: f.storeEmail || '',
@@ -118,12 +150,13 @@ async function getAuditActionsForReport(){
           Description: a.description || '',
           PersonResponsible: a.personResponsible || '',
           ActionNeeded: a.actionNeeded || '',
-          Status: closed ? 'Closed' : a.status || 'Open',
+          Status: (closed || fileClosed) ? 'Closed' : (a.status || 'Open'),
           ClosedOn: closed ? (closed.closedOn || '') : (a.closedOn || ''),
           HowClosed: closed ? (closed.howClosed || '') : (a.howClosed || ''),
           ExtraComment: closed ? (closed.extraComment || '') : (a.extraComment || ''),
           Critical: a.critical || 'No',
-          DaysToClose: null
+          DaysToClose: null,
+          IsTraining: isT
         });
       });
     });
@@ -132,7 +165,7 @@ async function getAuditActionsForReport(){
     return [];
   }
   // Normalize and compute derived fields
-  return all.map(function(obj) {
+  var result = all.map(function(obj) {
     obj.Store = actionStoreName(obj);
     obj.AreaManager = actionAreaName(obj);
     obj.Sector = actionSectorName(obj);
@@ -164,6 +197,9 @@ async function getAuditActionsForReport(){
     if (q === 'question' || !q) return false;
     return true;
   });
+  // Cache in IDB for fast subsequent loads (5 min TTL)
+  try { await idbPut('settings', { id: 'audit_action_cache', data: result, ts: Date.now() }); } catch(e) {}
+  return result;
 }
 function getHubDateRange(period){
   const today = new Date();
@@ -236,7 +272,22 @@ async function renderAuditActionHub(){
   // Read Open/ and Closed/ JSON files directly — two folders are the source of truth
   document.getElementById('mainView').innerHTML = '<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">Loading actions from Open/ and Closed/ folders...</p></div>';
   __auditHubCache = await getAuditActionsForReport();
-  if(!__auditHubCache.length){ document.getElementById('mainView').innerHTML = `<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">No audit actions found. Check that your data folder has <b>Open/</b> and <b>Closed/</b> subfolders with JSON action files.</p></div>`; return; }
+  // Auto-close training actions >7 days old (background, non-blocking)
+  autoCloseTrainingActions().catch(function(){});
+  var trainingOpen = __auditHubCache.filter(function(a){ return a.IsTraining && !actionIsClosed(a); });
+  __auditHubCache = __auditHubCache.filter(function(a){ return !a.IsTraining; });
+  if(!__auditHubCache.length && !trainingOpen.length){ document.getElementById('mainView').innerHTML = `<div class="card p-12 text-center"><h2 class="text-3xl font-black outfit birds-green mb-2">Audit Action Hub</h2><p class="text-slate-500 font-bold mb-4">No audit actions found. Check that your data folder has <b>Open/</b> and <b>Closed/</b> subfolders with JSON action files.</p></div>`; return; }
+  var trainingBlockHtml = '';
+  if (trainingOpen.length) {
+    trainingBlockHtml = '<div class="card p-5 border-t-4" style="border-top-color:#D97706;">' +
+      '<div class="flex items-center justify-between mb-3">' +
+      '<h3 class="font-black outfit text-sm uppercase tracking-widest text-amber-700">\uD83C\uDF93 Training / Practice Actions (' + trainingOpen.length + ')</h3>' +
+      '<span class="text-[11px] text-slate-400">Open only \u2014 disappears once closed</span>' +
+      '</div>' +
+      '<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-400"><th class="p-2 text-left">Store</th><th class="p-2 text-left">Sector</th><th class="p-2 text-left">Issue</th><th class="p-2 text-left">Action needed</th><th class="p-2 text-left">Days open</th></tr></thead><tbody>' +
+      trainingOpen.map(function(a){ return '<tr class="border-b border-slate-100"><td class="p-2 font-bold text-slate-700">' + escapeHtml(a.Store) + '</td><td class="p-2 text-xs font-bold text-slate-500">' + escapeHtml(a.Sector) + '</td><td class="p-2 text-xs text-slate-700 max-w-[320px]">' + escapeHtml(a.Description || a.Question) + '</td><td class="p-2 text-xs text-slate-600 max-w-[320px]">' + escapeHtml(a.ActionNeeded) + '</td><td class="p-2 text-xs font-black text-slate-600">' + (typeof fmtDays === 'function' ? fmtDays(daysOpenNow(a)) : '') + '</td></tr>'; }).join('') +
+      '</tbody></table></div></div>';
+  }
   const areas = [...new Set(__auditHubCache.map(a=>a.AreaManager))].sort();
   const sectors = [...new Set(__auditHubCache.map(a=>a.Sector))].sort();
   const categories = [...new Set(__auditHubCache.map(a=>a.Category))].sort();
@@ -244,7 +295,7 @@ async function renderAuditActionHub(){
   const themes = [...new Set(__auditHubCache.map(a=>a.Question))].sort();
   const slas = ['Critical > 48h','Open > 30 days','Open > 14 days','Open > 7 days','In SLA / New','Closed'];
   document.getElementById('mainView').innerHTML = `<div id="audit-export-card" class="space-y-6"><div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4"><div><h2 class="text-[36px] font-black outfit birds-green uppercase tracking-tight"> Audit Action Hub</h2><p class="text-slate-500 font-bold">Time filters, SLA flags, issue drill-down and closure evidence review.</p><span class="inline-flex items-center gap-1.5 mt-2 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-bold text-emerald-700">✓ Local storage active</span></div><div class="flex flex-wrap gap-2 audit-export-controls"><button onclick="exportAuditActions('filtered')" class="btn" style="background: #555B6E; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 12px;">Export Current Filter</button><button onclick="exportAuditActions('full')" class="btn" style="background: #555B6E; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 12px;"> Full Export</button><button onclick="exportAuditPDF()" class="btn" style="background: var(--edwardian-rose); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 800; font-size: 12px;"> PDF Summary</button></div></div>
-    <div class="card p-5 audit-export-controls"><div class="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-8 gap-3"><select id="auditPeriodFilter" onchange="toggleAuditCustomDates();refreshAuditHubBody()" class="input-chip text-sm"><option value="all">All dates</option><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="mtd">Month to date</option><option value="prevmonth">Previous month</option><option value="qtd">Quarter to date</option><option value="ytd">Year to date</option><option value="custom">Custom dates</option></select><select id="auditAreaFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Areas</option>${areas.map(a=>`<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('')}</select><select id="auditSectorFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Sectors</option>${sectors.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select><select id="auditCategoryFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Categories</option>${categories.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select><select id="auditStoreFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Stores</option>${stores.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select><select id="auditStatusFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">Open & Closed</option><option value="Open">Open</option><option value="Closed">Closed</option></select><select id="auditCriticalFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Criticality</option><option value="Yes">Critical only</option><option value="No">Non-critical only</option></select><select id="auditSlaFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All SLA</option>${slas.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select></div><div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"><select id="auditThemeFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Questions</option>${themes.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}</select><input id="auditSearch" oninput="refreshAuditHubBody()" class="input-chip text-sm" placeholder="Search issue, question, closure comment..." /><div id="auditCustomDates" class="hidden grid grid-cols-2 gap-2"><input id="auditFromDate" type="date" onchange="refreshAuditHubBody()" class="input-chip text-sm"/><input id="auditToDate" type="date" onchange="refreshAuditHubBody()" class="input-chip text-sm"/></div></div></div><div id="auditReportBody" class="space-y-6"></div><div id="auditDrilldownPanel" class="hidden"></div></div>`;
+    <div class="card p-5 audit-export-controls"><div class="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-8 gap-3"><select id="auditPeriodFilter" onchange="toggleAuditCustomDates();refreshAuditHubBody()" class="input-chip text-sm"><option value="all">All dates</option><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="mtd">Month to date</option><option value="prevmonth">Previous month</option><option value="qtd">Quarter to date</option><option value="ytd">Year to date</option><option value="custom">Custom dates</option></select><select id="auditAreaFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Areas</option>${areas.map(a=>`<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('')}</select><select id="auditSectorFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Sectors</option>${sectors.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select><select id="auditCategoryFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Categories</option>${categories.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select><select id="auditStoreFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Stores</option>${stores.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select><select id="auditStatusFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">Open & Closed</option><option value="Open">Open</option><option value="Closed">Closed</option></select><select id="auditCriticalFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Criticality</option><option value="Yes">Critical only</option><option value="No">Non-critical only</option></select><select id="auditSlaFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All SLA</option>${slas.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select></div><div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"><select id="auditThemeFilter" onchange="refreshAuditHubBody()" class="input-chip text-sm"><option value="ALL">All Questions</option>${themes.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}</select><input id="auditSearch" oninput="refreshAuditHubBody()" class="input-chip text-sm" placeholder="Search issue, question, closure comment..." /><div id="auditCustomDates" class="hidden grid grid-cols-2 gap-2"><input id="auditFromDate" type="date" onchange="refreshAuditHubBody()" class="input-chip text-sm"/><input id="auditToDate" type="date" onchange="refreshAuditHubBody()" class="input-chip text-sm"/></div></div></div>${trainingBlockHtml}<div id="auditReportBody" class="space-y-6"></div><div id="auditDrilldownPanel" class="hidden"></div></div>`;
   refreshAuditHubBody();
 }
 function toggleAuditCustomDates(){ const box = document.getElementById('auditCustomDates'); if(box) box.classList.toggle('hidden', (document.getElementById('auditPeriodFilter')?.value || 'all') !== 'custom'); }
@@ -262,7 +313,8 @@ async function refreshAuditHubBody(){
   const storeBreak = buildStatusBreakdown(regularActions, a=>a.Store).slice(0,15);
   const slaCounts = countBy(regularActions, slaBucket);
   function buildActionRow(a){
-    const mainRow = `<tr class="border-b border-slate-100 align-top hover:bg-slate-50"><td class="p-3 font-black text-slate-700">${escapeHtml(a.Store)}</td><td class="p-3 text-slate-500 font-bold">${escapeHtml(a.AreaManager)}</td><td class="p-3 text-xs font-bold text-slate-500">${escapeHtml(a.Sector)}</td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsClosed(a)?'bg-emerald-50 text-slate-800':'bg-amber-50 text-amber-700'}">${escapeHtml(a.Status)}</span></td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsCritical(a)?'bg-red-50 text-red-700':'bg-slate-100 text-slate-500'}">${actionIsCritical(a)?'Critical':'No'}</span></td><td class="p-3"><button onclick="auditDrilldown('sla','${encodeURIComponent(a.SLABucket)}')" class="text-[10px] font-black px-2 py-1 rounded-full ${a.SLABucket.includes('Critical')?'bg-red-50 text-red-700':a.SLABucket.includes('Open >')?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}">${escapeHtml(a.SLABucket)}</button></td><td class="p-3 text-xs text-slate-700 max-w-[420px]" title="${tooltipTitle(a)}"><button class="text-left hover:underline font-black" onclick="showAuditActionDetail(${a.ActionID || 0})">${escapeHtml(a.Description || a.Question)}</button><div class="text-slate-500 mt-1">${escapeHtml(a.ActionNeeded)}</div><button onclick="auditDrilldown('theme','${encodeURIComponent(a.IssueTheme)}')" class="text-[10px] font-black text-slate-400 mt-1 hover:text-birds-green">${escapeHtml(a.IssueTheme)}</button></td><td class="p-3 text-xs text-slate-600">${escapeHtml(a.PersonResponsible || '—')}</td><td class="p-3 text-xs font-black text-slate-700">${actionIsClosed(a) ? fmtDays(a.DaysToClose) : fmtDays(daysOpenNow(a))}</td></tr>`;
+    const delBtn = !actionIsClosed(a) && a._sourceFile ? `<button onclick="event.stopPropagation();deleteAuditAction('${escapeHtml(a.ActionID)}')" class="text-[10px] font-black text-red-400 hover:text-red-600 ml-1" title="Delete this open action">✕</button>` : '';
+    const mainRow = `<tr class="border-b border-slate-100 align-top hover:bg-slate-50"><td class="p-3 font-black text-slate-700">${escapeHtml(a.Store)}</td><td class="p-3 text-slate-500 font-bold">${escapeHtml(a.AreaManager)}</td><td class="p-3 text-xs font-bold text-slate-500">${escapeHtml(a.Sector)}</td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsClosed(a)?'bg-emerald-50 text-slate-800':'bg-amber-50 text-amber-700'}">${escapeHtml(a.Status)}</span>${delBtn}</td><td class="p-3"><span class="px-2 py-1 rounded-full text-[10px] font-black ${actionIsCritical(a)?'bg-red-50 text-red-700':'bg-slate-100 text-slate-500'}">${actionIsCritical(a)?'Critical':'No'}</span></td><td class="p-3"><button onclick="auditDrilldown('sla','${encodeURIComponent(a.SLABucket)}')" class="text-[10px] font-black px-2 py-1 rounded-full ${a.SLABucket.includes('Critical')?'bg-red-50 text-red-700':a.SLABucket.includes('Open >')?'bg-amber-50 text-amber-700':'bg-slate-100 text-slate-600'}">${escapeHtml(a.SLABucket)}</button></td><td class="p-3 text-xs text-slate-700 max-w-[420px]" title="${tooltipTitle(a)}"><button class="text-left hover:underline font-black" onclick="showAuditActionDetail(${a.ActionID || 0})">${escapeHtml(a.Description || a.Question)}</button><div class="text-slate-500 mt-1">${escapeHtml(a.ActionNeeded)}</div><button onclick="auditDrilldown('theme','${encodeURIComponent(a.IssueTheme)}')" class="text-[10px] font-black text-slate-400 mt-1 hover:text-birds-green">${escapeHtml(a.IssueTheme)}</button></td><td class="p-3 text-xs text-slate-600">${escapeHtml(a.PersonResponsible || '—')}</td><td class="p-3 text-xs font-black text-slate-700">${actionIsClosed(a) ? fmtDays(a.DaysToClose) : fmtDays(daysOpenNow(a))}</td></tr>`;
     if(actionIsClosed(a) && (a.HowClosed || a.ExtraComment)){
       const closureRow = `<tr class="border-b border-slate-100"><td colspan="9" class="px-3 pb-3 pt-0"><div class="bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-6"><div class="flex-1"><span class="text-[10px] font-black text-blue-800 uppercase tracking-wide">Store Manager Action:</span> <span class="text-xs font-bold text-slate-700">${escapeHtml(a.HowClosed || '—')}</span></div>${a.ExtraComment ? `<div class="flex-1"><span class="text-[10px] font-black text-blue-800 uppercase tracking-wide">Additional Notes:</span> <span class="text-xs text-slate-600">${escapeHtml(a.ExtraComment)}</span></div>` : ''}</div></td></tr>`;
       return [mainRow, closureRow];
@@ -294,7 +346,14 @@ function auditRowsForExport(mode){ return mode === 'full' ? __auditHubCache : __
 async function exportAuditActions(mode='filtered'){
   const data = auditRowsForExport(mode);
   const rows = data.map(a => ({ 'Area Manager': a.AreaManager, 'Store': a.Store, 'Sector': a.Sector, 'Category': a.Category, 'Issue Theme': a.IssueTheme, 'SLA Bucket': a.SLABucket, 'Closure Quality': a.ClosureQuality, 'Audit Date': a.AuditDate || '', 'Question ID': a.QuestionID || '', 'Question': a.Question || '', 'Answer': a.Answer || '', 'Description': a.Description || '', 'Person Responsible': a.PersonResponsible || '', 'Action Needed': a.ActionNeeded || '', 'Status': a.Status, 'Critical': a.Critical, 'Closed On': a.ClosedOn || '', 'Days To Close': actionIsClosed(a) ? fmtDays(a.DaysToClose) : '', 'Days Open': !actionIsClosed(a) ? fmtDays(daysOpenNow(a)) : '', 'How Closed': a.HowClosed || '', 'Extra Comment': a.ExtraComment || '' }));
-  const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Audit Actions'); const stamp = new Date().toISOString().slice(0,10); XLSX.writeFile(wb, `Birds_Audit_Actions_${mode}_${stamp}.xlsx`);
+  const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Audit Actions'); const stamp = new Date().toISOString().slice(0,10);
+  if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
+    var xlsxOut = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    var ok = await GraphClient.writeFileBinary('Open/Birds_Audit_Actions_' + mode + '_' + stamp + '.xlsx', xlsxOut);
+    if (!ok) { console.warn('[Audit] SharePoint write failed, falling back to download'); XLSX.writeFile(wb, 'Birds_Audit_Actions_' + mode + '_' + stamp + '.xlsx'); }
+  } else {
+    XLSX.writeFile(wb, 'Birds_Audit_Actions_' + mode + '_' + stamp + '.xlsx');
+  }
 }
 function pdfClean(s){ return String(s ?? '').replace(/\s+/g,' ').trim(); }
 function drawPdfHeader(pdf, title, subtitle){ pdf.setFillColor(135,157,130); pdf.rect(0,0,297,18,'F'); pdf.setTextColor(255,255,255); pdf.setFontSize(16); pdf.setFont(undefined,'bold'); pdf.text(title, 10, 11); pdf.setFontSize(8); pdf.setFont(undefined,'normal'); pdf.text(subtitle, 10, 16); pdf.setTextColor(57,68,60); if (window.__pdfLogo) { try { pdf.addImage(window.__pdfLogo, 'PNG', 258, 1, 28, 28); } catch(e){} } }
@@ -472,3 +531,121 @@ const canvas = await html2canvas(target,{
   const stamp=new Date().toISOString().slice(0,10);
   pdf.save('Audit_Hub_'+stamp+'.png');
 }
+
+// Auto pre-load audit data in background after page loads
+setTimeout(function() {
+  if (typeof idbGet !== 'function' || typeof GraphClient === 'undefined') return;
+  idbGet('settings', 'audit_action_cache').then(function(cached) {
+      if (!cached || !cached.data || !cached.data.length) {
+        getAuditActionsForReport().catch(function() {});
+      }
+    }).catch(function() {});
+}, 2000);
+
+// ===== BUILD AUDIT MASTER JSON =====
+// Reads all Closed/ files and writes them to audit_master.json on SharePoint.
+// The audit hub then reads this single file instead of 43 individual files.
+window.buildAuditMaster = async function() {
+  if (typeof GraphClient === 'undefined' || typeof BirdsAuth === 'undefined' || !BirdsAuth.isLoggedIn()) return;
+  try {
+    var closed = await readJsonFolder('Closed');
+    if (!closed || !closed.length) { console.log('[AuditMaster] No closed files to build'); return; }
+    var master = { version: 1, generated: new Date().toISOString(), fileCount: closed.length, files: [], actions: [] };
+    var allActions = [];
+    closed.forEach(function(f) {
+      if (f.actions) {
+        f.actions.forEach(function(a) {
+          allActions.push({
+            storeName: f.storeName, storeEmail: f.storeEmail, date: f.date, week: f.week, year: f.year,
+            questionId: a.questionId, sector: a.sector, category: a.category,
+            question: a.question, answer: a.answer, description: a.description,
+            personResponsible: a.personResponsible, actionNeeded: a.actionNeeded,
+            status: 'Closed', closedOn: a.closedOn || '', howClosed: a.howClosed || '',
+            extraComment: a.extraComment || '', critical: a.critical || 'No'
+          });
+        });
+      }
+    });
+    master.actions = allActions;
+    var jsonText = JSON.stringify(master, null, 2);
+    var ok = await GraphClient.writeFile('audit_master.json', jsonText);
+    if (ok) {
+      console.log('[AuditMaster] Built with', allActions.length, 'closed actions from', closed.length, 'files');
+      // Delete processed Closed/ files — they're now in the master
+      for (var di = 0; di < closed.length; di++) {
+        var fn = closed[di]._fileName;
+        if (fn) { try { await GraphClient.deleteFile('Closed/' + fn); } catch(e) {} }
+      }
+      console.log('[AuditMaster] Deleted', closed.length, 'processed Closed/ files');
+    }
+    return ok;
+  } catch(e) { console.warn('[AuditMaster] Build failed:', e.message); return false; }
+};
+
+// ===== DELETE OPEN ACTION =====
+// Removes a single action from its source Open/ file on SharePoint.
+window.deleteAuditAction = async function(actionId) {
+  var a = __auditHubCache.find(function(x) { return String(x.ActionID) === String(actionId); });
+  if (!a) return;
+  if (!confirm('Delete this open action for ' + a.Store + '? This cannot be undone.')) return;
+  if (!a._sourceFile || !a._sourceQuestionId) { alert('Cannot delete — source file not tracked.'); return; }
+  try {
+    var text = await GraphClient.readFile('Open/' + a._sourceFile);
+    if (!text) { alert('Source file not found on server.'); return; }
+    var file = JSON.parse(text);
+    if (!file.actions || !file.actions.length) { alert('No actions in source file.'); return; }
+    file.actions = file.actions.filter(function(x) { return x.questionId !== a._sourceQuestionId; });
+    if (file.actions.length === 0) {
+      await GraphClient.deleteFile('Open/' + a._sourceFile);
+      console.log('[Audit] Deleted empty file:', a._sourceFile);
+    } else {
+      await GraphClient.writeFile('Open/' + a._sourceFile, JSON.stringify(file, null, 2));
+      console.log('[Audit] Removed action from', a._sourceFile, '—', file.actions.length, 'remaining');
+    }
+    // Invalidate cache and refresh
+    try { await idbPut('settings', { id: 'audit_action_cache', data: [], ts: 0 }); } catch(e) {}
+    __auditHubCache = __auditHubCache.filter(function(x) { return String(x.ActionID) !== String(actionId); });
+    refreshAuditHubBody();
+  } catch(e) {
+    console.warn('[Audit] Delete failed:', e);
+    alert('Delete failed: ' + e.message);
+  }
+};
+
+// ===== AUTO-CLOSE TRAINING ACTIONS > 7 DAYS =====
+// Safety net: training actions older than 7 days are auto-closed as failed.
+window.autoCloseTrainingActions = async function() {
+  if (typeof GraphClient === 'undefined' || typeof BirdsAuth === 'undefined' || !BirdsAuth.isLoggedIn()) return;
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  var cutoffStr = cutoff.toISOString().slice(0, 10);
+  var changed = false;
+  try {
+    var items = await GraphClient.listJsonFiles('Open');
+    for (var i = 0; i < items.length; i++) {
+      var text = await GraphClient.readFile('Open/' + items[i].name);
+      if (!text) continue;
+      var file = JSON.parse(text);
+      if (!file.isTraining || !file.actions || !file.actions.length) continue;
+      var fileDate = file.date || '';
+      if (fileDate && fileDate <= cutoffStr) {
+        // Close all actions in this training file
+        file.actions.forEach(function(a) {
+          if (a.status !== 'Closed') {
+            a.status = 'Closed';
+            a.closedOn = new Date().toISOString().slice(0, 10);
+            a.howClosed = a.howClosed || 'Auto-closed: training action exceeded 7-day limit';
+          }
+        });
+        // Move to Closed folder
+        await GraphClient.writeFile('Closed/' + items[i].name, JSON.stringify(file, null, 2));
+        await GraphClient.deleteFile('Open/' + items[i].name);
+        console.log('[Audit] Auto-closed training file:', items[i].name);
+        changed = true;
+      }
+    }
+    if (changed) {
+      try { await idbPut('settings', { id: 'audit_action_cache', data: [], ts: 0 }); } catch(e) {}
+    }
+  } catch(e) { console.warn('[Audit] Training auto-close failed:', e); }
+};

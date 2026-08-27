@@ -349,7 +349,7 @@ window.renderComplaintsHub = function(){
                         <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Date</th>
                         <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Store</th>
                         <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Responsible Person</th>
-                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Customer Info</th>
+                        <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Details</th>
                         <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Category</th>
                         <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Complaint Details</th>
                         <th style="color: var(--birds-text-light); font-family: var(--birds-font-display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--edwardian-rule)" class="p-4">Voucher</th>
@@ -542,7 +542,7 @@ window.renderComplaintsTable = function() {
             <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-4 text-sm font-bold whitespace-nowrap align-top">${formatComplaintDate(c['Date of complaint'])}</td>
             <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-4 text-sm font-black align-top">${escapeHtml(c['Shop bought from'] || 'Unknown')}</td>
             <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-2 text-xs font-bold align-top">${escapeHtml(c['Responsible person'] || '-')}</td>
-            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-2 text-sm align-top w-40"><div class="font-bold mb-1" style="color: var(--edwardian-ink)">${escapeHtml(c['Customer full name'] || 'Anonymous')}</div><div class="text-xs break-all opacity-80">${escapeHtml(c['Contact Details'] || '')}</div></td>
+            <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-2 text-sm align-top w-40"><div class="text-xs opacity-80">${escapeHtml(c['Type of complaint'] || '')}${c['Product Type'] ? ' — ' + escapeHtml(c['Product Type']) : ''}</div></td>
             <td style="border-bottom: 1px solid var(--edwardian-rule)" class="p-4 align-top"><div class="flex flex-col gap-1 items-start">${typeClean ? '<span style="background: var(--edwardian-sage-pale); color: var(--edwardian-sage-dark)" class="px-2 py-0.5 rounded text-xs font-bold">'+escapeHtml(typeClean)+'</span>' : ''}${prodClean ? '<span style="background: var(--edwardian-sage-pale); color: var(--edwardian-sage-dark); border: 1px solid var(--edwardian-rule)" class="px-2 py-0.5 rounded text-xs font-bold">'+escapeHtml(prodClean)+'</span>' : ''}</div></td>
             <td style="border-bottom: 1px solid var(--edwardian-rule); color: var(--edwardian-ink)" class="p-4 align-top"><div class="text-sm font-medium max-w-[320px]">${typeClean || prodClean ? (escapeHtml(typeClean) + (prodClean ? ' \u2022 ' + escapeHtml(prodClean) : '')) : 'Complaint Logged'}</div></td>
             <td style="border-bottom: 1px solid var(--edwardian-rule)" class="p-4 align-top">${voucherBadge}</td>
@@ -571,7 +571,7 @@ async function generateComplaintsDetailedPDF() {
     function findComplaintDetail(row) {
         const candidates = ['Complaint detail','Complaint details','Detail','Details','Description','Additional details','Additional Details','Complaint Description','Complaint narrative','Complaint Narrative','Notes','Complaint notes'];
         for (const k of candidates) { if (row[k] && String(row[k]).trim()) return row[k]; }
-        const skip = new Set(['Shop bought from','Date of complaint','Responsible person','Customer full name','Contact Details','Type of complaint','Product Type','Status','Area manager','Area Manager','Store manager','Manager']);
+        const skip = new Set(['Shop bought from','Date of complaint','Responsible person','Customer full name','Contact Details','Type of complaint','Product Type','Status','Area manager','Area Manager','Store manager','Manager','Customer full name','Contact Details']);
         for (const k of Object.keys(row)) { if (skip.has(k)) continue; const v = String(row[k] || '').trim(); if (v.length > 10 && !/^(yes|no|open|closed|resolved|awaiting|unresolved)$/i.test(v)) return v; }
         return '';
     }
@@ -713,7 +713,7 @@ async function generateComplaintsDetailedPDF() {
         doc.text(formatComplaintDate(c['Date of complaint']), metaX, ty);
         doc.text(c['Shop bought from'] || 'Unknown', metaX + 25, ty);
         doc.text(cleanBrackets(c['Type of complaint']) || '-', metaX + 70, ty);
-        doc.text(c['Customer full name'] || 'Anonymous', metaX + 115, ty);
+        doc.text(c['Product Type'] || '-', metaX + 115, ty);
 
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6);
@@ -1035,7 +1035,6 @@ async function generateComplaintsPDF() {
             week,
             (c['Shop bought from'] || 'Unknown').substring(0, 20),
             cleanBrackets(c['Type of complaint']) || '-',
-            (c['Customer full name'] || 'Anon').substring(0, 15),
             status,
             resolveDays,
             voucher > 0 ? formatVoucherTotal(voucher) : '-'
@@ -1044,7 +1043,7 @@ async function generateComplaintsPDF() {
 
     doc.autoTable({
         startY: y,
-        head: [['Date', 'Week', 'Store', 'Type', 'Customer', 'Status', 'Resolve Time', 'Voucher']],
+        head: [['Date', 'Week', 'Store', 'Type', 'Status', 'Resolve Time', 'Voucher']],
         body: detailBody,
         styles: { fontSize: 6.5, cellPadding: 1.5 },
         headStyles: { fillColor: SAGE, fontSize: 7, fontStyle: 'bold' },

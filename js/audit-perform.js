@@ -139,7 +139,8 @@ function auditSectorMetrics(sid) {
 }
 
 function auditOverallMetrics() {
-  var totalAccrued = 0, totalMax = 0, totalAnswered = 0, totalOpen = 0, totalCritical = 0, totalPenalty = 0;
+  var totalAccrued = 0, totalMax = 0, totalAnswered = 0, totalPassed = 0, totalFailed = 0, totalOpen = 0, totalCritical = 0, totalPenalty = 0;
+  var sectorsFailed = 0;
   var sectorData = [];
   auditSectorKeys().forEach(function(sid) {
     var m = auditSectorMetrics(sid);
@@ -147,6 +148,9 @@ function auditOverallMetrics() {
     totalOpen += m.open;
     totalCritical += m.criticalCount;
     totalPenalty += m.penalty;
+    totalPassed += m.passes;
+    totalFailed += m.fails;
+    if (m.failed) sectorsFailed++;
     if (!m.answered) return;
     totalAnswered += m.answered;
     if (m.failed) return;
@@ -154,7 +158,7 @@ function auditOverallMetrics() {
     totalMax += m.max;
   });
   var pct = totalMax ? Math.round((totalAccrued / totalMax) * 100) : 0;
-  return { totalAccrued: totalAccrued, totalMax: totalMax, totalAnswered: totalAnswered, totalOpen: totalOpen, totalCritical: totalCritical, totalPenalty: totalPenalty, pct: pct, sectorData: sectorData };
+  return { totalAccrued: totalAccrued, totalMax: totalMax, totalAnswered: totalAnswered, totalOpen: totalOpen, totalCritical: totalCritical, totalPenalty: totalPenalty, pct: pct, sectorData: sectorData, penalisedPct: pct, totalScore: totalAccrued, answered: totalAnswered, passed: totalPassed, failed: totalFailed, totalFailed: sectorsFailed };
 }
 
 function auditGetActions() {
@@ -273,7 +277,6 @@ function renderAuditMetaView() {
   var stores = [];
   originalStoreNames.forEach(function(name, id) {
     var am = storeMap.get(id) || 'Unassigned';
-    if (am === 'Unassigned') return;
     stores.push({ id: id, name: name, am: am });
   });
   stores.sort(function(a, b) { return a.name.localeCompare(b.name); });
@@ -358,7 +361,7 @@ function renderAuditMetaView() {
         </div>
         <div class="mb-4">
           <label class="text-xs font-black text-slate-500 uppercase">Audit Summary (optional)</label>
-          <textarea id="auditSummary" maxlength="300" rows="2" placeholder="Overall notes..." class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm mt-1">${escapeHtml(meta.summary || '')}</textarea>
+          <textarea id="auditSummary" maxlength="1000" rows="2" placeholder="Overall notes..." class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm mt-1">${escapeHtml(meta.summary || '')}</textarea>
         </div>
       </div>
 
@@ -1074,7 +1077,7 @@ function buildActionRows(state) {
         var hasAction = q.action && q.action.enabled;
         rows.push({
           'Store Name': state.storeName,
-          'Store Email': auditEmailForStore(state.storeName) || state.email || '',
+          'Store Email': state.email || auditEmailForStore(state.storeName) || '',
           'Auditor': state.auditor || '',
           'Manager': state.manager || '',
           'Date': state.date || '',
@@ -1128,7 +1131,16 @@ async function writeAuditActionsToXlsx(state) {
       metrics.sectorData.forEach(function(s) { sectorScores[s.id] = s.metrics ? s.metrics.penalisedPct : 0; });
     }
 
-    var storeEmail = auditEmailForStore(state.storeName);
+    // Use stored email from stores table if available, otherwise derive from name
+    var storeEmail = state.email || '';
+    if (!storeEmail) {
+      try {
+        var storeRec = await idbGet('stores', state.branchId);
+        if (storeRec && storeRec.email) storeEmail = storeRec.email;
+      } catch(e) {}
+    }
+    if (!storeEmail) storeEmail = auditEmailForStore(state.storeName);
+
     var payload = {
       storeName: state.storeName, storeEmail: storeEmail,
       auditor: state.auditor, manager: state.manager, areaManager: state.areaManager || '',
@@ -1140,15 +1152,20 @@ async function writeAuditActionsToXlsx(state) {
         birdsFocus: sectorScores.focus || null
       },
       actions: actionItems.map(function(a) {
+        var ans = a.answer || '';
+        // Match Closed folder format: answer as JSON array string
+        try { JSON.parse(ans); } catch(e) { ans = JSON.stringify([ans]); }
         return {
           questionId: a.questionId || '', sector: a.sector || '', category: a.category || '',
-          question: a.question || '', answer: a.answer || '',
+          question: a.question || '', answer: ans,
+          weight: 1, questionScore: ans === '["Pass"]' ? 1 : 0, questionMaxScore: 1,
           description: (a.action && a.action.description) || '',
           personResponsible: (a.action && a.action.person) || '',
           actionNeeded: (a.action && a.action.actionNeeded) || '',
           status: (a.action && a.action.status) || 'Open',
+          closedOn: '', howClosed: '',
           critical: (a.action && a.action.critical) ? 'Yes' : 'No',
-          extraComment: '', auditEmailSent: ''
+          extraComment: '', auditEmailSent: false
         };
       })
     };
@@ -1170,6 +1187,11 @@ async function writeAuditActionsToXlsx(state) {
         var written = await GraphClient.writeFile('Open/' + fileName, jsonStr);
         if (written) {
           console.log('[Audit Actions] Written to SharePoint Open/ — ' + fileName);
+
+          // Trigger audit master rebuild in background (picks up any new closed files)
+          if (typeof window.buildAuditMaster === 'function') {
+            setTimeout(function() { window.buildAuditMaster().catch(function() {}); }, 2000);
+          }
           return { method: 'folder', count: payload.actions.length };
         }
       } catch(e) { console.warn('[Audit Actions] SharePoint write failed:', e.message); }
@@ -1187,17 +1209,14 @@ async function readJsonFolder(folderName) {
   if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
     try {
       var items = await GraphClient.listJsonFiles(folderName);
-      var results = [];
-      for (var item of items) {
-        try {
-          var text = await GraphClient.readFile(folderName + '/' + item.name);
-          if (text) {
-            var data = JSON.parse(text);
-            data._fileName = item.name;
-            results.push(data);
-          }
-        } catch(e) {}
-      }
+      // Read all files in parallel (was sequential — 70+ files took minutes)
+      var reads = items.map(function(item) {
+        return GraphClient.readFile(folderName + '/' + item.name).then(function(text) {
+          if (text) { try { var data = JSON.parse(text); data._fileName = item.name; return data; } catch(e) {} }
+          return null;
+        }).catch(function() { return null; });
+      });
+      var results = (await Promise.all(reads)).filter(function(r) { return r !== null; });
       if (results.length) return results;
     } catch(e) {}
   }
@@ -1345,280 +1364,350 @@ function getISOWeek(date) {
   return 1 + Math.round(((d - week1) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
-// === PDF GENERATION (Portrait, jsPDF, Auto-Download) ===
+// === PDF GENERATION — Professional Branded Audit Report ===
 
 async function auditGeneratePDF() {
   if (typeof window.jspdf === 'undefined') { alert('PDF library not loaded'); return; }
   var { jsPDF } = window.jspdf;
   var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  var W = 210, H = 297, M = 15, CW = W - 2 * M;
-  var x0 = M, x1 = M + CW;
+  var W = 210, H = 297, M = 15, CW = W - 2 * M, x0 = M, x1 = W - M, FONT = 'helvetica';
   var y = M;
-  var FONT = 'helvetica';
 
-  function checkPage(h) { if (y + h > H - M) { doc.addPage(); y = M; } }
+  var GREEN = [135, 157, 130], GREEN_DARK = [106, 125, 102], GREEN_LIGHT = [232, 238, 230];
+  var ORANGE = [195, 127, 78], RED = [164, 119, 114], BG = [244, 243, 239];
+  var DARK = [60, 60, 60], MID = [100, 100, 100], LIGHT = [150, 150, 150], WHITE = [255, 255, 255];
 
+  var FOOTER_H = 14;
+  function checkPage(h) { if (y + h > H - FOOTER_H - M) { doc.addPage(); y = M; } }
   function bold() { doc.setFont(FONT, 'bold'); }
   function normal() { doc.setFont(FONT, 'normal'); }
-  function size(s) { doc.setFontSize(s); }
-  function color(r, g, b) { doc.setTextColor(r, g, b); }
-  function fill(r, g, b) { doc.setFillColor(r, g, b); }
-  function text(s, x, y_, opts) { doc.text(s, x, y_, opts || {}); }
-  function wrap(s, w) { return doc.splitTextToSize(s, w); }
-  function textW(s) { return doc.getTextWidth(s); }
+  function sz(s) { doc.setFontSize(s); }
+  function clr(r, g, b) { doc.setTextColor(r, g, b); }
+  function fl(r, g, b) { doc.setFillColor(r, g, b); }
+  function tx(s, x, y_, o) { doc.text(String(s), x, y_, o || {}); }
+  function wr(s, w) { return doc.splitTextToSize(String(s), w); }
+  function tw(s) { return doc.getTextWidth(String(s)); }
 
-  // ============================
-  // PAGE 1 — Scorecard
-  // ============================
-  fill(135, 157, 130); doc.rect(0, 0, W, 32, 'F');
-  color(255, 255, 255); size(20); bold();
-  text('Retail Audit Report', x0, 14);
-  size(10); normal();
-  text(auditState.storeName + ' — ' + auditState.date, x0, 22);
-  y = 42;
-
-  // Metadata grid
-  color(60, 60, 60); size(9);
-  var mLabels = ['Store', 'Area Manager', 'Manager', 'Auditor'];
-  var mValues = [auditState.storeName, auditState.areaManager, auditState.manager, auditState.auditor];
-  for (var mi = 0; mi < 4; mi++) {
-    var mc = mi % 2, mr = Math.floor(mi / 2);
-    var mxx = x0 + mc * (CW / 2);
-    bold(); text(mLabels[mi] + ':', mxx, y + mr * 11);
-    normal();
-    var mv = (mValues[mi] || '—') + '';
-    text(mv, mxx + 28, y + mr * 11);
-  }
-  y += 28;
-
-  // Summary
-  if (auditState.summary) {
-    checkPage(12);
-    color(60, 60, 60); size(8); normal();
-    var sumW = wrap('Summary: ' + auditState.summary, CW);
-    text(sumW, x0, y); y += sumW.length * 3.5 + 2;
+  function makeDonut(pct, colorRGB, sizePx) {
+    var c = document.createElement('canvas');
+    c.width = sizePx; c.height = sizePx;
+    var ctx = c.getContext('2d');
+    var cx = sizePx / 2, cy = sizePx / 2, r = sizePx * 0.38, lw = sizePx * 0.13;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = lw; ctx.strokeStyle = '#E8E6E1'; ctx.stroke();
+    if (pct > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.min(pct, 100) / 100 * Math.PI * 2);
+      ctx.lineWidth = lw; ctx.strokeStyle = 'rgb(' + colorRGB.join(',') + ')'; ctx.stroke();
+    }
+    return c.toDataURL('image/png');
   }
 
-  // Overall score card
+  function scoreRGB(pct, failed) {
+    if (failed) return RED;
+    if (pct >= 95) return GREEN;
+    if (pct >= 80) return ORANGE;
+    return RED;
+  }
+
+  function drawPageFooter(pg, total) {
+    doc.setPage(pg);
+    fl(GREEN[0], GREEN[1], GREEN[2]);
+    doc.rect(0, H - FOOTER_H, W, FOOTER_H, 'F');
+    clr(255, 255, 255); sz(6.5); normal();
+    tx('Birds Bakery  |  Retail Audit  |  Confidential', x0, H - 4.5);
+    tx('Page ' + pg + ' of ' + total, x1, H - 4.5, { align: 'right' });
+    tx(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }), W / 2, H - 4.5, { align: 'center' });
+  }
+
+  // ========== Preload data ==========
   var overall = auditOverallMetrics();
-  checkPage(32);
-  fill(251, 250, 246); doc.roundedRect(x0, y, CW, 26, 3, 3, 'F');
-  size(28); bold(); color(135, 157, 130);
-  text(overall.pct + '%', x0 + 6, y + 18);
-  size(10); color(100, 100, 100); normal();
-  text('Overall Score (' + overall.totalMax + ' max pts)', x0 + 52, y + 11);
-  if (overall.totalCritical > 0) {
-    color(164, 119, 114); bold(); size(9);
-    var cl = overall.totalCritical + ' critical items, penalty -' + overall.totalPenalty + '%';
-    text(cl, x0 + 52, y + 19);
-  }
-  y += 32;
-
-  // Sector scores
-  checkPage(20);
-  size(11); bold(); color(40, 40, 40);
-  text('Sector Scores', x0, y); y += 7;
-  var ansSectors = overall.sectorData.filter(function(s) { return s.metrics.totalQuestions > 0 && s.metrics.answered > 0; });
-  if (ansSectors.length === 0) ansSectors = overall.sectorData;
-  var sw = CW / Math.min(ansSectors.length, 6) - 2;
-  ansSectors.forEach(function(s, si) {
-    var sx = x0 + si * (sw + 2);
-    var rgb = s.metrics.failed ? [164, 119, 114] : s.metrics.penalisedPct >= 95 ? [96, 117, 95] : s.metrics.penalisedPct >= 90 ? [96, 117, 95] : s.metrics.penalisedPct >= 80 ? [193, 127, 78] : [164, 119, 114];
-    fill(rgb[0], rgb[1], rgb[2]); doc.roundedRect(sx, y, sw, 18, 2, 2, 'F');
-    size(11); bold(); color(60, 60, 60);
-    text(s.metrics.penalisedPct + '%', sx + sw / 2, y + 8, { align: 'center' });
-    size(6); normal();
-    var st = s.title.length > 10 ? s.title.substring(0, 9) + '..' : s.title;
-    text(st, sx + sw / 2, y + 14, { align: 'center' });
-  });
-  y += 25;
-
-  // ============================
-  // PAGE 2+ — Action Plan
-  // ============================
   var allActions = auditGetActions();
   var critActs = allActions.filter(function(a) { return a.action.critical; });
   var nonCritActs = allActions.filter(function(a) { return !a.action.critical; });
-
-  // Critical actions
-  if (critActs.length > 0) {
-    checkPage(12);
-    doc.addPage(); y = M;
-    fill(164, 119, 114); doc.rect(0, 0, W, 14, 'F');
-    color(255, 255, 255); size(12); bold();
-    text('Critical Actions (' + critActs.length + ')', x0, 10);
-    y = 22;
-
-    for (var ci = 0; ci < critActs.length; ci++) {
-      var item = critActs[ci];
-      var photos = [item.photos[0], item.photos[1], item.photos[2]].filter(Boolean);
-      var descW = wrap(item.action.description || item.question, CW - 14);
-      var infoH = descW.length * 3 + 4 + 4 + 3 + 3;
-      var photoH = photos.length > 0 ? 52 : 0;
-      var cardH = infoH + photoH + 10;
-      checkPage(cardH + 4);
-
-      fill(251, 250, 246); doc.roundedRect(x0, y, CW, cardH, 2, 2, 'F');
-      fill(164, 119, 114); doc.roundedRect(x0, y, 4, cardH, 1, 1, 'F');
-      var cy = y + 4;
-      size(8); bold(); color(60, 60, 60);
-      var hd = item.sector + ' > ' + item.category;
-      text(hd + ' [CRITICAL]', x0 + 6, cy);
-      cy += 4;
-      size(7); normal(); color(80, 80, 80);
-      text(descW, x0 + 6, cy);
-      cy += descW.length * 3 + 1;
-      size(6); color(100, 100, 100);
-      text('Resp: ' + (item.action.person || '—'), x0 + 6, cy); cy += 3;
-      text('Status: ' + (item.action.status || 'Open'), x0 + 6, cy); cy += 3;
-      text('Action: ' + (item.action.actionNeeded || '—'), x0 + 50, cy - 3);
-      text('Closed: ' + (item.action.closedOn || '—'), x0 + 50, cy);
-
-      if (photos.length > 0) {
-        var px = x0 + 6;
-        var py = cy + 2;
-        for (var pi = 0; pi < photos.length; pi++) {
-          if (px + 72 > x1) break;
-          try { await addPhotoToDoc(doc, photos[pi], px, py, 72, 48); } catch(e) {}
-          px += 75;
-        }
-      }
-      y += cardH + 4;
-    }
-  }
-
-  // Non-critical actions
-  if (nonCritActs.length > 0) {
-    doc.addPage(); y = M;
-    fill(193, 127, 78); doc.rect(0, 0, W, 14, 'F');
-    color(255, 255, 255); size(12); bold();
-    text('Action Items (' + nonCritActs.length + ')', x0, 10);
-    y = 22;
-
-    for (var ni = 0; ni < nonCritActs.length; ni++) {
-      var nitem = nonCritActs[ni];
-      var nphotos = [nitem.photos[0], nitem.photos[1], nitem.photos[2]].filter(Boolean);
-      var ndescW = wrap(nitem.action.description || nitem.question, CW - 14);
-      var ninfoH = ndescW.length * 3 + 4 + 4 + 3 + 3;
-      var nphotoH = nphotos.length > 0 ? 52 : 0;
-      var ncardH = ninfoH + nphotoH + 10;
-      checkPage(ncardH + 4);
-
-      fill(251, 250, 246); doc.roundedRect(x0, y, CW, ncardH, 2, 2, 'F');
-      var ncy = y + 4;
-      size(8); bold(); color(60, 60, 60);
-      var nhd = nitem.sector + ' > ' + nitem.category;
-      text(nhd, x0 + 6, ncy);
-      ncy += 4;
-      size(7); normal(); color(80, 80, 80);
-      text(ndescW, x0 + 6, ncy);
-      ncy += ndescW.length * 3 + 1;
-      size(6); color(100, 100, 100);
-      text('Resp: ' + (nitem.action.person || '—'), x0 + 6, ncy); ncy += 3;
-      text('Status: ' + (nitem.action.status || 'Open'), x0 + 6, ncy); ncy += 3;
-      text('Action: ' + (nitem.action.actionNeeded || '—'), x0 + 50, ncy - 3);
-      text('Closed: ' + (nitem.action.closedOn || '—'), x0 + 50, ncy);
-
-      if (nphotos.length > 0) {
-        var npx = x0 + 6;
-        var npy = ncy + 2;
-        for (var npi = 0; npi < nphotos.length; npi++) {
-          if (npx + 72 > x1) break;
-          try { await addPhotoToDoc(doc, nphotos[npi], npx, npy, 72, 48); } catch(e) {}
-          npx += 75;
-        }
-      }
-      y += ncardH + 4;
-    }
-  }
-
-  // ============================
-  // PAGE — Comments & Evidence
-  // ============================
   var comments = auditCollectAllComments();
 
-  if (comments.withPhotos.length > 0) {
+  // ========== PAGE 1 — COVER ==========
+  fl(GREEN[0], GREEN[1], GREEN[2]);
+  doc.rect(0, 0, W, 40, 'F');
+  fl(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]);
+  doc.rect(0, 40, W, 2, 'F');
+  clr(255, 255, 255); sz(24); bold();
+  tx('Retail Audit Report', x0, 17);
+  sz(11); normal();
+  tx(auditState.storeName, x0, 27);
+  tx(auditState.date, x1, 27, { align: 'right' });
+  sz(8);
+  tx('Birds Bakery Limited', x0, 35);
+  tx('Generated ' + new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }), x1, 35, { align: 'right' });
+
+  y = 48;
+
+  // Metadata
+  clr(DARK[0], DARK[1], DARK[2]); sz(8);
+  var mData = [
+    ['Store', auditState.storeName], ['Audit Date', auditState.date],
+    ['Area Manager', auditState.areaManager], ['Store Manager', auditState.manager],
+    ['Auditor', auditState.auditor], ['Type', auditState.auditType || 'Full Audit']
+  ];
+  fl(BG[0], BG[1], BG[2]); doc.roundedRect(x0, y - 2, CW, 22, 2, 2, 'F');
+  mData.forEach(function(row, i) {
+    var col = i % 2, r = Math.floor(i / 2);
+    var mx = x0 + 6 + col * (CW / 2);
+    var my = y + 4 + r * 7;
+    bold(); tx(row[0] + ':', mx, my);
+    normal(); tx((row[1] || '—') + '', mx + 32, my);
+  });
+  y += 26;
+
+  if (auditState.summary) {
+    var sumLines = wr('Summary: ' + auditState.summary, CW - 10);
+    var sumH = sumLines.length * 3.5 + 6;
+    fl(BG[0], BG[1], BG[2]); doc.roundedRect(x0, y, CW, sumH, 2, 2, 'F');
+    clr(MID[0], MID[1], MID[2]); sz(7.5); normal();
+    tx(sumLines, x0 + 5, y + 5);
+    y += sumH + 4;
+  }
+
+  // Overall Score Hero
+  var scoreRGB_ = scoreRGB(overall.penalisedPct, overall.totalFailed);
+  var donutImg = makeDonut(overall.penalisedPct, scoreRGB_, 400);
+  var cardH = 48;
+  fl(WHITE[0], WHITE[1], WHITE[2]); doc.roundedRect(x0, y, CW, cardH, 3, 3, 'F');
+  doc.setDrawColor(GREEN_LIGHT[0], GREEN_LIGHT[1], GREEN_LIGHT[2]); doc.roundedRect(x0, y, CW, cardH, 3, 3, 'S');
+
+  doc.addImage(donutImg, 'PNG', x0 + 8, y + 6, 36, 36);
+  clr(DARK[0], DARK[1], DARK[2]); sz(20); bold();
+  tx(overall.penalisedPct + '%', x0 + 26, y + 27, { align: 'center' });
+
+  var sx = x0 + 52;
+  sz(12); bold(); tx('Overall Score', sx, y + 10);
+  sz(9); normal(); clr(MID[0], MID[1], MID[2]);
+  tx(overall.totalScore + ' / ' + overall.totalMax + ' points achieved', sx, y + 18);
+  tx(overall.answered + ' questions answered  |  ' + overall.passed + ' Pass  |  ' + overall.failed + ' Fail', sx, y + 25);
+
+  if (overall.totalCritical > 0) {
+    clr(RED[0], RED[1], RED[2]); sz(10); bold();
+    tx(overall.totalCritical + ' Critical Fail' + (overall.totalCritical > 1 ? 's' : ''), sx, y + 34);
+    normal(); sz(8);
+    tx('Penalty applied: -' + overall.totalPenalty + '%', sx, y + 40);
+  } else {
+    clr(GREEN[0], GREEN[1], GREEN[2]); sz(10); bold();
+    tx('No Critical Fails', sx, y + 34);
+    normal(); sz(8); clr(MID[0], MID[1], MID[2]);
+    tx('Sector thresholds met', sx, y + 40);
+  }
+  y += cardH + 6;
+
+  // Sector Scores
+  sz(11); bold(); clr(DARK[0], DARK[1], DARK[2]);
+  tx('Sector Breakdown', x0, y); y += 7;
+  var ansSectors = overall.sectorData.filter(function(s) { return s.metrics.answered > 0; });
+  if (!ansSectors.length) ansSectors = overall.sectorData;
+  var nSect = ansSectors.length;
+  var dSize = 24, dGap = (CW - nSect * dSize) / (nSect + 1);
+  if (dGap < 3) { dGap = 3; dSize = Math.floor((CW - (nSect - 1) * dGap) / nSect); }
+
+  ansSectors.forEach(function(s, i) {
+    var dx = x0 + dGap + i * (dSize + dGap);
+    var sc = scoreRGB(s.metrics.penalisedPct, s.metrics.failed);
+    var sd = makeDonut(s.metrics.penalisedPct, sc, 220);
+    doc.addImage(sd, 'PNG', dx, y, dSize, dSize);
+    clr(DARK[0], DARK[1], DARK[2]); sz(6.5); normal();
+    var nm = s.title.length > 14 ? s.title.substring(0, 13) + '..' : s.title;
+    tx(nm, dx + dSize / 2, y + dSize + 4, { align: 'center' });
+    bold(); sz(7);
+    tx(s.metrics.penalisedPct + '%', dx + dSize / 2, y + dSize + 9, { align: 'center' });
+    normal(); sz(5); clr(MID[0], MID[1], MID[2]);
+    tx(s.metrics.answered + ' answered', dx + dSize / 2, y + dSize + 13, { align: 'center' });
+  });
+  y += dSize + 20;
+
+  // Action Summary
+  if (allActions.length > 0) {
+    var openCt = 0, closedCt = 0;
+    allActions.forEach(function(a) {
+      var st = (a.action.status || 'Open');
+      var hasClose = !!(a.action.closedOn && String(a.action.closedOn).trim()) || !!(a.action.howClosed && String(a.action.howClosed).trim());
+      if (normalizeActionStatus(st) === 'Closed' || hasClose) closedCt++; else openCt++;
+    });
+
+    sz(11); bold(); clr(DARK[0], DARK[1], DARK[2]);
+    tx('Action Summary', x0, y); y += 7;
+    fl(WHITE[0], WHITE[1], WHITE[2]); doc.roundedRect(x0, y, CW, 14, 2, 2, 'F');
+    doc.setDrawColor(GREEN_LIGHT[0], GREEN_LIGHT[1], GREEN_LIGHT[2]); doc.roundedRect(x0, y, CW, 14, 2, 2, 'S');
+    sz(9); normal();
+    var bx = x0 + 10;
+    clr(DARK[0], DARK[1], DARK[2]); bold(); tx('Total: ' + allActions.length, bx, y + 9);
+    clr(RED[0], RED[1], RED[2]); tx('Open: ' + openCt, bx + 40, y + 9);
+    clr(GREEN[0], GREEN[1], GREEN[2]); tx('Closed: ' + closedCt, bx + 80, y + 9);
+    if (critActs.length > 0) { clr(RED[0], RED[1], RED[2]); bold(); tx('Critical: ' + critActs.length, bx + 130, y + 9); }
+    y += 20;
+  }
+
+  // ========== ACTION CARDS ==========
+  function drawSectionBanner(text, colorRGB) {
+    checkPage(18);
+    fl(colorRGB[0], colorRGB[1], colorRGB[2]);
+    doc.roundedRect(x0, y, CW, 10, 2, 2, 'F');
+    clr(255, 255, 255); sz(10); bold();
+    tx(text, x0 + 5, y + 7);
+    y += 14;
+  }
+
+  async function drawActionCard(item, isCritical) {
+    var accent = isCritical ? RED : ORANGE;
+    var photos = (item.photos || []).filter(Boolean);
+    var desc = item.action.description || item.question || '';
+    var actionText = item.action.actionNeeded || '';
+    var resp = item.action.person || item.action.personResponsible || '—';
+    var closedOn = item.action.closedOn || '';
+    var howClosed = item.action.howClosed || '';
+    var extraComment = item.action.extraComment || '';
+    var isClosed = normalizeActionStatus(item.action.status || 'Open') === 'Closed' || (closedOn && String(closedOn).trim()) || (howClosed && String(howClosed).trim());
+
+    var descLines = wr(desc, CW - 16);
+    var actLines = actionText ? wr(actionText, CW - 16) : [];
+    var closeInfo = (closedOn || howClosed) ? 'Closed: ' + (closedOn || '—') + (howClosed ? ' — ' + howClosed : '') : '';
+    var closeLines = closeInfo ? wr(closeInfo, CW - 16) : [];
+    var infoH = 6 + descLines.length * 3.2 + 2 + actLines.length * 3.2 + 2 + closeLines.length * 3.2;
+    var photoH = photos.length > 0 ? 36 : 0;
+    var cardH = infoH + photoH + 12;
+    checkPage(cardH + 4);
+
+    fl(WHITE[0], WHITE[1], WHITE[2]); doc.roundedRect(x0, y, CW, cardH, 2, 2, 'F');
+    doc.setDrawColor(GREEN_LIGHT[0], GREEN_LIGHT[1], GREEN_LIGHT[2]); doc.roundedRect(x0, y, CW, cardH, 2, 2, 'S');
+    fl(accent[0], accent[1], accent[2]); doc.roundedRect(x0, y, 3, cardH, 1, 1, 'F');
+
+    var cy = y + 5;
+    clr(DARK[0], DARK[1], DARK[2]); sz(7.5); bold();
+    tx(item.sector + '  >  ' + item.category, x0 + 7, cy);
+
+    var badgeText = isClosed ? 'CLOSED' : 'OPEN';
+    var badgeRGB = isClosed ? GREEN : accent;
+    fl(badgeRGB[0], badgeRGB[1], badgeRGB[2]);
+    var bw = tw(badgeText) + 7;
+    doc.roundedRect(x1 - bw - 3, cy - 4, bw, 5.5, 1.5, 1.5, 'F');
+    clr(255, 255, 255); sz(5); bold();
+    tx(badgeText, x1 - bw - 3 + 3.5, cy - 0.5);
+
+    if (isCritical) {
+      clr(RED[0], RED[1], RED[2]); sz(5.5); bold();
+      tx('CRITICAL', x1 - bw - 28, cy - 0.5);
+    }
+    cy += 5;
+
+    clr(MID[0], MID[1], MID[2]); sz(7); normal();
+    tx(descLines, x0 + 7, cy); cy += descLines.length * 3.2 + 2;
+
+    if (actLines.length) {
+      clr(DARK[0], DARK[1], DARK[2]); sz(6); bold();
+      tx('Action Required:', x0 + 7, cy); cy += 3.5;
+      normal(); clr(MID[0], MID[1], MID[2]);
+      tx(actLines, x0 + 7, cy); cy += actLines.length * 3.2 + 2;
+    }
+
+    if (closeLines.length) {
+      clr(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]); sz(6); bold();
+      tx(closeLines, x0 + 7, cy); cy += closeLines.length * 3.2 + 1;
+    }
+
+    clr(LIGHT[0], LIGHT[1], LIGHT[2]); sz(5); normal();
+    tx('Responsible: ' + resp, x0 + 7, cy); cy += 5;
+
+    if (photos.length > 0) {
+      var px = x0 + 7, pw = Math.min(56, (CW - 14) / Math.min(photos.length, 3) - 3);
+      for (var pi = 0; pi < Math.min(photos.length, 3); pi++) {
+        if (px + pw > x1) break;
+        try { await addPhotoToDoc(doc, photos[pi], px, cy, pw, pw * 0.75); } catch(e) {}
+        px += pw + 3;
+      }
+    }
+    y += cardH + 4;
+  }
+
+  if (critActs.length > 0) {
     doc.addPage(); y = M;
-    fill(135, 157, 130); doc.rect(0, 0, W, 14, 'F');
-    color(255, 255, 255); size(12); bold();
-    text('Comments & Evidence (' + comments.withPhotos.length + ')', x0, 10);
-    y = 22;
+    drawSectionBanner('Critical Actions  (' + critActs.length + ')', RED);
+    for (var ci = 0; ci < critActs.length; ci++) { await drawActionCard(critActs[ci], true); }
+  }
+
+  if (nonCritActs.length > 0) {
+    doc.addPage(); y = M;
+    drawSectionBanner('Action Items  (' + nonCritActs.length + ')', ORANGE);
+    for (var ni = 0; ni < nonCritActs.length; ni++) { await drawActionCard(nonCritActs[ni], false); }
+  }
+
+  // ========== COMMENTS & EVIDENCE ==========
+  if (comments.withPhotos.length > 0 || comments.withoutPhotos.length > 0) {
+    doc.addPage(); y = M;
+    drawSectionBanner('Comments & Evidence', GREEN);
 
     for (var cwi = 0; cwi < comments.withPhotos.length; cwi++) {
       var cv = comments.withPhotos[cwi];
       var cPhotos = [cv.photoThumb, cv.extraPhotoThumb, cv.extraPhoto2Thumb].filter(Boolean);
-      var cLines = cv.comment ? wrap(cv.comment, CW - 12) : [];
-      var ctextH = 4 + 4 + 4 + cLines.length * 3;
-      var cphotoH = cPhotos.length > 0 ? 52 : 0;
-      var cCardH = ctextH + cphotoH + 8;
+      var cLines = cv.comment ? wr(cv.comment, CW - 14) : [];
+      var cphotoH = cPhotos.length > 0 ? 38 : 0;
+      var cCardH = 12 + cLines.length * 3.2 + cphotoH + 4;
       checkPage(cCardH + 4);
 
-      fill(251, 250, 246); doc.roundedRect(x0, y, CW, cCardH, 2, 2, 'F');
+      fl(WHITE[0], WHITE[1], WHITE[2]); doc.roundedRect(x0, y, CW, cCardH, 2, 2, 'F');
+      doc.setDrawColor(GREEN_LIGHT[0], GREEN_LIGHT[1], GREEN_LIGHT[2]); doc.roundedRect(x0, y, CW, cCardH, 2, 2, 'S');
       var ccy = y + 4;
-      size(7); bold(); color(135, 157, 130);
-      text(cv.sector + ' > ' + cv.category, x0 + 6, ccy); ccy += 4;
-      size(6); normal(); color(80, 80, 80);
-      text(cv.question.substring(0, 100), x0 + 6, ccy); ccy += 4;
+      clr(GREEN[0], GREEN[1], GREEN[2]); sz(7); bold();
+      tx(cv.sector + '  >  ' + cv.category, x0 + 6, ccy); ccy += 4;
+      clr(MID[0], MID[1], MID[2]); sz(6); normal();
+      tx(cv.question.substring(0, 110), x0 + 6, ccy); ccy += 4;
       if (cv.comment) {
-        size(7); color(60, 60, 60);
-        text(cLines, x0 + 6, ccy);
-        ccy += cLines.length * 3 + 1;
+        clr(DARK[0], DARK[1], DARK[2]); sz(7);
+        tx(cLines, x0 + 6, ccy); ccy += cLines.length * 3.2 + 2;
       }
       if (cPhotos.length > 0) {
-        var cpx = x0 + 6;
-        var cpy = ccy + 2;
-        for (var cpi = 0; cpi < cPhotos.length; cpi++) {
-          if (cpx + 72 > x1) break;
-          try { await addPhotoToDoc(doc, cPhotos[cpi], cpx, cpy, 72, 48); } catch(e) {}
-          cpx += 75;
+        var cpx = x0 + 6, cpw = Math.min(56, (CW - 12) / Math.min(cPhotos.length, 3) - 3);
+        for (var cpi = 0; cpi < Math.min(cPhotos.length, 3); cpi++) {
+          if (cpx + cpw > x1) break;
+          try { await addPhotoToDoc(doc, cPhotos[cpi], cpx, ccy, cpw, cpw * 0.75); } catch(e) {}
+          cpx += cpw + 3;
         }
       }
       y += cCardH + 4;
     }
-  }
 
-  // Notes without photos
-  if (comments.withoutPhotos.length > 0) {
-    doc.addPage(); y = M;
-    fill(126, 137, 128); doc.rect(0, 0, W, 14, 'F');
-    color(255, 255, 255); size(12); bold();
-    text('Notes (' + comments.withoutPhotos.length + ')', x0, 10);
-    y = 22;
+    if (comments.withoutPhotos.length > 0) {
+      checkPage(10);
+      clr(DARK[0], DARK[1], DARK[2]); sz(9); bold();
+      tx('Notes', x0, y); y += 6;
 
-    for (var nti = 0; nti < comments.withoutPhotos.length; nti++) {
-      var nt = comments.withoutPhotos[nti];
-      var ntLines = nt.comment ? wrap(nt.comment, CW - 12) : [];
-      var ntcH = 12 + ntLines.length * 3;
-      checkPage(ntcH + 3);
-      fill(251, 250, 246); doc.roundedRect(x0, y, CW, ntcH, 2, 2, 'F');
-      size(7); bold(); color(135, 157, 130);
-      text(nt.sector + ' > ' + nt.category, x0 + 6, y + 4);
-      size(6); normal(); color(80, 80, 80);
-      text(nt.question.substring(0, 80), x0 + 6, y + 8);
-      if (nt.comment) {
-        size(7); color(60, 60, 60);
-        text(ntLines, x0 + 6, y + 12);
+      for (var nti = 0; nti < comments.withoutPhotos.length; nti++) {
+        var nt = comments.withoutPhotos[nti];
+        var ntLines = nt.comment ? wr(nt.comment, CW - 14) : [];
+        var ntcH = 10 + ntLines.length * 3.2;
+        checkPage(ntcH + 3);
+
+        fl(WHITE[0], WHITE[1], WHITE[2]); doc.roundedRect(x0, y, CW, ntcH, 2, 2, 'F');
+        doc.setDrawColor(GREEN_LIGHT[0], GREEN_LIGHT[1], GREEN_LIGHT[2]); doc.roundedRect(x0, y, CW, ntcH, 2, 2, 'S');
+        clr(GREEN[0], GREEN[1], GREEN[2]); sz(7); bold();
+        tx(nt.sector + '  >  ' + nt.category, x0 + 6, y + 4);
+        clr(MID[0], MID[1], MID[2]); sz(6); normal();
+        tx(nt.question.substring(0, 110), x0 + 6, y + 8);
+        if (nt.comment) { clr(DARK[0], DARK[1], DARK[2]); sz(7); tx(ntLines, x0 + 6, y + 12); }
+        y += ntcH + 3;
       }
-      y += ntcH + 3;
     }
   }
 
-  // ============================
-  // PAGE — All Questions
-  // ============================
+  // ========== ALL QUESTIONS TABLE ==========
   doc.addPage(); y = M;
-  fill(135, 157, 130); doc.rect(0, 0, W, 14, 'F');
-  color(255, 255, 255); size(12); bold();
-  text('All Questions', x0, 10);
-  y = 22;
+  drawSectionBanner('All Questions', GREEN);
 
   var tRows = [];
   auditSectorKeys().forEach(function(sid) {
     var sec = auditState.sectors[sid];
     sec.categories.forEach(function(cat) {
       cat.questions.forEach(function(q) {
-        if (q.answer && q.answer !== 'N/A') {
-          tRows.push([sec.title, cat.name, q.text.substring(0, 60), q.answer === 'Pass' ? 'P' : 'F', q.weight + '']);
+        if (q.answer && q.answer !== 'N/A' && q.answer !== 'NA') {
+          tRows.push([sec.title, cat.name, q.text.substring(0, 70), q.answer === 'Pass' ? 'Pass' : 'Fail', q.weight + '']);
         }
       });
     });
@@ -1626,24 +1715,19 @@ async function auditGeneratePDF() {
   if (tRows.length > 0) {
     doc.autoTable({
       startY: y,
-      head: [['Sector', 'Category', 'Question', 'Ans', 'Wt']],
+      head: [['Sector', 'Category', 'Question', 'Answer', 'Weight']],
       body: tRows,
-      styles: { fontSize: 7, cellPadding: 1.5 },
-      headStyles: { fillColor: [135, 157, 130], fontSize: 7, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [251, 250, 246] },
+      styles: { fontSize: 6.5, cellPadding: 1.5, textColor: [60, 60, 60] },
+      headStyles: { fillColor: GREEN, fontSize: 7, fontStyle: 'bold', textColor: [255, 255, 255] },
+      alternateRowStyles: { fillColor: BG },
       margin: { left: M, right: M },
-      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 30 }, 2: { cellWidth: 75 }, 3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' } }
+      columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 28 }, 2: { cellWidth: 75 }, 3: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 12, halign: 'center' } }
     });
   }
 
-  // Footer on all pages
+  // ========== FOOTERS ==========
   var pgCount = doc.internal.getNumberOfPages();
-  for (var pg = 1; pg <= pgCount; pg++) {
-    doc.setPage(pg);
-    size(7); color(126, 137, 128); normal();
-    text('Birds Bakery — Retail Audit — ' + new Date().toLocaleString('en-GB'), x0, H - 8);
-    text('Page ' + pg + ' of ' + pgCount, x1, H - 8, { align: 'right' });
-  }
+  for (var pg = 1; pg <= pgCount; pg++) { drawPageFooter(pg, pgCount); }
 
   doc.save('audit_' + auditState.storeName.replace(/\s+/g, '_') + '_' + auditState.date + '.pdf');
 }
@@ -1725,13 +1809,17 @@ window.importMobileAuditZIP = async function(event) {
     auditInitSectors();
 
     // 4. Populate answers + comments from session questions
+    // Find by questionId across ALL categories in the sector (ZIP may have stale categoryId)
     var answerCount = 0;
     questionItems.forEach(function(item) {
       var sec = auditState.sectors[item.sectorId];
       if (!sec) return;
-      var cat = sec.categories.find(function(c) { return c.id === item.categoryId; });
-      if (!cat) return;
-      var q = cat.questions.find(function(qq) { return qq.id === item.questionId; });
+      var q = null;
+      sec.categories.forEach(function(c) {
+        if (q) return;
+        var found = c.questions.find(function(qq) { return qq.id === item.questionId; });
+        if (found) q = found;
+      });
       if (!q) return;
       if (item.answer) { q.answer = item.answer; answerCount++; }
       if (item.comment) q.comment = item.comment;
@@ -1795,12 +1883,15 @@ window.importMobileAuditZIP = async function(event) {
         var promise = entry.async('base64').then(function(b64) {
           var ext = relativePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
           var dataURL = 'data:' + ext + ';base64,' + b64;
-          // Find question and set photo
+          // Find question by sectorId + questionId across ALL categories
           var sec = auditState.sectors[sectorId];
           if (!sec) return;
-          var cat = sec.categories.find(function(c) { return c.id === catId; });
-          if (!cat) return;
-          var q = cat.questions.find(function(qq) { return qq.id === qId; });
+          var q = null;
+          sec.categories.forEach(function(c) {
+            if (q) return;
+            var found = c.questions.find(function(qq) { return qq.id === qId; });
+            if (found) q = found;
+          });
           if (!q) return;
           if (slot === 'extra') { q.extraPhoto = dataURL; q.extraPhotoThumb = dataURL; }
           else if (slot === 'extra2') { q.extraPhoto2 = dataURL; q.extraPhoto2Thumb = dataURL; }

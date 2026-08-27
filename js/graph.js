@@ -11,7 +11,9 @@ window.GraphClient = (function() {
 
     /* ─── Helper: build SharePoint item path ───────────────────── */
     function _itemPath(relativePath) {
-        var base = '/drives/' + BirdsAuth.getDriveId() + '/root:/' + BirdsAuth.getConfig().dataFolderPath;
+        var driveId = BirdsAuth.getDriveId();
+        if (!driveId) throw new Error('SharePoint drive not resolved');
+        var base = '/drives/' + driveId + '/root:/' + BirdsAuth.getConfig().dataFolderPath;
         if (relativePath) base += '/' + relativePath;
         return encodeURI(base).replace(/#/g, '%23');
     }
@@ -211,7 +213,7 @@ window.GraphClient = (function() {
             _folderChildrenCache[cacheKey] = { items: items, ts: Date.now() };
             return items;
         }).catch(function(e) {
-            console.warn('[Graph] List folder failed:', relativeFolderPath, e.message);
+            if (String(e.message || '').indexOf('404') === -1) console.warn('[Graph] List folder failed:', relativeFolderPath, e.message);
             return [];
         });
     }
@@ -343,6 +345,96 @@ window.GraphClient = (function() {
         _folderChildrenCache = {};
     }
 
+    /* ─── SharePoint List CRUD (Phase 2) ──────────────────────── */
+
+    /* Read all items from a SharePoint list (expand=fields) */
+    function getListItems(listTitle, filter) {
+        var siteId = BirdsAuth.getSiteId();
+        if (!siteId) return Promise.resolve([]);
+        var url = '/sites/' + siteId + '/lists/' + encodeURIComponent(listTitle) + '/items?expand=fields';
+        if (filter) url += '&$filter=' + encodeURIComponent(filter);
+        return BirdsAuth._graphGet(url).then(function(resp) {
+            return (resp.value || []).map(function(item) {
+                var fields = item.fields || {};
+                fields._listItemId = item.id;
+                fields._etag = item['@odata.etag'] || '';
+                return fields;
+            });
+        }).catch(function(e) {
+            console.warn('[Graph] getListItems failed:', listTitle, e.message);
+            return [];
+        });
+    }
+
+    /* Create a new item in a SharePoint list */
+    function createListItem(listTitle, fields) {
+        var siteId = BirdsAuth.getSiteId();
+        if (!siteId) return Promise.resolve(null);
+        var url = '/sites/' + siteId + '/lists/' + encodeURIComponent(listTitle) + '/items';
+        return BirdsAuth.getAccessToken().then(function(token) {
+            return fetch('https://graph.microsoft.com/v1.0' + url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ fields: fields })
+            });
+        }).then(function(resp) {
+            if (!resp.ok) throw new Error('Create list item failed: ' + resp.status);
+            return resp.json();
+        }).then(function(item) {
+            var f = item.fields || {};
+            f._listItemId = item.id;
+            return f;
+        }).catch(function(e) {
+            console.warn('[Graph] createListItem failed:', listTitle, e.message);
+            return null;
+        });
+    }
+
+    /* Update an existing item in a SharePoint list */
+    function updateListItem(listTitle, itemId, fields) {
+        var siteId = BirdsAuth.getSiteId();
+        if (!siteId) return Promise.resolve(false);
+        var url = '/sites/' + siteId + '/lists/' + encodeURIComponent(listTitle) + '/items/' + itemId + '/fields';
+        return BirdsAuth.getAccessToken().then(function(token) {
+            return fetch('https://graph.microsoft.com/v1.0' + url, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(fields)
+            });
+        }).then(function(resp) {
+            if (!resp.ok) throw new Error('Update list item failed: ' + resp.status);
+            return true;
+        }).catch(function(e) {
+            console.warn('[Graph] updateListItem failed:', listTitle, itemId, e.message);
+            return false;
+        });
+    }
+
+    /* Delete an item from a SharePoint list */
+    function deleteListItem(listTitle, itemId) {
+        var siteId = BirdsAuth.getSiteId();
+        if (!siteId) return Promise.resolve(false);
+        var url = '/sites/' + siteId + '/lists/' + encodeURIComponent(listTitle) + '/items/' + itemId;
+        return BirdsAuth.getAccessToken().then(function(token) {
+            return fetch('https://graph.microsoft.com/v1.0' + url, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+        }).then(function(resp) {
+            if (!resp.ok && resp.status !== 204) throw new Error('Delete list item failed: ' + resp.status);
+            return true;
+        }).catch(function(e) {
+            console.warn('[Graph] deleteListItem failed:', listTitle, itemId, e.message);
+            return false;
+        });
+    }
+
     /* ─── Expose public API ────────────────────────────────────── */
     return {
         readFile: readFile,
@@ -357,6 +449,10 @@ window.GraphClient = (function() {
         readAllJson: readAllJson,
         ensureFolder: ensureFolder,
         readWithFallback: readWithFallback,
-        clearCache: clearCache
+        clearCache: clearCache,
+        getListItems: getListItems,
+        createListItem: createListItem,
+        updateListItem: updateListItem,
+        deleteListItem: deleteListItem
     };
 })();

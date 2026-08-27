@@ -1,4 +1,7 @@
-window.syncData = async function() {
+var _syncDataLastRun = 0;
+window.syncData = async function(force) {
+  if (!force && Date.now() - _syncDataLastRun < 60000) { console.log('[Sync] Skipping — last run was', ((Date.now()-_syncDataLastRun)/1000).toFixed(1)+'s ago'); return; }
+  _syncDataLastRun = Date.now();
   window.__dataStatus.syncRan = true;
   window.ComplaintsData = null;
   window.__dataStatus.complaintsRows = 0;
@@ -18,9 +21,19 @@ window.syncData = async function() {
           if (master && master.records && master.records.length > 0) {
             console.log('[Sync] FAST PATH —', master.records.length, 'records');
             document.getElementById('ingestStatus').innerText = "Loading " + master.records.length + " records...";
-            for (var mi = 0; mi < master.records.length; mi++) {
-              await idbPut('kpi', master.records[mi]);
+            await idbBulkPut('kpi', master.records);
+            // Populate storeMap and set latest week from master records
+            var maxWk = 0, maxYr = 0;
+            for (var si = 0; si < master.records.length; si++) {
+              var rec = master.records[si];
+              var cid = rec.BranchId || canonicalStoreId(rec.Branch);
+              if (!storeMap.has(cid)) { storeMap.set(cid, rec.AM || 'Unassigned'); }
+              if (!originalStoreNames.has(cid)) { originalStoreNames.set(cid, rec.Branch || cid); }
+              if (rec.Week > maxWk) maxWk = rec.Week;
+              if (rec.Year > maxYr) maxYr = rec.Year;
             }
+            if (maxWk > latestWkGlobal) latestWkGlobal = maxWk;
+            if (maxYr > currentAwardsYear) currentAwardsYear = maxYr;
             window.__dataStatus.filesFound = master.records.length;
             window.__dataStatus.syncOk = true;
             window.__dataStatus.ts = Date.now();
@@ -52,6 +65,10 @@ window.syncData = async function() {
                 } catch(tErr) { console.warn('[Sync] tracker error:', tErr); }
               }
               if (csvBlobs.length > 0) { await processFiles(csvBlobs, 'SharePoint'); }
+              // Background: auto-ingest new XLSX files not yet in master
+              if (typeof autoIngest === 'function') {
+                setTimeout(function() { autoIngest(items).catch(function(e) { console.warn('[BG]', e.message); }); }, 1000);
+              }
             } catch(listErr) { console.warn('[Sync] Folder list failed (non-fatal):', listErr.message); }
             return;
           }

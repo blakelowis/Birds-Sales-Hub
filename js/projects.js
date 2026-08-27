@@ -11,6 +11,39 @@ window.Projects = (function() {
         return (typeof Users !== 'undefined' && Users.getDepartments) ? Users.getDepartments() : ['General'];
     }
 
+    /* Management / senior users see an all-projects overview */
+    function _isManagement(user) {
+        if (!user) return false;
+        if (typeof window.isAdmin === 'function' && isAdmin()) return true;
+        var dept = String(user.department || '').toLowerCase();
+        if (dept.indexOf('management') >= 0) return true;
+        if (typeof Users !== 'undefined' && Users.SENIOR_DEPARTMENTS) {
+            return Users.SENIOR_DEPARTMENTS.some(function(d) { return d === user.department; });
+        }
+        return false;
+    }
+
+    /* Central project-visibility gate (used by the list AND the detail view) */
+    function _projectVisible(p, user) {
+        if (!user) return true;
+        if (typeof window.isAdmin === 'function' && isAdmin()) return true;
+        var involved =
+            p.createdBy === user.id ||
+            (p.stages && p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); })) ||
+            p.department === user.department ||
+            (p.members && p.members.indexOf(user.id) >= 0);
+        var pv = user.projectView || '';
+        if (pv === 'mine') return p.createdBy === user.id || (p.stages && p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }));
+        if (pv === 'department') return p.department === user.department || involved;
+        if (pv === 'multichoice') {
+            var depts = user.projectViewDepts || [];
+            if (!depts.length) return involved;
+            return depts.indexOf(p.department) >= 0 || involved;
+        }
+        if (pv === 'all') return true;
+        return involved;
+    }
+
     /* ─── Storage: birds_documents IDB + Graph API (SharePoint) ── */
     function _path(id) { return 'Projects/' + id + '.json'; }
 
@@ -49,13 +82,44 @@ window.Projects = (function() {
     async function _loadAll() {
         if (!window._localDocsConnection) { try { await _localDocsInit(); } catch(e) { console.warn('[Projects] _localDocsInit failed:', e.message); } }
 
-        /* Try Graph API (shared across users) */
+        /* Try reading projects_master.json first (fast, single file) */
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try {
+                var masterText = await GraphClient.readFile('projects_master.json');
+                if (masterText) {
+                    var master = JSON.parse(masterText);
+                    if (master && master.projects && master.projects.length) {
+                        _projects = master.projects.slice();
+                        // Load full files for projects where current user is involved (stages needed for MyWork)
+                        var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+                        if (user && user.id) {
+                            for (var mi2 = 0; mi2 < _projects.length; mi2++) {
+                                if (_projects[mi2]._assignedUsers && _projects[mi2]._assignedUsers.indexOf(user.id) >= 0) {
+                                    try {
+                                        var fullText = await GraphClient.readFile('Projects/' + _projects[mi2].id + '.json');
+                                        if (fullText) {
+                                            var fullP = JSON.parse(fullText);
+                                            if (fullP && fullP.stages && fullP.stages.length) _projects[mi2] = fullP;
+                                        }
+                                    } catch(e) {}
+                                }
+                            }
+                        }
+                        for (var mi = 0; mi < _projects.length; mi++) { await _idbPut(_path(_projects[mi].id), JSON.stringify(_projects[mi])); }
+                        console.log('[Projects] Loaded', master.projects.length, 'projects from master');
+                        return _projects;
+                    }
+                }
+            } catch(e) { console.warn('[Projects] Master load failed:', e.message); }
+        }
+
+        /* Fallback: load individual files (no filtering — render functions handle visibility) */
         var fsProjects = await _loadFromFilesystem();
         if (fsProjects.length) {
             _projects = fsProjects;
-            for (var i = 0; i < _projects.length; i++) {
-                await _idbPut(_path(_projects[i].id), JSON.stringify(_projects[i]));
-            }
+            for (var i = 0; i < _projects.length; i++) { await _idbPut(_path(_projects[i].id), JSON.stringify(_projects[i])); }
+            // Build master for next time
+            setTimeout(function() { buildProjectsMaster().catch(function() {}); }, 500);
             return _projects;
         }
 
@@ -173,7 +237,7 @@ window.Projects = (function() {
     /* Get projects where the user has an active (pending/in_progress) stage */
     function getAssignedToUser(userId) {
         return _projects.filter(function(p) {
-            if (p.status !== 'active') return false;
+            if (p.status !== 'active' || !p.stages) return false;
             var currentIdx = p.currentStageIndex || 0;
             for (var i = currentIdx; i < p.stages.length; i++) {
                 if (_isUserAssignedToStage(p.stages[i], userId)) return true;
@@ -186,7 +250,7 @@ window.Projects = (function() {
     function getStagesForUser(userId) {
         var results = [];
         _projects.forEach(function(p) {
-            if (p.status !== 'active') return;
+            if (p.status !== 'active' || !p.stages) return;
             var currentIdx = p.currentStageIndex || 0;
             for (var i = currentIdx; i < p.stages.length; i++) {
                 var s = p.stages[i];
@@ -202,7 +266,7 @@ window.Projects = (function() {
     function getWaitingOnOthers(userId) {
         var results = [];
         _projects.forEach(function(p) {
-            if (p.status !== 'active') return;
+            if (p.status !== 'active' || !p.stages) return;
             var currentIdx = p.currentStageIndex || 0;
             for (var i = currentIdx; i < p.stages.length; i++) {
                 var s = p.stages[i];
@@ -235,6 +299,80 @@ window.Projects = (function() {
             stages: []
         };
         _projects.unshift(project);
+        await _save(project);
+        return project;
+    }
+
+    /* ─── Project presets (saved templates) ───────────────────── */
+    async function _loadPresets() {
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try {
+                var text = await GraphClient.readFile('project_presets.json');
+                if (text) { var p = JSON.parse(text); if (p && p.presets) return p.presets; }
+            } catch(e) { console.warn('[Projects] Presets load failed:', e.message); }
+        }
+        return [];
+    }
+
+    async function _savePresets(presets) {
+        if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+            try {
+                await GraphClient.writeFile('project_presets.json', JSON.stringify({ presets: presets }, null, 2));
+            } catch(e) { console.warn('[Projects] Presets save failed:', e.message); }
+        }
+    }
+
+    async function saveProjectAsPreset(projectId) {
+        var p = getById(projectId);
+        if (!p) return null;
+        var preset = {
+            id: 'PRESET-' + Date.now().toString(36),
+            name: p.name,
+            description: p.description || '',
+            department: p.department || 'General',
+            createdByName: p.createdByName || '',
+            createdAt: new Date().toISOString().substring(0, 10),
+            stages: (p.stages || []).map(function(s) {
+                return {
+                    title: s.title,
+                    description: s.description || '',
+                    assignedTo: (s.assignedTo || []).slice(),
+                    assignType: s.assignType || 'persons',
+                    assignDepartments: (s.assignDepartments || []).slice(),
+                    assignDepartment: s.assignDepartment || '',
+                    assignCustom: s.assignCustom || '',
+                    dueDate: s.dueDate || ''
+                };
+            })
+        };
+        var presets = await _loadPresets();
+        presets = presets.filter(function(x) { return x.name !== preset.name; });
+        presets.unshift(preset);
+        await _savePresets(presets);
+        return preset;
+    }
+
+    async function deleteProjectPreset(presetId) {
+        var presets = await _loadPresets();
+        presets = presets.filter(function(p) { return p.id !== presetId; });
+        await _savePresets(presets);
+    }
+
+    async function createFromPreset(presetId) {
+        var presets = await _loadPresets();
+        var preset = presets.find(function(p) { return p.id === presetId; });
+        if (!preset) return null;
+        var project = await create(preset.name, preset.description, preset.department);
+        for (var i = 0; i < (preset.stages || []).length; i++) {
+            var st = preset.stages[i];
+            var stage = await addStage(project.id, st.title, st.description, st.assignedTo, st.dueDate);
+            if (stage) {
+                stage.assignType = st.assignType;
+                stage.assignDepartments = (st.assignDepartments || []).slice();
+                stage.assignDepartment = st.assignDepartment;
+                stage.assignCustom = st.assignCustom;
+            }
+        }
         await _save(project);
         return project;
     }
@@ -357,19 +495,18 @@ window.Projects = (function() {
 
     /* ─── Progress calculation ────────────────────────────────── */
     function getProgress(project) {
-        if (!project.stages.length) return 0;
+        if (!project.stages || !project.stages.length) return 0;
         var done = project.stages.filter(function(s) { return s.status === 'completed'; }).length;
         return Math.round((done / project.stages.length) * 100);
     }
-
+    
     function getCurrentStage(project) {
-        if (project.currentStageIndex < project.stages.length) {
+        if (project.stages && project.currentStageIndex < project.stages.length) {
             return project.stages[project.currentStageIndex];
         }
         return null;
     }
 
-    /* ─── RAG calculations ───────────────────────────────────── */
     function getStageRag(stage) {
         if (stage.status === 'completed') return 'green';
         if (!stage.dueDate) return null;
@@ -390,7 +527,7 @@ window.Projects = (function() {
         if (diff < 0) return 'red';
         if (diff <= 7) return 'amber';
         /* Also check if any stage is overdue */
-        var hasOverdue = project.stages.some(function(s) { return getStageRag(s) === 'red'; });
+        var hasOverdue = project.stages && project.stages.some(function(s) { return getStageRag(s) === 'red'; });
         if (hasOverdue) return 'amber';
         return 'green';
     }
@@ -611,9 +748,20 @@ window.Projects = (function() {
     /* ═══════════════════════════════════════════════════════════════
        UI: PROJECT DETAIL VIEW
        ═══════════════════════════════════════════════════════════════ */
-    function renderProjectDetail(projectId) {
+    async function renderProjectDetail(projectId) {
+        // Load full project data if we only have summary from master
         var p = getById(projectId);
         if (!p) { showToast('Project not found', 'error'); setView('projects'); return; }
+        if (!p.stages || !p.stages.length) {
+            var full = await loadProjectDetail(projectId);
+            if (full) p = full;
+        }
+        /* Security gate: block users who cannot see this project */
+        var _guardUser = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+        if (_guardUser && !_projectVisible(p, _guardUser)) {
+            document.getElementById('mainView').innerHTML = '<div class="card p-8 text-center"><h2 class="text-xl font-black text-slate-700 mb-2">Access Denied</h2><p class="text-sm text-slate-400">You do not have permission to view this project.</p><button onclick="setView(\'projects\')" style="background:#6E8E6D;color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:12px;border:none;cursor:pointer;margin-top:12px;">Back to Projects</button></div>';
+            return;
+        }
         var progress = getProgress(p);
         var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
         var currentIdx = p.currentStageIndex || 0;
@@ -643,6 +791,8 @@ window.Projects = (function() {
             var statusIcon = isPast ? '\u2705' : isYourTurn ? '\u26A1' : isCurrent ? '\U0001F7E1' : '\u23F3';
             var statusLabel = isPast ? 'Completed' : isYourTurn ? 'YOUR TURN' : isCurrent ? 'In Progress' : 'Waiting';
             var statusColor = isPast ? '#6E8E6D' : isYourTurn ? '#D94F4F' : isCurrent ? '#D97706' : '#999';
+            /* Creator/admin may edit FUTURE stages; the active (current) stage and completed stages are locked */
+            var canEditStage = user && !isPast && idx > currentIdx && (p.createdBy === user.id || (typeof window.isAdmin === 'function' && isAdmin()));
 
             var assigneeNames = '';
             var assignBadge = '';
@@ -731,7 +881,10 @@ window.Projects = (function() {
                         ${overviewHtml}
                         ${linkedDocsHtml}
                     </div>
-                    <div class="text-xs font-black text-slate-300">#${idx + 1}</div>
+                    <div class="flex flex-col items-end gap-1">
+                        <span class="text-xs font-black text-slate-300">#${idx + 1}</span>
+                        ${canEditStage ? '<button onclick="Projects.editStage(\'' + p.id + '\',\'' + s.id + '\')" style="background:transparent;color:#6E8E6D;padding:4px 10px;border-radius:6px;font-weight:800;font-size:10px;border:1px solid #6E8E6D;cursor:pointer;">\u270E Edit</button>' : ''}
+                    </div>
                 </div>
                 ${actionHtml}
             </div>`;
@@ -765,25 +918,50 @@ window.Projects = (function() {
                         ${(p.startDate || p.endDate) ? '<div class="mt-2 flex items-center gap-3 text-[11px] text-slate-400">' + (p.startDate ? '<span>Start: <strong>' + escapeHtml(p.startDate) + '</strong></span>' : '') + (p.endDate ? '<span>Target End: <strong>' + escapeHtml(p.endDate) + '</strong></span>' : '') + '</div>' : ''}
                         ${p.overrunReason ? '<div class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-[11px]"><strong class="text-red-700">Overrun Reason:</strong> ' + escapeHtml(p.overrunReason) + (p.overrunImprovement ? '<br><strong class="text-red-700">Improvements:</strong> ' + escapeHtml(p.overrunImprovement) : '') + '</div>' : ''}
                     </div>
-                    <div class="text-right flex-shrink-0">
-                        <button onclick="Projects.generateProjectReport('${p.id}')" style="background:transparent;color:#555B6E;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #555B6E;cursor:pointer;margin-bottom:4px;">\uD83D\uDCC4 Report</button>
+                    <div class="text-right flex-shrink-0" style="position:relative;">
+                        <button onclick="Projects.toggleSidePanel('${p.id}')" style="background:transparent;color:#555B6E;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #555B6E;cursor:pointer;margin-bottom:4px;">\u2630 Menu</button>
                         ${p.status === 'needs_resolution' ? '<button onclick="Projects._doResolve(\'' + p.id + '\')" style="background:#6E8E6D;color:white;padding:6px 14px;border-radius:6px;font-weight:800;font-size:11px;border:none;cursor:pointer;">\u2714 Resolve Project</button>' : ''}
                         ${p.status === 'active' ? '<button onclick="Projects._doResolve(\'' + p.id + '\')" style="background:transparent;color:#999;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #E8E5E0;cursor:pointer;">Resolve Early</button>' : ''}
                         <button onclick="if(confirm(\'Delete this project permanently? This cannot be undone.\')){Projects._doDeleteProject(\'' + p.id + '\')}" style="background:transparent;color:#D94F4F;padding:6px 14px;border-radius:6px;font-weight:700;font-size:11px;border:1px solid #D94F4F;cursor:pointer;margin-top:4px;">\uD83D\uDDD1 Delete</button>
+                        <div id="projectSidePanel" style="display:none;position:absolute;top:0;right:0;width:250px;background:#fff;border:1px solid #d5ddd0;border-radius:12px;padding:16px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:100;text-align:left;">
+                            <div style="font-size:13px;font-weight:900;color:#20231F;margin-bottom:12px;">Project Menu</div>
+                            <button onclick="Projects.reportIssue('${p.id}')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:#fef2f2;color:#D94F4F;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:6px;">\u26A0 Report Issue</button>
+                            <button onclick="Projects.togglePause('${p.id}')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:#fff7ed;color:#D97706;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:6px;">\u23F8 Pause / Resume Project</button>
+                            <button onclick="Projects.addSideNote('${p.id}')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:#f0f9ff;color:#2563eb;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:6px;">\uD83D\uDCDD Add Side Note</button>
+                            <button onclick="Projects.generateProjectReport('${p.id}')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:#f5f5f5;color:#555B6E;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:6px;">\uD83D\uDCC4 Generate Report</button>
+                            <button onclick="Projects.renderMemberModal('${p.id}')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:#f5f5f5;color:#555B6E;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:6px;">\uD83D\uDC65 Invite Members</button>
+                            <button onclick="Projects.saveProjectAsPreset('${p.id}').then(function(){ showToast('Project saved as template', 'success'); })" style="display:block;width:100%;text-align:left;padding:8px 12px;background:#f5f5f5;color:#555B6E;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;margin-bottom:6px;">\uD83D\uDDC4 Save as Template</button>
+                            <button onclick="Projects._doResolve('${p.id}')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:rgba(135,157,130,0.1);color:#6E8E6D;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;">\u2714 Resolve Project</button>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Progress bar -->
-                ${p.stages.length ? `
+                ${p.stages && p.stages.length ? `
                 <div class="mb-5">
                     <div class="flex items-center justify-between mb-1">
                         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Progress</span>
-                        <span class="text-xs font-bold text-slate-600">${p.stages.filter(function(s){return s.status==='completed'}).length}/${p.stages.length} stages</span>
+                        <span class="text-xs font-bold text-slate-600">${p.stages ? p.stages.filter(function(s){return s.status==='completed'}).length : 0}/${p.stages ? p.stages.length : 0} stages</span>
                     </div>
                     <div style="height:8px;background:#E8E5E0;border-radius:4px;overflow:hidden;">
                         <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,#6E8E6D,#5A7A59);border-radius:4px;transition:width .3s;"></div>
                     </div>
                 </div>` : ''}
+
+                <!-- Store Context Panel (auto-populated if store detected) -->
+                <div id="projectStoreContext-${p.id}" class="mb-4" style="display:none;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;"></div>
+                <script>
+                (function() {
+                    var desc = ${JSON.stringify(p.description || '')};
+                    var name = ${JSON.stringify(p.name || '')};
+                    var storeMatch = desc.match(/Store:\\s*([^\\n]+)/i) || name.match(/(?:at|for)\\s+([A-Z][a-z]+(?:\\s[A-Z][a-z]+)*)/);
+                    if (storeMatch && typeof StoreContext !== 'undefined') {
+                        var storeName = storeMatch[1].trim();
+                        var el = document.getElementById('projectStoreContext-${p.id}');
+                        if (el) { el.style.display = 'block'; StoreContext.render(storeName, 'projectStoreContext-${p.id}'); }
+                    }
+                })();
+                </script>
 
                 <!-- Stages list -->
                 <div class="mb-4">
@@ -806,6 +984,121 @@ window.Projects = (function() {
         var overview = overviewEl ? overviewEl.value : '';
         await completeStage(projectId, stageId, overview);
         showToast('Stage completed!', 'success');
+        renderProjectDetail(projectId);
+    }
+
+    /* ─── Edit a FUTURE (pending) stage — creator only; active stage is locked ─── */
+    async function editStage(projectId, stageId) {
+        var p = getById(projectId);
+        var s = p ? p.stages.find(function(x) { return x.id === stageId; }) : null;
+        if (!p || !s) return;
+        var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+        if (!(user && (p.createdBy === user.id || (typeof window.isAdmin === 'function' && isAdmin())))) { showToast('Only the project creator can edit stages', 'error'); return; }
+        var users = (typeof Users !== 'undefined') ? Users.getAll() : [];
+        var depts = [...new Set(users.map(function(u) { return u.department || 'General'; }))].sort();
+        var assignType = s.assignType || 'persons';
+        var deptChecks = depts.map(function(d) {
+            return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer"><input type="checkbox" value="' + escapeHtml(d) + '" class="medit-dept-cb accent-[#6E8E6D]" ' + ((s.assignDepartments || []).indexOf(d) >= 0 ? 'checked' : '') + '><span class="text-sm">' + escapeHtml(d) + '</span></label>';
+        }).join('');
+        var userChecks = users.map(function(u) {
+            return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer"><input type="checkbox" value="' + u.id + '" class="medit-assign-cb accent-[#6E8E6D]" ' + ((s.assignedTo || []).indexOf(u.id) >= 0 ? 'checked' : '') + '><span class="text-sm">' + escapeHtml(u.name) + ' <span class="text-[10px] text-slate-400">(' + escapeHtml(u.department) + ')</span></span></label>';
+        }).join('');
+        var radio = function(v, label, active) {
+            return '<label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-sm" style="' + (active ? 'background:#6E8E6D;color:#fff;border-color:#6E8E6D;' : '') + '"><input type="radio" name="medit-assignType" value="' + v + '" ' + (active ? 'checked' : '') + ' onchange="Projects._meditSwitch(\'' + v + '\',this)" class="accent-[#6E8E6D]"> ' + label + '</label>';
+        };
+        var modal = document.createElement('div');
+        modal.id = 'stageEditModal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">' +
+            '<div class="flex items-center justify-between mb-4"><h3 class="text-lg font-black text-slate-800">Edit Stage: ' + escapeHtml(s.title) + '</h3><button onclick="document.getElementById(\'stageEditModal\').remove()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">\u2715</button></div>' +
+            '<div class="space-y-3">' +
+            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Stage Title *</label><input type="text" id="medit-title" value="' + escapeHtml(s.title) + '" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm"></div>' +
+            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Description / Instructions</label><textarea id="medit-desc" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm h-16">' + escapeHtml(s.description || '') + '</textarea></div>' +
+            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Due Date</label><input type="date" id="medit-due" value="' + escapeHtml(s.dueDate || '') + '" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm"></div>' +
+            '<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Assign To</label>' +
+            '<div class="flex gap-2 mb-3">' + radio('department', 'Department', assignType === 'department') + radio('persons', 'Person(s)', assignType === 'persons') + radio('custom', 'External / Custom', assignType === 'custom') + '</div>' +
+            '<div id="medit-dept-panel" style="display:' + (assignType === 'department' ? 'block' : 'none') + '"><div class="max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">' + deptChecks + '</div></div>' +
+            '<div id="medit-persons-panel" style="display:' + (assignType === 'persons' ? 'block' : 'none') + '"><div class="max-h-40 overflow-y-auto border border-slate-200 rounded-lg">' + userChecks + '</div></div>' +
+            '<div id="medit-custom-panel" style="display:' + (assignType === 'custom' ? 'block' : 'none') + '"><input type="text" id="medit-custom" value="' + escapeHtml(s.assignCustom || '') + '" class="w-full p-2.5 border border-slate-200 rounded-lg text-sm" placeholder="e.g. External Auditor..."></div>' +
+            '</div></div>' +
+            '<div class="flex gap-2 mt-4"><button onclick="Projects._doSaveStageEdit(\'' + projectId + '\',\'' + stageId + '\')" style="background:#6E8E6D;color:#fff;padding:8px 16px;border-radius:6px;font-weight:800;font-size:12px;border:none;cursor:pointer;">Save Stage</button>' +
+            '<button onclick="document.getElementById(\'stageEditModal\').remove()" style="background:transparent;color:#999;padding:8px 16px;border-radius:6px;font-weight:700;font-size:12px;border:1px solid #E8E5E0;cursor:pointer;">Cancel</button></div></div>';
+        document.body.appendChild(modal);
+    }
+
+    function _meditSwitch(type, radio) {
+        var m = document.getElementById('stageEditModal');
+        if (!m) return;
+        m.querySelectorAll('input[name="medit-assignType"]').forEach(function(r) { r.checked = r.value === type; });
+        m.querySelectorAll('input[name="medit-assignType"]').forEach(function(r) {
+            var lbl = r.closest('label');
+            if (lbl) { lbl.style.background = r.value === type ? '#6E8E6D' : ''; lbl.style.color = r.value === type ? '#fff' : ''; lbl.style.borderColor = r.value === type ? '#6E8E6D' : ''; }
+        });
+        ['medit-dept-panel', 'medit-persons-panel', 'medit-custom-panel'].forEach(function(id) {
+            var el = document.getElementById(id); if (el) el.style.display = 'none';
+        });
+        var target = type === 'department' ? 'medit-dept-panel' : type === 'custom' ? 'medit-custom-panel' : 'medit-persons-panel';
+        var t = document.getElementById(target); if (t) t.style.display = 'block';
+    }
+
+    async function _doSaveStageEdit(projectId, stageId) {
+        var p = getById(projectId);
+        if (!p) return;
+        var title = (document.getElementById('medit-title') ? document.getElementById('medit-title').value : '').trim();
+        if (!title) { showToast('Stage title is required', 'warning'); return; }
+        var assignType = '';
+        var r = document.querySelector('input[name="medit-assignType"]:checked'); if (r) assignType = r.value;
+        var assignDepartments = []; var cbs = document.querySelectorAll('.medit-dept-cb:checked'); cbs.forEach(function(cb) { assignDepartments.push(cb.value); });
+        var assignedTo = []; var ubs = document.querySelectorAll('.medit-assign-cb:checked'); ubs.forEach(function(cb) { assignedTo.push(cb.value); });
+        var assignCustom = document.getElementById('medit-custom') ? document.getElementById('medit-custom').value.trim() : '';
+        await updateStage(projectId, stageId, {
+            title: title,
+            description: (document.getElementById('medit-desc') ? document.getElementById('medit-desc').value : '').trim(),
+            dueDate: document.getElementById('medit-due') ? document.getElementById('medit-due').value : '',
+            assignType: assignType || 'persons',
+            assignDepartments: assignDepartments,
+            assignDepartment: assignDepartments[0] || '',
+            assignedTo: assignedTo,
+            assignCustom: assignCustom
+        });
+        var m = document.getElementById('stageEditModal'); if (m) m.remove();
+        showToast('Stage updated', 'success');
+        renderProjectDetail(projectId);
+    }
+
+    /* ─── Invite members so they can see/join a project ───────── */
+    function renderMemberModal(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
+        var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+        if (!(user && (p.createdBy === user.id || (typeof window.isAdmin === 'function' && isAdmin())))) { showToast('Only the creator can invite members', 'error'); return; }
+        var users = (typeof Users !== 'undefined') ? Users.getAll() : [];
+        var members = p.members || [];
+        var checks = users.map(function(u) {
+            return '<label class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-50 cursor-pointer"><input type="checkbox" value="' + u.id + '" class="member-cb accent-[#6E8E6D]" ' + (members.indexOf(u.id) >= 0 ? 'checked' : '') + '><span class="text-sm">' + escapeHtml(u.name) + ' <span class="text-[10px] text-slate-400">(' + escapeHtml(u.department) + ')</span></span></label>';
+        }).join('');
+        var modal = document.createElement('div');
+        modal.id = 'memberModal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">' +
+            '<div class="flex items-center justify-between mb-3"><h3 class="text-lg font-black text-slate-800">Invite Members</h3><button onclick="document.getElementById(\'memberModal\').remove()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">\u2715</button></div>' +
+            '<p class="text-xs text-slate-400 mb-3">Invited members can see this project even if it is outside their usual project view.</p>' +
+            '<div class="max-h-64 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">' + (checks || '<p class="text-sm text-slate-400">No users available.</p>') + '</div>' +
+            '<div class="flex gap-2 mt-4"><button onclick="Projects._saveMembers(\'' + projectId + '\')" style="background:#6E8E6D;color:#fff;padding:8px 16px;border-radius:6px;font-weight:800;font-size:12px;border:none;cursor:pointer;">Save Members</button>' +
+            '<button onclick="document.getElementById(\'memberModal\').remove()" style="background:transparent;color:#999;padding:8px 16px;border-radius:6px;font-weight:700;font-size:12px;border:1px solid #E8E5E0;cursor:pointer;">Cancel</button></div></div>';
+        document.body.appendChild(modal);
+    }
+
+    async function _saveMembers(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
+        var members = [];
+        var cbs = document.querySelectorAll('.member-cb:checked');
+        cbs.forEach(function(cb) { members.push(cb.value); });
+        p.members = members;
+        await _save(p);
+        var m = document.getElementById('memberModal'); if (m) m.remove();
+        showToast('Members updated', 'success');
         renderProjectDetail(projectId);
     }
 
@@ -855,25 +1148,16 @@ window.Projects = (function() {
     /* ═══════════════════════════════════════════════════════════════
        UI: PROJECT LIST VIEW
        ═══════════════════════════════════════════════════════════════ */
-    function renderProjectsList() {
+    async function renderProjectsList() {
         var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
         var active = getActive();
         var completed = getCompleted();
+        var presets = [];
+        try { presets = await _loadPresets(); } catch(e) {}
 
-        /* Only show projects the user is involved in */
-        var visible = user ? active.filter(function(p) {
-            return p.createdBy === user.id ||
-                p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }) ||
-                p.department === user.department ||
-                (user.department === 'General');
-        }) : active;
-
-        var completedVisible = user ? completed.filter(function(p) {
-            return p.createdBy === user.id ||
-                p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }) ||
-                p.department === user.department ||
-                (user.department === 'General');
-        }) : completed;
+        /* Project visibility is controlled by the user's "Project View" setting (set by an admin) */
+        var visible = user ? active.filter(function(p) { return _projectVisible(p, user); }) : active;
+        var completedVisible = user ? completed.filter(function(p) { return _projectVisible(p, user); }) : completed;
 
         /* Group by department */
         var grouped = {};
@@ -898,6 +1182,53 @@ window.Projects = (function() {
             }
         }
 
+        /* Management / admin overview of ALL projects (active + resolved) — also shown when a user's Project View is "All projects" */
+        var mgmtHtml = '';
+        if (_isManagement(user) || (user && user.projectView === 'all')) {
+            var allProj = active.concat(completed);
+            if (allProj.length) {
+                var mgmtRows = allProj.map(function(p) {
+                    var progress = getProgress(p);
+                    var rag = getProjectRag(p);
+                    var rc = rag ? _ragColor(rag) : null;
+                    return '<div class="card p-3 cursor-pointer hover:shadow-md transition-all border-t-2 ' + (p.status === 'resolved' ? 'border-t-emerald-500' : 'border-t-amber-400') + '" onclick="Projects.renderProjectDetail(\'' + p.id + '\')">' +
+                        '<div class="flex items-center justify-between mb-1"><span class="text-xs font-black text-slate-800 truncate">' + escapeHtml(p.name) + '</span>' +
+                        (rc ? '<span style="font-size:8px;font-weight:800;padding:2px 6px;border-radius:9999px;color:' + rc.color + ';background:' + rc.bg + ';border:1px solid ' + rc.border + ';white-space:nowrap;">' + rc.label + '</span>' : '') +
+                        '</div>' +
+                        '<p class="text-[10px] text-slate-400 mb-1">' + escapeHtml(p.department) + ' \u2022 ' + (p.stages ? p.stages.filter(function(s){return s.status==='completed';}).length : 0) + '/' + (p.stages ? p.stages.length : 0) + ' stages \u2022 ' + escapeHtml(p.status) + '</p>' +
+                        '<div style="height:4px;background:#E8E5E0;border-radius:3px;overflow:hidden;"><div style="height:100%;width:' + progress + '%;background:' + (p.status === 'resolved' ? '#6E8E6D' : '#D97706') + ';"></div></div>' +
+                        '</div>';
+                }).join('');
+                mgmtHtml = '<div class="mb-8">' +
+                    '<div class="flex items-center justify-between mb-3">' +
+                    '<h3 class="text-sm font-black text-slate-500 uppercase tracking-widest">\uD83D\uDCCD All Projects \u2014 Management Review</h3>' +
+                    '<span class="text-[11px] text-slate-400">' + allProj.length + ' active + resolved</span>' +
+                    '</div>' +
+                    '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">' + mgmtRows + '</div></div>';
+            }
+        }
+
+        var presetsHtml = '';
+        if (presets && presets.length) {
+            presetsHtml = '<div class="mb-8">' +
+                '<div class="flex items-center justify-between mb-3">' +
+                '<h3 class="text-sm font-black text-slate-500 uppercase tracking-widest">\uD83D\uDCCB Saved Project Templates</h3>' +
+                '<span class="text-[11px] text-slate-400">Reusable project structures \u2014 click \u201cUse template\u201d to start a new project from one</span>' +
+                '</div>' +
+                '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">' +
+                presets.map(function(pr) {
+                    return '<div class="card p-4 border-t-2 border-t-slate-300">' +
+                        '<h4 class="text-sm font-black text-slate-700 mb-1">' + escapeHtml(pr.name) + '</h4>' +
+                        '<p class="text-[11px] text-slate-400 mb-2 line-clamp-2">' + escapeHtml(pr.description || 'No description') + '</p>' +
+                        '<p class="text-[10px] font-bold text-slate-400 mb-3">' + (pr.stages ? pr.stages.length : 0) + ' stages \u2022 ' + escapeHtml(pr.department || 'General') + '</p>' +
+                        '<div class="flex gap-2">' +
+                        '<button onclick="Projects.createFromPreset(\'' + pr.id + '\').then(function(){ showToast(\'Project created from template\', \'success\'); Projects.renderProjectsList(); })" style="background:#6E8E6D;color:white;padding:6px 12px;border-radius:6px;font-weight:800;font-size:11px;border:none;cursor:pointer;flex:1;">Use template</button>' +
+                        '<button onclick="Projects.deleteProjectPreset(\'' + pr.id + '\').then(function(){ Projects.renderProjectsList(); })" class="bg-red-50 text-red-600 text-xs font-bold px-2 rounded hover:bg-red-100" title="Delete template">\u2715</button>' +
+                        '</div></div>';
+                }).join('') +
+                '</div></div>';
+        }
+
         document.getElementById('mainView').innerHTML = `
         <div>
             <div class="flex items-center justify-between mb-5">
@@ -907,6 +1238,8 @@ window.Projects = (function() {
                 </div>
                 <button onclick="Projects.renderCreateProject()" style="background:#6E8E6D;color:white;padding:8px 18px;border-radius:8px;font-weight:800;font-size:12px;border:none;cursor:pointer;">+ New Project</button>
             </div>
+            ${mgmtHtml}
+            ${presetsHtml}
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 ${cardsHtml}
             </div>
@@ -966,7 +1299,7 @@ window.Projects = (function() {
                 <div style="height:100%;width:${progress}%;background:${p.status === 'resolved' ? '#6E8E6D' : '#D97706'};border-radius:3px;"></div>
             </div>
             <div class="flex items-center justify-between">
-                <span class="text-[10px] font-bold text-slate-400">${p.stages.filter(function(s){return s.status==='completed'}).length}/${p.stages.length} stages</span>
+                <span class="text-[10px] font-bold text-slate-400">${p.stages ? p.stages.filter(function(s){return s.status==='completed'}).length : 0}/${p.stages ? p.stages.length : 0} stages</span>
                 ${currentStage && p.status === 'active' ? '<span class="text-[10px] font-bold text-slate-400">Next: ' + escapeHtml(nextAssignee || 'Unassigned') + '</span>' : ''}
             </div>
             ${creatorMeta ? '<div class="text-[9px] text-slate-400 mt-1">' + creatorMeta + '</div>' : ''}
@@ -1008,9 +1341,13 @@ window.Projects = (function() {
         /* User's own folders */
         var myFolders = folders;
 
-        /* Templates relevant to user */
+        /* Templates relevant to user — personal (mine), shared with my department/group, or all team */
         var myTemplates = templates.filter(function(t) {
-            return !t.department || t.department === user.department || t.department === 'General' || user.department === 'General';
+            if (t.ownerId && t.ownerId === user.id) return true; /* owners always see their own */
+            if (t.scope === 'personal') return t.ownerId === user.id;
+            if (t.scope === 'department') return t.sharedDepartments && t.sharedDepartments.indexOf(user.department) >= 0;
+            if (t.scope === 'group') return t.sharedUsers && t.sharedUsers.indexOf(user.id) >= 0;
+            return true;
         });
 
         var actionsHtml = '';
@@ -1055,10 +1392,17 @@ window.Projects = (function() {
         });
 
         /* Document cards */
+        var myCompleted = myDocs.filter(function(d) { return (allDocs.resolved || []).indexOf(d) >= 0 || (allDocs.archived || []).indexOf(d) >= 0; });
         var docsHtml = '';
         if (myDocs.length) {
             docsHtml = '<div class="mb-6">' +
-                '<h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\uD83D\uDCCB My Documents (' + myDocs.length + ')</h3>' +
+                '<div class="flex items-center justify-between mb-3">' +
+                '<h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">\uD83D\uDCCB My Documents (' + myDocs.length + ')</h3>' +
+                '<div class="flex items-center gap-3">' +
+                (myCompleted.length ? '<button onclick="window.clearMyCompletedWork()" title="Delete your completed (resolved/archived) documents" style="background:rgba(217,79,79,0.08);color:#D94F4F;padding:4px 10px;border-radius:6px;font-weight:800;font-size:10px;border:1px solid rgba(217,79,79,0.25);cursor:pointer;">\u2715 Clear ' + myCompleted.length + ' completed</button>' : '') +
+                (myDocs.length > 10 ? '<button onclick="renderDocuments()" class="text-[11px] font-bold text-birds-green hover:underline">View all (' + myDocs.length + ')</button>' : '') +
+                '</div>' +
+                '</div>' +
                 '<div class="space-y-2">' +
                 myDocs.slice(0, 10).map(function(d) {
                     var status = 'Open';
@@ -1071,7 +1415,8 @@ window.Projects = (function() {
                     else docMeta = escapeHtml(d.date || '');
                     return '<div class="card p-3 cursor-pointer hover:shadow-sm transition-all" onclick="openDocumentViewer(\'' + d.id + '\',\'' + status + '\',\'' + (d.userFolderId || '') + '\')">' +
                         '<div class="flex items-center justify-between"><h4 class="text-sm font-bold text-slate-700">' + escapeHtml(d.name || 'Untitled') + '</h4>' +
-                        '<span style="font-size:9px;font-weight:800;color:white;padding:2px 6px;border-radius:4px;background:' + statusColor + ';">' + status + '</span></div>' +
+                        '<div class="flex items-center gap-1"><span style="font-size:9px;font-weight:800;color:white;padding:2px 6px;border-radius:4px;background:' + statusColor + ';">' + status + '</span>' +
+                        '<button onclick="event.stopPropagation();window.deleteWorkDocument(\'' + d.id + '\',\'' + status + '\')" title="Delete this document" style="background:transparent;color:#D94F4F;border:none;cursor:pointer;font-size:12px;font-weight:800;padding:0 2px;">\u2715</button></div></div>' +
                         '<p class="text-[10px] text-slate-400">' + escapeHtml(d.type || '') + (docMeta ? ' \u2022 ' + docMeta : '') + (d.userFolderName ? ' \u2022 ' + escapeHtml(d.userFolderName) : '') + '</p></div>';
                 }).join('') +
                 '</div></div>';
@@ -1285,6 +1630,86 @@ window.Projects = (function() {
         showToast('PDF report downloaded', 'success');
     }
 
+    /* ─── Build projects_master.json ────────────────────────── */
+    async function buildProjectsMaster() {
+        if (typeof GraphClient === 'undefined' || !BirdsAuth || !BirdsAuth.isLoggedIn()) return;
+        try {
+            /* Reload full project files */
+            var fullProjects = await _loadFromFilesystem();
+            if (!fullProjects || !fullProjects.length) return;
+            var summary = fullProjects.map(function(p) {
+                var assignedUsers = [];
+                p.stages.forEach(function(s) {
+                    if (s.assignedTo && s.assignedTo.length) { s.assignedTo.forEach(function(uid) { if (assignedUsers.indexOf(uid) < 0) assignedUsers.push(uid); }); }
+                });
+                return { id: p.id, name: p.name, description: p.description, department: p.department, status: p.status, createdBy: p.createdBy, createdByName: p.createdByName, createdAt: p.createdAt, stageCount: p.stages.length, _assignedUsers: assignedUsers, members: p.members || [] };
+            });
+            var jsonText = JSON.stringify({ version: 1, generated: new Date().toISOString(), projectCount: summary.length, projects: summary }, null, 2);
+            await GraphClient.writeFile('projects_master.json', jsonText);
+            console.log('[Projects] Master built with', summary.length, 'projects');
+        } catch(e) { console.warn('[Projects] Master build failed:', e.message); }
+    }
+
+    /* ─── Load full project detail from individual file ──────── */
+    async function loadProjectDetail(projectId) {
+        var p = getById(projectId);
+        if (!p) return null;
+        /* If loaded from master (no stages), fetch full file */
+        if (!p.stages || !p.stages.length) {
+            try {
+                if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+                    var text = await GraphClient.readFile('Projects/' + projectId + '.json');
+                    if (text) {
+                        var full = JSON.parse(text);
+                        if (full && full.stages) {
+                            var idx = _projects.indexOf(p);
+                            if (idx >= 0) _projects[idx] = full;
+                            await _idbPut(_path(projectId), JSON.stringify(full));
+                            return full;
+                        }
+                    }
+                }
+            } catch(e) { console.warn('[Projects] Detail load failed:', e.message); }
+        }
+        return p;
+    }
+
+    /* ─── Side panel functions ───────────────────────────────── */
+    var _sidePanelOpen = false;
+    function toggleSidePanel(projectId) {
+        _sidePanelOpen = !_sidePanelOpen;
+        var el = document.getElementById('projectSidePanel');
+        if (el) el.style.display = _sidePanelOpen ? 'block' : 'none';
+    }
+    async function reportIssue(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
+        var issue = prompt('Describe the issue:');
+        if (!issue) return;
+        if (!p.issues) p.issues = [];
+        p.issues.push({ text: issue, reportedBy: (typeof Users !== 'undefined' && Users.getCurrentUser() ? Users.getCurrentUser().name : 'Unknown'), date: new Date().toISOString().slice(0,10) });
+        await _save(p);
+        toggleSidePanel(projectId); renderProjectDetail(projectId);
+    }
+    async function togglePause(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
+        if (p.status === 'paused') { p.status = 'active'; showToast('Project resumed', 'success'); }
+        else { p.status = 'paused'; showToast('Project paused', 'info'); }
+        await _save(p);
+        toggleSidePanel(projectId); renderProjectDetail(projectId);
+    }
+    async function addSideNote(projectId) {
+        var p = getById(projectId);
+        if (!p) return;
+        var note = prompt('Add a side note:');
+        if (!note) return;
+        if (!p.notes) p.notes = [];
+        p.notes.push({ text: note, author: (typeof Users !== 'undefined' && Users.getCurrentUser() ? Users.getCurrentUser().name : 'Unknown'), date: new Date().toISOString().slice(0,10) });
+        await _save(p);
+        toggleSidePanel(projectId); renderProjectDetail(projectId);
+    }
+
     /* ─── Public API ────────────────────────────────────────────── */
     return {
         _onDeptChange: _onDeptChange,
@@ -1302,15 +1727,16 @@ window.Projects = (function() {
         getAssignedToUser: getAssignedToUser,
         getStagesForUser: getStagesForUser,
         getWaitingOnOthers: getWaitingOnOthers,
-        getProgress: getProgress,
-        getCurrentStage: getCurrentStage,
         create: create,
         addStage: addStage,
+        updateStage: updateStage,
         completeStage: completeStage,
-        resolveProject: resolveProject,
-        deleteProject: deleteProject,
-        emailNextStage: emailNextStage,
-        renderCreateProject: renderCreateProject,
+        saveProjectAsPreset: saveProjectAsPreset,
+        deleteProjectPreset: deleteProjectPreset,
+        createFromPreset: createFromPreset,
+        resolve: resolveProject,
+        _save: _save,
+        _delete: _delete,
         renderAddStage: renderAddStage,
         renderProjectDetail: renderProjectDetail,
         renderProjectsList: renderProjectsList,
@@ -1318,9 +1744,20 @@ window.Projects = (function() {
         _doCreate: _doCreate,
         _doAddStage: _doAddStage,
         _doCompleteStage: _doCompleteStage,
+        editStage: editStage,
+        _meditSwitch: _meditSwitch,
+        _doSaveStageEdit: _doSaveStageEdit,
+        renderMemberModal: renderMemberModal,
+        _saveMembers: _saveMembers,
         _doResolve: _doResolve,
         _doDeleteProject: _doDeleteProject,
         _emailNextStage: emailNextStage,
-        generateProjectReport: generateProjectReport
+        generateProjectReport: generateProjectReport,
+        buildProjectsMaster: buildProjectsMaster,
+        loadProjectDetail: loadProjectDetail,
+        toggleSidePanel: toggleSidePanel,
+        reportIssue: reportIssue,
+        togglePause: togglePause,
+        addSideNote: addSideNote
     };
 })();

@@ -15,21 +15,24 @@ function _getTplStores() {
 }
 
 var TPL_OBJECTS = [
-    { type: 'docheader', label: 'Document Header', icon: '\uD83D\uDCCB', desc: 'Title + name, date, job title etc.' },
-    { type: 'section',   label: 'Section',         icon: '\u25A0',  desc: 'Section divider with name' },
-    { type: 'pagebreak', label: 'Page Breaker',    icon: '\u2014',  desc: 'Visual page break' },
-    { type: 'signoff',   label: 'Sign Off',        icon: '\u270E',  desc: 'Signature, name & date block' }
+    { type: 'docheader',  label: 'Document Header',  icon: '\uD83D\uDCCB', desc: 'Title + name, date, job title etc.' },
+    { type: 'doccontrol', label: 'Document Control', icon: '\uD83D\uDCC4', desc: 'One-click revision history block' },
+    { type: 'section',    label: 'Section',          icon: '\u25A0',  desc: 'Section divider with name' },
+    { type: 'pagebreak',  label: 'Page Breaker',     icon: '\u2014',  desc: 'Visual page break' },
+    { type: 'signoff',    label: 'Sign Off',         icon: '\u270E',  desc: 'Signature, name & date block' }
 ];
 
 var TPL_QUESTION_TYPES = [
     { type: 'smalltext',   label: 'Small Text',   icon: 'Aa', desc: 'Short single-line answer' },
     { type: 'longtext',    label: 'Long Text',    icon: '\u00B6',  desc: 'Multi-line text area' },
+    { type: 'richtext',    label: 'Rich Text',    icon: '\uD83D\uDD8C', desc: 'Formatted text: bold, colour, lists, headings' },
     { type: 'number',      label: 'Number',       icon: '#',  desc: 'Numeric input' },
     { type: 'date',        label: 'Date',         icon: '\uD83D\uDCC5', desc: 'Date picker' },
     { type: 'yesno',       label: 'Yes / No',     icon: '\u2713',  desc: 'Two-button toggle' },
     { type: 'multichoice', label: 'Multi-choice',  icon: '\u25C9',  desc: 'Single selection from options' },
     { type: 'checkbox',    label: 'Multi-Select',  icon: '\u2611',  desc: 'Tick multiple options' },
     { type: 'table',       label: 'Table',        icon: '\u25A6',  desc: 'Rows and columns data grid' },
+    { type: 'diagram',     label: 'Diagram',      icon: '\u25A1',  desc: 'Draw boxes, arrows, lines & text (flowcharts)' },
     { type: 'photo',       label: 'Photo Upload', icon: '\uD83D\uDCF7', desc: 'Camera or file upload' }
 ];
 
@@ -42,10 +45,10 @@ var TPL_SCORING_TYPES = [
 
 function _tplTypeToAnswerType(type) {
     var map = {
-        'docheader': 'header', 'section': 'section', 'pagebreak': 'divider', 'signoff': 'signoff',
-        'smalltext': 'text', 'longtext': 'textarea', 'number': 'number',
+        'docheader': 'header', 'doccontrol': 'doccontrol', 'section': 'section', 'pagebreak': 'divider', 'signoff': 'signoff',
+        'smalltext': 'text', 'longtext': 'textarea', 'richtext': 'richtext', 'number': 'number',
         'date': 'date', 'yesno': 'yesno', 'multichoice': 'multichoice',
-        'checkbox': 'checkbox', 'table': 'table', 'photo': 'image'
+        'checkbox': 'checkbox', 'table': 'table', 'diagram': 'diagram', 'photo': 'image'
     };
     return map[type] || 'text';
 }
@@ -58,10 +61,234 @@ function _tplTypeLabel(type) {
 
 function _answerTypeToLabel(at) {
     var map = { 'header': 'Document Header', 'section': 'Section', 'divider': 'Page Breaker', 'signoff': 'Sign Off',
-        'text': 'Small Text', 'textarea': 'Long Text', 'number': 'Number',
+        'text': 'Small Text', 'textarea': 'Long Text', 'richtext': 'Rich Text', 'number': 'Number',
         'date': 'Date', 'yesno': 'Yes / No', 'multichoice': 'Multi-choice',
-        'checkbox': 'Multi-Select', 'table': 'Table', 'image': 'Photo Upload' };
+        'checkbox': 'Multi-Select', 'table': 'Table', 'diagram': 'Diagram', 'image': 'Photo Upload' };
     return map[at] || at;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SHARED FIELD CONTROLS — Rich Text & Diagram
+   Used by both the template fill view and the document editor.
+   ═══════════════════════════════════════════════════════════════ */
+
+var _rtEsc = function(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+
+window._rtFieldHtml = function(fieldId, existing) {
+    var val = existing || '';
+    return '<div class="rt-wrap border border-slate-300 rounded-lg overflow-hidden bg-white">' +
+        '<div class="flex items-center flex-wrap gap-1 px-2 py-1 bg-slate-50 border-b border-slate-200">' +
+        '<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest mr-1">Format</span>' +
+        '<select class="rt-cmd rt-size text-[11px] font-bold border border-slate-200 rounded px-1 py-0.5 bg-white">' +
+        '<option value="2">Small</option><option value="3" selected>Normal</option><option value="5">Large</option><option value="6">Heading</option></select>' +
+        '<button type="button" class="rt-cmd px-2 py-0.5 rounded text-xs font-black bg-white border border-slate-200 hover:bg-slate-100" title="Bold" data-cmd="bold">B</button>' +
+        '<button type="button" class="rt-cmd px-2 py-0.5 rounded text-xs font-black bg-white border border-slate-200 hover:bg-slate-100 italic" title="Italic" data-cmd="italic">I</button>' +
+        '<button type="button" class="rt-cmd px-2 py-0.5 rounded text-xs font-black bg-white border border-slate-200 hover:bg-slate-100 underline" title="Underline" data-cmd="underline">U</button>' +
+        '<span class="text-slate-300">|</span>' +
+        '<input type="color" class="rt-cmd rt-color w-7 h-6 p-0 border border-slate-200 rounded" title="Text colour" data-cmd="color">' +
+        '<button type="button" class="rt-cmd px-2 py-0.5 rounded text-[11px] font-black bg-white border border-slate-200 hover:bg-slate-100" title="Bullet list" data-cmd="ul">\u2022 List</button>' +
+        '<button type="button" class="rt-cmd px-2 py-0.5 rounded text-[11px] font-black bg-white border border-slate-200 hover:bg-slate-100" title="Numbered list" data-cmd="ol">1. List</button>' +
+        '</div>' +
+        '<div class="rt-editor form-tpl-field" data-tplfield="' + fieldId + '" contenteditable="true" style="min-height:100px;padding:10px;font-size:14px;line-height:1.55;color:#20231F;" data-placeholder="Type your content here...">' + val + '</div>' +
+        '</div>';
+};
+
+document.addEventListener('change', function(e) {
+    var t = e.target;
+    if (!t.classList) return;
+    if (t.classList.contains('rt-size')) {
+        var wrap = t.closest('.rt-wrap'); var ed = wrap ? wrap.querySelector('.rt-editor') : null;
+        if (ed) { ed.focus(); document.execCommand('fontSize', false, t.value); }
+    } else if (t.classList.contains('rt-color')) {
+        var wrap = t.closest('.rt-wrap'); var ed = wrap ? wrap.querySelector('.rt-editor') : null;
+        if (ed) { ed.focus(); document.execCommand('foreColor', false, t.value); }
+    }
+}, false);
+
+document.addEventListener('click', function(e) {
+    var t = e.target;
+    if (!t.classList || !t.classList.contains('rt-cmd')) return;
+    var wrap = t.closest('.rt-wrap');
+    var ed = wrap ? wrap.querySelector('.rt-editor') : null;
+    if (!ed) return;
+    ed.focus();
+    var cmd = t.getAttribute('data-cmd');
+    if (cmd === 'ul') { document.execCommand('insertUnorderedList', false, null); }
+    else if (cmd === 'ol') { document.execCommand('insertOrderedList', false, null); }
+    else if (cmd) { document.execCommand(cmd, false, null); }
+}, false);
+
+window._rtCollect = function(fieldId) {
+    var ed = document.querySelector('.rt-editor[data-tplfield="' + fieldId + '"]');
+    return ed ? ed.innerHTML : '';
+};
+
+window._rtViewHtml = function(value) {
+    if (!value) return '<div class="text-sm text-slate-400 italic">No content</div>';
+    return '<div class="text-sm leading-relaxed" style="word-wrap:break-word;">' + value + '</div>';
+};
+
+/* ─── Diagram (shape canvas) control ─────────────────────────── */
+function _dgmEscape(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function _dgmActiveCss() { return 'background:#e8eee5;border-color:#6E8E6D;color:#3f5a3e;box-shadow:0 0 0 2px rgba(110,142,109,0.25);'; }
+function _dgmSvg(shapes) {
+    var parts = (shapes || []).map(function(s) {
+        var x = s.x, y = s.y, w = s.w || 0, h = s.h || 0;
+        if (s.type === 'rect') return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="rgba(135,157,130,0.18)" stroke="#6E8E6D" stroke-width="1.5"/>';
+        if (s.type === 'circle') return '<ellipse cx="' + x + '" cy="' + y + '" rx="' + Math.max(w, 8) + '" ry="' + Math.max(h, 8) + '" fill="rgba(164,119,114,0.15)" stroke="#a47772" stroke-width="1.5"/>';
+        if (s.type === 'line') return '<line x1="' + x + '" y1="' + y + '" x2="' + (x + w) + '" y2="' + (y + h) + '" stroke="#555B6E" stroke-width="1.5"/>';
+        if (s.type === 'arrow') {
+            var ang = Math.atan2(h, w), len = Math.min(Math.hypot(w, h), 16);
+            var x2 = x + w, y2 = y + h;
+            var p1 = [x2 - len * Math.cos(ang - 0.4), y2 - len * Math.sin(ang - 0.4)];
+            var p2 = [x2 - len * Math.cos(ang + 0.4), y2 - len * Math.sin(ang + 0.4)];
+            return '<line x1="' + x + '" y1="' + y + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#20231F" stroke-width="1.6"/>' +
+                '<polygon points="' + x2 + ',' + y2 + ' ' + p1[0].toFixed(1) + ',' + p1[1].toFixed(1) + ' ' + p2[0].toFixed(1) + ',' + p2[1].toFixed(1) + '" fill="#20231F"/>';
+        }
+        if (s.type === 'text') return '<text x="' + x + '" y="' + (y + 13) + '" font-size="13" fill="#20231F" font-family="Arial, sans-serif">' + _dgmEscape(s.text || '') + '</text>';
+        return '';
+    });
+    return '<svg class="dgm-svg" width="100%" height="100%" style="position:absolute;inset:0;pointer-events:none;">' + parts.join('') + '</svg>';
+}
+
+window._diagramFieldHtml = function(fieldId, existing) {
+    var shapes = [];
+    if (existing) { try { shapes = JSON.parse(existing); } catch(e) { shapes = []; } }
+    if (!Array.isArray(shapes)) shapes = [];
+    var dgmTools = [['rect', '\u25A0 Box'], ['circle', '\u25CB Oval'], ['arrow', '\u2192 Arrow'], ['line', '\u2014 Line'], ['text', 'T Text']];
+    var dgmActiveTool = 'rect';
+    var dgmToolBtns = dgmTools.map(function(pr) {
+        var active = pr[0] === dgmActiveTool;
+        return '<button type="button" class="dgm-tool px-2 py-0.5 rounded text-[11px] font-bold bg-white border border-slate-200 hover:bg-slate-100" data-tool="' + pr[0] + '" style="' + (active ? _dgmActiveCss() : '') + '">' + pr[1] + '</button>';
+    }).join('');
+    return '<div class="dgm-wrap border border-slate-300 rounded-lg overflow-hidden bg-white">' +
+        '<div class="flex items-center flex-wrap gap-1 px-2 py-1 bg-slate-50 border-b border-slate-200">' +
+        '<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest mr-1">Diagram</span>' +
+        dgmToolBtns +
+        '<span class="text-slate-300">|</span>' +
+        '<button type="button" class="dgm-clear px-2 py-0.5 rounded text-[11px] font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100">Clear</button>' +
+        '</div>' +
+        '<div class="dgm-stage" data-tplfield="' + fieldId + '" style="position:relative;height:260px;background:repeating-linear-gradient(0deg,transparent,transparent 19px,#f3f2ee 19px,#f3f2ee 20px),repeating-linear-gradient(90deg,transparent,transparent 19px,#f3f2ee 19px,#f3f2ee 20px);overflow:hidden;cursor:crosshair;">' +
+        _dgmSvg(shapes) +
+        '<input type="hidden" class="dgm-data form-tpl-field" data-tplfield="' + fieldId + '" value="' + _dgmEscape(JSON.stringify(shapes)) + '">' +
+        '</div>' +
+        '<div class="px-2 py-1 text-[10px] text-slate-400 bg-slate-50 border-t border-slate-200">Pick a tool, then click &amp; drag on the grid to draw. Click \u201cT Text\u201d then click the grid to add a label.</div>' +
+        '</div>';
+};
+
+window._diagramCollect = function(fieldId) {
+    var inp = document.querySelector('.dgm-data[data-tplfield="' + fieldId + '"]');
+    return inp ? inp.value : '';
+};
+
+window._diagramViewHtml = function(value) {
+    var shapes = [];
+    if (value) { try { shapes = JSON.parse(value); } catch(e) { shapes = []; } }
+    if (!Array.isArray(shapes) || !shapes.length) return '<div class="text-sm text-slate-400 italic">No diagram</div>';
+    return '<div style="position:relative;height:260px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">' + _dgmSvg(shapes) + '</div>';
+};
+
+/* Diagram interactions (delegated) */
+document.addEventListener('click', function(e) {
+    var t = e.target;
+    if (!t.classList) return;
+    if (t.classList.contains('dgm-tool')) {
+        var wrap = t.closest('.dgm-wrap');
+        if (wrap) {
+            wrap.querySelectorAll('.dgm-tool').forEach(function(b) {
+                var active = b === t;
+                b.style.background = active ? '#e8eee5' : '';
+                b.style.borderColor = active ? '#6E8E6D' : '';
+                b.style.color = active ? '#3f5a3e' : '';
+                b.style.boxShadow = active ? '0 0 0 2px rgba(110,142,109,0.25)' : '';
+            });
+            wrap.setAttribute('data-tool', t.getAttribute('data-tool'));
+        }
+    } else if (t.classList.contains('dgm-clear')) {
+        var wrap = t.closest('.dgm-wrap');
+        if (wrap) {
+            var inp = wrap.querySelector('.dgm-data');
+            var st = wrap.querySelector('.dgm-stage');
+            if (inp) inp.value = '[]';
+            if (st) { var old = st.querySelector('.dgm-svg'); if (old) old.remove(); }
+        }
+    }
+}, false);
+
+document.addEventListener('mousedown', function(e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains('dgm-stage')) return;
+    e.preventDefault();
+    var stage = t;
+    var wrap = stage.closest('.dgm-wrap');
+    if (!wrap) return;
+    var tool = wrap.getAttribute('data-tool') || 'rect';
+    var rect = stage.getBoundingClientRect();
+    var startX = e.clientX - rect.left, startY = e.clientY - rect.top;
+
+    if (tool === 'text') {
+        var text = prompt('Enter label text:', '');
+        if (text && text.trim()) {
+            var shapes = _dgmRead(wrap);
+            shapes.push({ type: 'text', x: Math.round(startX), y: Math.round(startY), text: text.trim() });
+            _dgmWrite(wrap, shapes);
+        }
+        return;
+    }
+
+    var svg = stage.querySelector('.dgm-svg');
+    if (!svg) {
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'dgm-svg'); svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%');
+        svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+        stage.appendChild(svg);
+    }
+    var cur = document.createElementNS('http://www.w3.org/2000/svg', tool === 'rect' ? 'rect' : tool === 'circle' ? 'ellipse' : 'line');
+    cur.setAttribute('style', 'pointer-events:none;');
+    if (tool === 'rect') { cur.setAttribute('x', startX); cur.setAttribute('y', startY); cur.setAttribute('width', 0); cur.setAttribute('height', 0); cur.setAttribute('fill', 'rgba(135,157,130,0.18)'); cur.setAttribute('stroke', '#6E8E6D'); cur.setAttribute('stroke-width', 1.5); }
+    else if (tool === 'circle') { cur.setAttribute('cx', startX); cur.setAttribute('cy', startY); cur.setAttribute('rx', 0); cur.setAttribute('ry', 0); cur.setAttribute('fill', 'rgba(164,119,114,0.15)'); cur.setAttribute('stroke', '#a47772'); cur.setAttribute('stroke-width', 1.5); }
+    else { cur.setAttribute('x1', startX); cur.setAttribute('y1', startY); cur.setAttribute('x2', startX); cur.setAttribute('y2', startY); cur.setAttribute('stroke', '#20231F'); cur.setAttribute('stroke-width', 1.6); }
+    svg.appendChild(cur);
+
+    var sx = startX, sy = startY;
+    var moving = false;
+    var onMove = function(ev) {
+        moving = true;
+        var x = Math.min(ev.clientX - rect.left, 3000), y = Math.min(ev.clientY - rect.top, 3000);
+        var w = x - sx, h = y - sy;
+        if (tool === 'rect') { cur.setAttribute('x', Math.min(sx, x)); cur.setAttribute('y', Math.min(sy, y)); cur.setAttribute('width', Math.abs(w)); cur.setAttribute('height', Math.abs(h)); }
+        else if (tool === 'circle') { cur.setAttribute('cx', (sx + x) / 2); cur.setAttribute('cy', (sy + y) / 2); cur.setAttribute('rx', Math.abs(w) / 2); cur.setAttribute('ry', Math.abs(h) / 2); }
+        else { cur.setAttribute('x2', x); cur.setAttribute('y2', y); }
+    };
+    var onUp = function(ev) {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (!moving) { cur.remove(); return; }
+        var x = Math.min(ev.clientX - rect.left, 3000), y = Math.min(ev.clientY - rect.top, 3000);
+        var w = x - sx, h = y - sy;
+        var shapes = _dgmRead(wrap);
+        if (tool === 'rect') shapes.push({ type: 'rect', x: Math.round(Math.min(sx, x)), y: Math.round(Math.min(sy, y)), w: Math.round(Math.abs(w)), h: Math.round(Math.abs(h)) });
+        else if (tool === 'circle') shapes.push({ type: 'circle', x: Math.round((sx + x) / 2), y: Math.round((sy + y) / 2), w: Math.round(Math.abs(w) / 2), h: Math.round(Math.abs(h) / 2) });
+        else if (tool === 'arrow') shapes.push({ type: 'arrow', x: Math.round(sx), y: Math.round(sy), w: Math.round(w), h: Math.round(h) });
+        else shapes.push({ type: 'line', x: Math.round(sx), y: Math.round(sy), w: Math.round(w), h: Math.round(h) });
+        _dgmWrite(wrap, shapes);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+}, false);
+
+function _dgmRead(wrap) {
+    var inp = wrap.querySelector('.dgm-data');
+    var shapes = [];
+    if (inp && inp.value) { try { shapes = JSON.parse(inp.value); } catch(e) { shapes = []; } }
+    return Array.isArray(shapes) ? shapes : [];
+}
+function _dgmWrite(wrap, shapes) {
+    var inp = wrap.querySelector('.dgm-data');
+    var stage = wrap.querySelector('.dgm-stage');
+    if (inp) inp.value = JSON.stringify(shapes);
+    if (stage) { var old = stage.querySelector('.dgm-svg'); if (old) old.remove(); }
+    if (stage) stage.insertAdjacentHTML('beforeend', _dgmSvg(shapes));
 }
 
 async function _tplLoadTemplates() { return _loadFormTemplates(); }
@@ -77,6 +304,12 @@ async function _tplDuplicateTemplate(id) {
     dup.name = orig.name + ' (Copy)';
     dup.created = new Date().toISOString().substring(0, 10);
     dup.fields.forEach(function(f) { f.id = _uid('field-'); });
+    /* Copies start as the current user's personal template */
+    var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+    dup.scope = 'personal';
+    dup.ownerId = user ? user.id : dup.ownerId;
+    dup.creatorId = user ? user.id : dup.creatorId;
+    dup.creator = user ? user.name : dup.creator;
     await _tplSaveTemplate(dup);
 }
 
@@ -84,26 +317,42 @@ async function _tplDuplicateTemplate(id) {
    TEMPLATE LIBRARY
    ═══════════════════════════════════════════════════════════════ */
 
+function _tplVisible(t, user) {
+    if (!user) return true;
+    if (t.ownerId && t.ownerId === user.id) return true; /* owners always see their own */
+    if (t.scope === 'personal') return t.ownerId === user.id;
+    if (t.scope === 'department') return !t.sharedDepartments || t.sharedDepartments.indexOf(user.department) >= 0;
+    if (t.scope === 'group') return !t.sharedUsers || t.sharedUsers.indexOf(user.id) >= 0;
+    return true; /* 'all' or legacy templates are shared with everyone */
+}
+
 window.renderTemplateLibrary = async function() {
     var templates = await _tplLoadTemplates();
     var el = document.getElementById('mainView');
     var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
     var userDept = user ? user.department : '';
 
-    if (!templates.length) {
+    var visible = templates.filter(function(t) { return _tplVisible(t, user); });
+
+    if (!visible.length) {
         el.innerHTML = '<div class="card p-12 text-center border-t-4 border-t-birds-green">' +
-            '<h2 class="text-2xl font-black text-slate-700 mb-2">No Visit Forms Yet</h2>' +
-            '<p class="text-sm text-slate-400 mb-6 max-w-md mx-auto">Create scoring questionnaires for store visits \u2014 drag question types, attach scoring, and get auto-calculated summaries.</p>' +
-            '<button onclick="setView(\'templatebuilder\')" class="btn-primary rounded-none text-lg px-8 py-3">+ Create Your First Form</button>' +
+            '<h2 class="text-2xl font-black text-slate-700 mb-2">No Form Templates</h2>' +
+            '<p class="text-sm text-slate-400 mb-6 max-w-md mx-auto">Create a form template \u2014 keep it personal in My Work, or share it with your department, specific members or the whole team.</p>' +
+            '<button onclick="setView(\'templatebuilder\')" class="btn-primary rounded-none text-lg px-8 py-3">+ Create a Template</button>' +
             '</div>';
         return;
     }
 
     /* Department filter */
-    var tplDepts = [...new Set(templates.map(function(t) { return t.department || 'General'; }))].sort();
+    var tplDepts = [...new Set(visible.map(function(t) { return t.department || 'General'; }))].sort();
     var filterDept = window._currentDeptFilter || userDept || 'All';
     if (filterDept !== 'All' && tplDepts.indexOf(filterDept) === -1) filterDept = 'All';
     window._currentDeptFilter = filterDept;
+
+    /* Scope filter: all / mine / shared / team */
+    var scopeFilter = window._currentTplScopeFilter || 'all';
+    if (['all','mine','shared','team'].indexOf(scopeFilter) === -1) scopeFilter = 'all';
+    window._currentTplScopeFilter = scopeFilter;
 
     var deptFilterOpts = '<option value="All"' + (filterDept === 'All' ? ' selected' : '') + '>All Departments</option>';
     var seniorSet = {};
@@ -119,11 +368,23 @@ window.renderTemplateLibrary = async function() {
         deptFilterOpts += '<option value="' + d + '"' + (filterDept === d ? ' selected' : '') + '>' + d + '</option>';
     });
 
-    var filtered = filterDept === 'All' ? templates : templates.filter(function(t) {
-        return (t.department || 'General') === filterDept;
+    var scopeFilterOpts =
+        '<option value="all"' + (scopeFilter === 'all' ? ' selected' : '') + '>All</option>' +
+        '<option value="mine"' + (scopeFilter === 'mine' ? ' selected' : '') + '>My Templates</option>' +
+        '<option value="shared"' + (scopeFilter === 'shared' ? ' selected' : '') + '>Shared with me</option>' +
+        '<option value="team"' + (scopeFilter === 'team' ? ' selected' : '') + '>All team</option>';
+
+    var filtered = visible.filter(function(t) {
+        var dOk = filterDept === 'All' || (t.department || 'General') === filterDept;
+        var sOk = scopeFilter === 'all' ? true :
+            scopeFilter === 'mine' ? (t.scope === 'personal') :
+            scopeFilter === 'shared' ? (t.scope === 'department' || t.scope === 'group') :
+            (!t.scope || t.scope === 'all');
+        return dOk && sOk;
     });
 
     var deptOptsList = tplDepts.filter(function(d) { return d !== 'All'; });
+    var canManageAny = false;
     var cards = filtered.map(function(t) {
         var allCount = t.fields ? t.fields.length : 0;
         var scoredCount = t.fields ? t.fields.filter(function(f) { return f.scoringType && f.scoringType !== 'none'; }).length : 0;
@@ -137,6 +398,12 @@ window.renderTemplateLibrary = async function() {
         if (ragCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded" style="background:rgba(164,119,114,0.12);color:var(--edwardian-rose);border:1px solid rgba(164,119,114,0.25);">' + ragCount + ' RAG</span>';
         if (pfCount) typeBadges += '<span class="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">' + pfCount + ' Pass/Fail</span>';
 
+        var scopeLabel = '';
+        if (t.scope === 'personal') scopeLabel = '<span class="text-[9px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Personal</span>';
+        else if (t.scope === 'department') scopeLabel = '<span class="text-[9px] font-black px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 border border-sky-200">Dept' + ((t.sharedDepartments || []).length ? ' \u00b7 ' + escapeHtml((t.sharedDepartments || []).join(', ')) : '') + '</span>';
+        else if (t.scope === 'group') scopeLabel = '<span class="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200">Group (' + ((t.sharedUsers || []).length) + ' members)</span>';
+        else scopeLabel = '<span class="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">All team</span>';
+
         var metaLine = '';
         if (creatorName && created) metaLine = escapeHtml(creatorName) + ' \u2022 ' + created;
         else if (creatorName) metaLine = escapeHtml(creatorName);
@@ -146,12 +413,25 @@ window.renderTemplateLibrary = async function() {
             deptOptsList.map(function(d) { return '<option value="' + escapeHtml(d) + '"' + ((t.department || 'General') === d ? ' selected' : '') + '>' + escapeHtml(d) + '</option>'; }).join('') +
             '</select>';
 
+        var canManage = !t.ownerId || (user && t.ownerId === user.id) || (user && t.creatorId === user.id) || (typeof window.isAdmin === 'function' && isAdmin());
+        if (canManage) canManageAny = true;
+        var scopeSelect = '';
+        if (canManage) {
+            var cur = t.scope === 'department' ? 'department' : t.scope === 'group' ? 'group' : t.scope === 'personal' ? 'personal' : 'all';
+            scopeSelect = '<select onclick="event.stopPropagation()" onchange="window._tplSetScope(\'' + t.id + '\',this.value)" class="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500 border-0 cursor-pointer hover:bg-slate-200" title="Share">' +
+                '<option value="personal"' + (cur === 'personal' ? ' selected' : '') + '>Personal</option>' +
+                '<option value="department"' + (cur === 'department' ? ' selected' : '') + '>My Department</option>' +
+                '<option value="group"' + (cur === 'group' ? ' selected' : '') + '>Group</option>' +
+                '<option value="all"' + (cur === 'all' ? ' selected' : '') + '>All team</option>' +
+                '</select>';
+        }
+
         return '<div class="card p-5 hover:shadow-lg transition-all group cursor-pointer border-t-2 border-t-birds-green" onclick="window._tplEdit(\'' + t.id + '\')">' +
             '<div class="flex items-start justify-between mb-3">' +
             '<div class="flex-1 min-w-0">' +
             '<h3 class="text-lg font-black text-slate-800 truncate">' + escapeHtml(t.name || 'Untitled') + '</h3>' +
             '<p class="text-xs text-slate-400 mt-0.5">' + escapeHtml(t.description || 'No description') + '</p>' +
-            '<div class="mt-1">' + deptSelect + '</div>' +
+            '<div class="mt-1 flex items-center gap-1 flex-wrap">' + deptSelect + scopeSelect + '</div>' +
             '</div>' +
             '<div class="flex gap-1 ml-2">' +
             '<button onclick="event.stopPropagation();window._tplFill(\'' + t.id + '\')" class="px-2 py-1 rounded text-[10px] font-bold bg-birds-green text-white hover:bg-emerald-800" title="Fill In">\u25B6 Fill</button>' +
@@ -161,18 +441,21 @@ window.renderTemplateLibrary = async function() {
             '<div class="flex items-center gap-2 flex-wrap">' +
             '<span class="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">' + allCount + ' item' + (allCount !== 1 ? 's' : '') + '</span>' +
             typeBadges +
+            scopeLabel +
             '<span class="text-[10px] text-slate-400 ml-auto">' + metaLine + '</span>' +
             '</div></div>';
     }).join('');
 
     el.innerHTML = '<div class="flex items-center justify-between mb-6">' +
-        '<div><h1 class="text-2xl font-black text-slate-800">Store Visit Forms</h1>' +
-        '<p class="text-sm text-slate-400">' + filtered.length + ' form' + (filtered.length !== 1 ? 's' : '') + (filterDept !== 'All' ? ' in ' + filterDept : '') + '</p></div>' +
+        '<div><h1 class="text-2xl font-black text-slate-800">Form Templates</h1>' +
+        '<p class="text-sm text-slate-400">' + filtered.length + ' template' + (filtered.length !== 1 ? 's' : '') + (filterDept !== 'All' ? ' in ' + filterDept : '') + '</p></div>' +
         '<div class="flex items-center gap-3">' +
+        '<select id="tpl-scope-filter" onchange="window._currentTplScopeFilter=this.value;renderTemplateLibrary()" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white">' + scopeFilterOpts + '</select>' +
         '<select id="tpl-dept-filter" onchange="window._currentDeptFilter=this.value;renderTemplateLibrary()" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white">' + deptFilterOpts + '</select>' +
         '<button onclick="setView(\'templatebuilder\')" class="btn-primary rounded-none">+ New Form</button>' +
         '</div></div>' +
-        '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">' + cards + '</div>';
+        '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">' + cards + '</div>' +
+        (canManageAny ? '<p class="text-[11px] text-slate-400 mt-3">Tip: pick \u201cMy Department\u201d, \u201cGroup\u201d or \u201cAll team\u201d to share a template \u2014 use the Share menu in the template editor to choose specific departments or members.</p>' : '');
 };
 
 window._tplEdit = function(id) { window._tplBuilderEditId = id; setView('templatebuilder'); };
@@ -186,8 +469,31 @@ window._tplChangeDept = async function(id, newDept) {
     renderTemplateLibrary();
 };
 window._tplDuplicate = async function(id) { if (!confirm('Duplicate this form template?')) return; await _tplDuplicateTemplate(id); renderTemplateLibrary(); };
-window._tplDelete = async function(id) { if (!confirm('Delete this form? This cannot be undone.')) return; await _tplDeleteTemplate(id); renderTemplateLibrary(); };
+window._tplDelete = async function(id) {
+    var all = await _tplLoadTemplates();
+    var t = all.find(function(x) { return x.id === id; });
+    var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+    if (t && user && t.scope === 'personal' && t.ownerId && t.ownerId !== user.id) { showToast('You can only delete your own templates', 'error'); return; }
+    if (t && user && t.creatorId && t.creatorId !== user.id && !(typeof window.isAdmin === 'function' && isAdmin())) { showToast('Only the creator or an admin can delete this template', 'error'); return; }
+    if (!confirm('Delete this form? This cannot be undone.')) return;
+    await _tplDeleteTemplate(id);
+    renderTemplateLibrary();
+};
 window._tplFill = function(id) { window._tplFillId = id; setView('templatefill'); };
+window._tplSetScope = async function(id, scope) {
+    var all = await _tplLoadTemplates();
+    var t = all.find(function(x) { return x.id === id; });
+    if (!t) return;
+    var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+    if (user && t.scope === 'personal' && t.ownerId && t.ownerId !== user.id) { showToast('Only the owner can change sharing', 'error'); renderTemplateLibrary(); return; }
+    t.scope = scope;
+    if (scope === 'department') { t.sharedDepartments = t.sharedDepartments && t.sharedDepartments.length ? t.sharedDepartments : [t.department || 'General']; delete t.sharedUsers; }
+    else if (scope === 'group') { if (!t.sharedUsers || !t.sharedUsers.length) t.sharedUsers = user && user.id ? [user.id] : []; }
+    else { delete t.sharedDepartments; delete t.sharedUsers; }
+    await _saveFormTemplates(all);
+    showToast('Sharing updated', 'success');
+    renderTemplateLibrary();
+};
 
 /* ═══════════════════════════════════════════════════════════════
    FILL IN A TEMPLATE FORM
@@ -202,7 +508,7 @@ function _tplBuildScoringHtml(f, fieldId) {
         ['Red','Amber','Green'].forEach(function(v) {
             h += '<button type="button" data-tplfield="' + fieldId + '" data-val="' + v + '" onclick="window._setRag(this)" class="px-4 py-1.5 rounded-lg text-xs font-black form-tpl-field form-tpl-rag transition-all bg-' + (v === 'Red' ? 'red' : v === 'Amber' ? 'amber' : 'emerald') + '-100 text-' + (v === 'Red' ? 'red' : v === 'Amber' ? 'amber' : 'emerald') + '-700 border-2 border-' + (v === 'Red' ? 'red' : v === 'Amber' ? 'amber' : 'emerald') + '-200 hover:bg-' + (v === 'Red' ? 'red' : v === 'Amber' ? 'amber' : 'emerald') + '-200">' + v + '</button>';
         });
-        h += '<input type="hidden" data-tplfield="' + fieldId + '" value="" class="form-tpl-field">';
+        h += '<input type="hidden" data-tplfield="' + fieldId + '" value="" class="form-tpl-field form-tpl-rag">';
         h += '</div>';
     } else if (f.scoringType === 'score_1_10') {
         h += '<label class="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1 block">Scoring (1\u201310)</label>';
@@ -210,14 +516,14 @@ function _tplBuildScoringHtml(f, fieldId) {
         for (var s = 1; s <= 10; s++) {
             h += '<button type="button" data-tplfield="' + fieldId + '" data-score="' + s + '" onclick="window._setScore(this)" class="w-8 h-8 rounded text-xs font-black form-tpl-field form-tpl-score transition-all border-2 bg-slate-100 text-slate-600 border-slate-200 hover:bg-amber-100 hover:text-amber-700 hover:border-amber-300">' + s + '</button>';
         }
-        h += '<input type="hidden" data-tplfield="' + fieldId + '" value="" class="form-tpl-field">';
+        h += '<input type="hidden" data-tplfield="' + fieldId + '" value="" class="form-tpl-field form-tpl-score">';
         h += '</div>';
     } else if (f.scoringType === 'passfail') {
         h += '<label class="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1 block">Scoring</label>';
         h += '<div class="flex gap-2">';
         h += '<button type="button" data-tplfield="' + fieldId + '" data-val="Pass" onclick="window._setPassFail(this)" class="px-5 py-1.5 rounded-lg text-xs font-black form-tpl-field form-tpl-pf transition-all bg-emerald-100 text-emerald-700 border-2 border-emerald-200 hover:bg-emerald-200">Pass</button>';
         h += '<button type="button" data-tplfield="' + fieldId + '" data-val="Fail" onclick="window._setPassFail(this)" class="px-5 py-1.5 rounded-lg text-xs font-black form-tpl-field form-tpl-pf transition-all bg-red-100 text-red-700 border-2 border-red-200 hover:bg-red-200">Fail</button>';
-        h += '<input type="hidden" data-tplfield="' + fieldId + '" value="" class="form-tpl-field">';
+        h += '<input type="hidden" data-tplfield="' + fieldId + '" value="" class="form-tpl-field form-tpl-pf">';
         h += '</div>';
     }
     h += '</div>';
@@ -306,43 +612,41 @@ window.renderTemplateFill = async function() {
             var scoredRows = f.tableScoredRows || [];
             var scoredCols = f.tableScoredCols || [];
             var hasScoring = f.scoringType && f.scoringType !== 'none';
+            var hasRowGutter = hasScoring && scoredRows.length > 0;
+            var hasColFooter = hasScoring && scoredCols.length > 0;
             html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200"><thead><tr>';
             html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>';
             for (var c = 0; c < cols; c++) {
-                var isScored = hasScoring && scoredCols.indexOf(c) !== -1;
-                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[c] || 'Col ' + (c+1)) + (isScored ? ' <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;border:1px solid #fde68a;">&#9733;</span>' : '') + '</th>';
+                html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[c] || 'Col ' + (c+1)) + '</th>';
             }
+            if (hasRowGutter) html += '<th style="border:none;background:transparent;padding:2px 0 2px 8px;text-align:left;vertical-align:bottom;font-size:9px;color:#92400e;font-weight:700;white-space:nowrap">Score</th>';
             html += '</tr></thead><tbody>';
             for (var r = 0; r < rows; r++) {
                 var rowScored = scoredRows.indexOf(r) !== -1 && hasScoring;
                 html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                 html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[r] || 'Row ' + (r+1)) + '</td>';
                 for (var c2 = 0; c2 < cols; c2++) {
-                    var isLastCol = (c2 === cols - 1);
                     html += '<td class="border border-slate-200 p-1">';
                     html += '<input type="text" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="' + c2 + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field rounded" placeholder="">';
-                    if (isLastCol && rowScored) {
-                        var scType = f.scoringType || 'score_1_10';
-                        html += '<div class="flex gap-0.5 mt-1 justify-center">';
-                        if (scType === 'rag') {
-                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">G</button>';
-                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200">A</button>';
-                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">R</button>';
-                            html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
-                        } else if (scType === 'passfail') {
-                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">Pass</button>';
-                            html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">Fail</button>';
-                            html += '<input type="hidden" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" value="" class="form-tpl-field">';
-                        } else {
-                            html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + r + '" data-col="score" min="0" max="10" class="w-10 p-0.5 text-[10px] border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
-                        }
-                        html += '</div>';
-                    }
                     html += '</td>';
+                }
+                if (hasRowGutter) {
+                    html += '<td style="border:none;background:transparent;padding:2px 0 2px 8px;vertical-align:middle;white-space:nowrap">' + (rowScored ? _tplTableScoreCtrl(f, r, 'score') : '') + '</td>';
                 }
                 html += '</tr>';
             }
-            html += '</tbody></table></div>';
+            html += '</tbody>';
+            if (hasColFooter) {
+                html += '<tfoot><tr>';
+                html += '<td style="border:none;background:transparent;padding-top:6px;text-align:left;font-size:9px;color:#92400e;font-weight:700;vertical-align:top">Score</td>';
+                for (var fc = 0; fc < cols; fc++) {
+                    var colScored = scoredCols.indexOf(fc) !== -1;
+                    html += '<td style="border:none;background:transparent;padding-top:6px;text-align:center;vertical-align:top">' + (colScored ? _tplTableScoreCtrl(f, 'score', fc) : '') + '</td>';
+                }
+                if (hasRowGutter) html += '<td style="border:none;background:transparent"></td>';
+                html += '</tr></tfoot>';
+            }
+            html += '</table></div>';
         } else if (at === 'signoff') {
             html += '<div class="p-5 border-2 border-dashed border-slate-200 rounded-2xl bg-amber-50/50">';
             html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">';
@@ -358,9 +662,13 @@ window.renderTemplateFill = async function() {
             html += '<button type="button" onclick="window._sigClear(\'' + f.id + '\')" class="text-[10px] font-bold px-3 py-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">Clear</button>';
             html += '</div>';
             html += '<input type="hidden" data-tplfield="' + f.id + '" data-sig="true" value="" class="form-tpl-field"></div></div>';
+        } else if (at === 'richtext') {
+            html += (typeof window._rtFieldHtml === 'function') ? window._rtFieldHtml(f.id, '') : '<textarea data-tplfield="' + f.id + '" class="form-tpl-field w-full p-2 border border-slate-300 rounded text-sm h-20"></textarea>';
+        } else if (at === 'diagram') {
+            html += (typeof window._diagramFieldHtml === 'function') ? window._diagramFieldHtml(f.id, '') : '<div class="text-sm text-slate-400">Diagram</div>';
         }
 
-        if (at !== 'table' && at !== 'signoff') html += _tplBuildScoringHtml(f, f.id);
+        if (at !== 'table' && at !== 'signoff' && at !== 'richtext' && at !== 'diagram') html += _tplBuildScoringHtml(f, f.id);
         html += '</div>';
         return html;
     }).join('');
@@ -413,6 +721,27 @@ window._setPassFail = function(btn) {
     btn.classList.add('ring-2', 'ring-offset-1');
     container.querySelector('input[type="hidden"]').value = btn.getAttribute('data-val');
 };
+
+function _tplTableScoreCtrl(f, dataRow, dataCol) {
+    var scType = f.scoringType || 'score_1_10';
+    var h = '';
+    if (scType === 'rag') {
+        h += '<div class="flex gap-0.5 justify-center items-center">';
+        var ragVals = [['Green', 'G', 'emerald'], ['Amber', 'A', 'amber'], ['Red', 'R', 'red']];
+        ragVals.forEach(function(v) {
+            h += '<button type="button" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" data-val="' + v[0] + '" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-' + v[2] + '-100 text-' + v[2] + '-700 border border-' + v[2] + '-300 hover:bg-' + v[2] + '-200">' + v[1] + '</button>';
+        });
+        h += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" value="" class="form-tpl-field">';
+    } else if (scType === 'passfail') {
+        h += '<div class="flex gap-0.5 justify-center items-center">';
+        h += '<button type="button" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200">Pass</button>';
+        h += '<button type="button" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200">Fail</button>';
+        h += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" value="" class="form-tpl-field">';
+    } else {
+        h += '<input type="number" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" min="0" max="' + (f.scoreMax || 10) + '" class="w-12 p-0.5 text-[10px] border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+    }
+    return h;
+}
 
 window._setTableCellScore = function(btn) {
     var td = btn.closest('td');
@@ -524,8 +853,13 @@ function _tplCollectValues(tmpl) {
             values[f.id] = data.join('\n');
             var scoredRows = f.tableScoredRows || [];
             scoredRows.forEach(function(ri) {
-                var scoreEl = document.querySelector('.form-tpl-field[data-tplfield="' + f.id + '"][data-row="' + ri + '"][data-col="score"]');
+                var scoreEl = document.querySelector('input.form-tpl-field[data-tplfield="' + f.id + '"][data-row="' + ri + '"][data-col="score"]');
                 values[f.id + '_r' + ri + '_cscore'] = scoreEl ? scoreEl.value : '';
+            });
+            var scoredCols = f.tableScoredCols || [];
+            scoredCols.forEach(function(ci) {
+                var scoreEl = document.querySelector('input.form-tpl-field[data-tplfield="' + f.id + '"][data-row="score"][data-col="' + ci + '"]');
+                values[f.id + '_c' + ci + 'score'] = scoreEl ? scoreEl.value : '';
             });
         } else if (at === 'header') {
             var hdrParts = [];
@@ -537,6 +871,10 @@ function _tplCollectValues(tmpl) {
             var parts = [];
             els.forEach(function(el) { parts.push(el.value || ''); });
             values[f.id] = parts.join(' | ');
+        } else if (at === 'richtext') {
+            values[f.id] = (typeof window._rtCollect === 'function') ? window._rtCollect(f.id) : '';
+        } else if (at === 'diagram') {
+            values[f.id] = (typeof window._diagramCollect === 'function') ? window._diagramCollect(f.id) : '';
         } else {
             var els2 = document.querySelectorAll('.form-tpl-field[data-tplfield="' + f.id + '"]');
             values[f.id] = els2.length > 0 ? els2[0].value : '';
@@ -640,6 +978,8 @@ window.renderTemplateBuilderPage = async function() {
             department: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().department : '',
             creator: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().name : '',
             creatorId: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().id : '',
+            ownerId: (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().id : '',
+            scope: 'personal',
             createdAt: new Date().toISOString(),
             fields: [
                 { id: _uid('hdr-'), label: 'Store Visit Report', answerType: 'header', scoringType: 'none', subLabel: '',
@@ -651,7 +991,8 @@ window.renderTemplateBuilderPage = async function() {
         isEdit: !!existing,
         selectedIdx: -1,
         previewMode: false,
-        dragIdx: -1
+        dragIdx: -1,
+        showShare: false
     };
     _bldRender();
 };
@@ -726,11 +1067,14 @@ function _bldRender() {
         '<input type="text" id="bld-page-desc" value="' + escapeHtml(tmpl.description) + '" class="input-chip rounded-none text-xs px-2 py-1 flex-1 min-w-0" placeholder="Description" onchange="window._bldUpdateMeta()">' +
         '<select id="bld-page-dept" onchange="window._bldUpdateMeta()" class="input-chip rounded-none text-xs px-2 py-1 w-44 flex-shrink-0">' + deptOpts + '</select>' +
         '<span class="text-[10px] text-slate-400 flex-shrink-0">' + tmpl.fields.length + ' items</span>' +
+        '<button onclick="window._bldToggleShare()" class="px-3 py-1 rounded text-[11px] font-bold flex-shrink-0 ' + (b.showShare ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" title="Share this template">Share</button>' +
         '<button onclick="window._bldTogglePreview()" class="px-3 py-1 rounded text-[11px] font-bold flex-shrink-0 ' + (b.previewMode ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200') + '">' + (b.previewMode ? '\u2190 Edit' : 'Preview') + '</button>' +
         '<button onclick="window._bldSave(false)" class="bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1 rounded text-[11px] font-bold flex-shrink-0">Save & Stay</button>' +
         '<button onclick="window._bldSave(true)" class="btn-primary rounded px-4 py-1 text-[11px] flex-shrink-0">Save & Exit</button>' +
         '<span id="bld-save-feedback" class="text-xs font-bold text-emerald-600 flex-shrink-0 hidden"></span>' +
         '</div>' +
+        // SHARE PANEL
+        (b.showShare ? _bldSharePanelHtml(tmpl) : '') +
         // MAIN AREA — full remaining height
         '<div class="flex gap-0" style="height:calc(100vh - 42px)">' +
         // LEFT SIDEBAR — narrow, scrollable
@@ -804,6 +1148,8 @@ function _bldFieldPreview(f) {
         return '<div class="mt-1 flex flex-wrap gap-1">' + (cb || '<span class="text-xs text-slate-400">No options set</span>') + '</div>';
     }
     if (at === 'image') return '<div class="mt-1 p-4 border-2 border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">Photo upload area</div>';
+    if (at === 'richtext') return '<div class="mt-1 border border-slate-200 rounded p-2 text-xs text-slate-400 bg-slate-50">Rich text: bold, colour, lists, headings</div>';
+    if (at === 'diagram') return '<div class="mt-1 border border-slate-200 rounded p-2 text-xs text-slate-400 bg-slate-50">Diagram canvas: boxes, arrows, lines, labels</div>';
     if (at === 'table') {
         var rows = f.tableRows || 3, cols = f.tableCols || 3;
         var hdrs = '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>' + (f.tableHeaders || []).slice(0, cols).map(function(h) { return '<th class="bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-500">' + escapeHtml(h) + '</th>'; }).join('');
@@ -975,6 +1321,23 @@ window._bldSelect = function(idx) {
 window._bldAdd = function(sidebarType) {
     var b = window._bld;
     var answerType = _tplTypeToAnswerType(sidebarType);
+
+    /* One-click Document Control block: a section + revision history table */
+    if (answerType === 'doccontrol') {
+        b.tmpl.fields.push({ id: _uid('field-'), label: 'Document Control', answerType: 'section', scoringType: 'none' });
+        b.tmpl.fields.push({
+            id: _uid('field-'), label: 'Revision History', answerType: 'table', scoringType: 'none',
+            tableCols: 4, tableRows: 3,
+            tableHeaders: ['Revision Number', 'Revision Date', 'Authorised By', 'Reason for Revision'],
+            tableRowHeaders: ['1', '2', '3'], tableRowHeaderLabel: 'Rev',
+            tableScoredCols: [], tableScoredRows: []
+        });
+        b.selectedIdx = b.tmpl.fields.length - 1;
+        b.previewMode = false;
+        _bldRender();
+        return;
+    }
+
     var field = {
         id: _uid('field-'),
         label: '',
@@ -1051,6 +1414,71 @@ window._bldUpdateMeta = function() {
     window._bld.tmpl.name = document.getElementById('bld-page-name') ? document.getElementById('bld-page-name').value : '';
     window._bld.tmpl.description = document.getElementById('bld-page-desc') ? document.getElementById('bld-page-desc').value : '';
     window._bld.tmpl.department = document.getElementById('bld-page-dept') ? document.getElementById('bld-page-dept').value : '';
+};
+
+/* ─── Template sharing controls (Personal / Department / Group / All) ─── */
+
+function _bldSharePanelHtml(tmpl) {
+    var scope = tmpl.scope || 'personal';
+    var depts = (typeof Users !== 'undefined' && Users.getDepartments) ? Users.getDepartments() : [];
+    var users = (typeof Users !== 'undefined' && Users.getAll) ? Users.getAll() : [];
+    var selDepts = tmpl.sharedDepartments || [];
+    var selUsers = tmpl.sharedUsers || [];
+    var opts = [
+        ['personal', 'Personal (just me)'],
+        ['department', 'Department(s)'],
+        ['group', 'Specific members'],
+        ['all', 'All team']
+    ].map(function(s) { return '<option value="' + s[0] + '"' + (scope === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('');
+
+    var h = '<div class="bg-amber-50/60 border-b border-amber-100 px-3 py-2">' +
+        '<div class="flex items-center gap-2 flex-wrap">' +
+        '<span class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Share</span>' +
+        '<select id="bld-share-scope" onchange="window._bldSetScope(this.value)" class="input-chip rounded-none text-xs px-2 py-1">' + opts + '</select>';
+    if (scope === 'department') {
+        h += '<span class="text-[10px] text-slate-400">Departments:</span>';
+        depts.forEach(function(d) {
+            h += '<label class="flex items-center gap-1 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded px-2 py-0.5 cursor-pointer"><input type="checkbox" ' + (selDepts.indexOf(d) >= 0 ? 'checked' : '') + ' onchange="window._bldToggleDept(\'' + String(d).replace(/'/g, "\\'") + '\',this.checked)" class="accent-emerald-600"> ' + escapeHtml(d) + '</label>';
+        });
+    }
+    if (scope === 'group') {
+        h += '<span class="text-[10px] text-slate-400">Members:</span>';
+        users.forEach(function(u) {
+            var label = u.name || u.email || u.id;
+            h += '<label class="flex items-center gap-1 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded px-2 py-0.5 cursor-pointer"><input type="checkbox" ' + (selUsers.indexOf(u.id) >= 0 ? 'checked' : '') + ' onchange="window._bldToggleUser(\'' + String(u.id).replace(/'/g, "\\'") + '\',this.checked)" class="accent-emerald-600"> ' + escapeHtml(label) + '</label>';
+        });
+    }
+    h += '</div></div>';
+    return h;
+}
+
+window._bldToggleShare = function() {
+    window._bld.showShare = !window._bld.showShare;
+    _bldRender();
+};
+
+window._bldSetScope = function(v) {
+    var t = window._bld.tmpl;
+    t.scope = v;
+    if (v === 'department' && (!t.sharedDepartments || !t.sharedDepartments.length)) t.sharedDepartments = [t.department || 'General'];
+    if (v === 'group' && !t.sharedUsers) t.sharedUsers = [];
+    _bldRender();
+};
+
+window._bldToggleDept = function(d, on) {
+    var t = window._bld.tmpl;
+    t.sharedDepartments = t.sharedDepartments || [];
+    var i = t.sharedDepartments.indexOf(d);
+    if (on && i < 0) t.sharedDepartments.push(d);
+    if (!on && i >= 0) t.sharedDepartments.splice(i, 1);
+};
+
+window._bldToggleUser = function(u, on) {
+    var t = window._bld.tmpl;
+    t.sharedUsers = t.sharedUsers || [];
+    var i = t.sharedUsers.indexOf(u);
+    if (on && i < 0) t.sharedUsers.push(u);
+    if (!on && i >= 0) t.sharedUsers.splice(i, 1);
 };
 
 window._bldUpdateField = function(textOnly) {
@@ -1223,7 +1651,12 @@ window._bldSave = async function(exitAfterSave) {
     var tmpl = b.tmpl;
     tmpl.name = document.getElementById('bld-page-name') ? document.getElementById('bld-page-name').value.trim() : '';
     tmpl.description = document.getElementById('bld-page-desc') ? document.getElementById('bld-page-desc').value.trim() : '';
+    if (document.getElementById('bld-page-dept')) tmpl.department = document.getElementById('bld-page-dept').value;
     if (!tmpl.name) tmpl.name = 'Untitled Form';
+    /* New templates default to Personal until shared via the Share panel */
+    if (!tmpl.scope) tmpl.scope = 'personal';
+    var _u = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+    if (_u) { if (!tmpl.ownerId) tmpl.ownerId = _u.id; }
     await _tplSaveTemplate(tmpl);
     var fb = document.getElementById('bld-save-feedback');
     if (fb) {
@@ -1302,6 +1735,10 @@ function _bldPreview(tmpl) {
                     html += '</tr>';
                 }
                 html += '</tbody></table>';
+            } else if (at === 'richtext') {
+                html += '<div class="border border-slate-200 rounded p-2 text-xs text-slate-400 bg-slate-50">Rich text editor (bold, colour, lists, headings)</div>';
+            } else if (at === 'diagram') {
+                html += '<div class="border border-slate-200 rounded p-2 text-xs text-slate-400 bg-slate-50">Diagram canvas (boxes, arrows, labels)</div>';
             }
             html += '</div>';
         }

@@ -439,24 +439,73 @@ async function moveDocToFolder(id, folder, currentFolderId) {
 }
 
 /* ─── Form Template Storage (local storage) ──────────────────── */
-async function _loadFormTemplates() {
-    try {
-        var text = await _localDocsGetText('Document Templates/form-templates.json');
-        if (!text) text = await _localDocsGetTextFromMasterFolder([
+async function _loadSharedFormTemplates() {
+    /* Shared templates live in Document Templates/form-templates.json on SharePoint */
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        var text = await _localDocsGetTextFromMasterFolder([
             'Document Templates/form-templates.json',
             'Data/Document Templates/form-templates.json',
             'Master Folder/Data/Document Templates/form-templates.json'
         ]);
         return text ? JSON.parse(text).templates || [] : [];
+    }
+    return [];
+}
+
+async function _loadPersonalFormTemplates(userId) {
+    /* Personal templates live per user in Document Templates/my-templates/<userId>.json */
+    if (!userId) return [];
+    if (typeof GraphClient !== 'undefined' && BirdsAuth && BirdsAuth.isLoggedIn()) {
+        var path = 'Document Templates/my-templates/' + userId + '.json';
+        var text = await _localDocsGetTextFromMasterFolder([path]);
+        return text ? JSON.parse(text).templates || [] : [];
+    }
+    return [];
+}
+
+async function _loadFormTemplates() {
+    try {
+        /* v154: Shared templates + the current user's personal templates (My Work) */
+        var templates = [];
+        var shared = await _loadSharedFormTemplates();
+        if (shared && shared.length) templates = templates.concat(shared);
+        var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+        if (user && user.id) {
+            var personal = await _loadPersonalFormTemplates(user.id);
+            if (personal && personal.length) templates = templates.concat(personal);
+        }
+        return templates;
     } catch(e) { return []; }
 }
 
 async function _saveFormTemplates(templates) {
-    await _localDocsPutText('Document Templates/form-templates.json', JSON.stringify({ templates }, null, 2));
+    /* v154: Personal templates go to the owner's my-templates file; everything else to the shared file */
+    if (typeof GraphClient === 'undefined' || typeof BirdsAuth === 'undefined' || !BirdsAuth.isLoggedIn()) return;
+    var shared = templates.filter(function(t) { return !t.scope || t.scope !== 'personal'; });
+    var personal = templates.filter(function(t) { return t.scope === 'personal'; });
+    try {
+        await GraphClient.writeFile('Document Templates/form-templates.json', JSON.stringify({ templates: shared }, null, 2));
+    } catch(e) { console.warn('[Templates] Shared save failed:', e.message); }
+    var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+    if (user && user.id) {
+        try {
+            await GraphClient.writeFile('Document Templates/my-templates/' + user.id + '.json', JSON.stringify({ templates: personal }, null, 2));
+        } catch(e) { console.warn('[Templates] Personal save failed:', e.message); }
+    }
 }
 
 async function _saveFormTemplate(tmpl) {
+    /* v154: New templates default to personal (owner's My Work); existing templates keep their scope */
+    var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
     var templates = await _loadFormTemplates();
+    var existing = templates.find(t => t.id === tmpl.id);
+    if (!tmpl.scope) {
+        if (existing) tmpl.scope = existing.scope || 'all';
+        else tmpl.scope = user ? 'personal' : 'all';
+    }
+    if (!tmpl.ownerId && user) tmpl.ownerId = user.id;
+    if (!tmpl.creatorId && user) tmpl.creatorId = user.id;
+    if (tmpl.scope !== 'personal' && !tmpl.createdAt && user) { tmpl.creator = tmpl.creator || user.name; }
     var idx = templates.findIndex(t => t.id === tmpl.id);
     if (idx >= 0) templates[idx] = tmpl; else templates.push(tmpl);
     await _saveFormTemplates(templates);
@@ -464,6 +513,11 @@ async function _saveFormTemplate(tmpl) {
 
 async function _deleteFormTemplate(id) {
     var templates = await _loadFormTemplates();
+    var target = templates.find(t => t.id === id);
+    var user = (typeof Users !== 'undefined' && Users.getCurrentUser) ? Users.getCurrentUser() : null;
+    /* Only the owner (or an admin) may delete a template */
+    if (target && user && target.scope === 'personal' && target.ownerId && target.ownerId !== user.id) return;
+    if (target && user && target.creatorId && target.creatorId !== user.id && !(typeof window.isAdmin === 'function' && isAdmin())) return;
     templates = templates.filter(t => t.id !== id);
     await _saveFormTemplates(templates);
 }
@@ -599,6 +653,12 @@ function _renderFormTemplateFields(templateId, existingValues) {
                         return '<label class="flex items-center gap-2 text-sm bg-slate-50 px-3 py-1.5 rounded border border-slate-200 cursor-pointer hover:bg-slate-100"><input type="checkbox" data-tplfield="' + f.id + '" value="' + escapeHtml(o) + '" ' + (cbVals.indexOf(o) >= 0 ? 'checked' : '') + ' class="form-tpl-field form-tpl-checkbox rounded"> ' + escapeHtml(o) + '</label>';
                     }).join('') + '</div>';
                     break;
+                case 'richtext':
+                    html += (typeof window._rtFieldHtml === 'function') ? window._rtFieldHtml(f.id, val) : '<textarea data-tplfield="' + f.id + '" class="form-tpl-field w-full p-2 border border-slate-300 rounded text-sm h-20">' + escapeHtml(val) + '</textarea>';
+                    break;
+                case 'diagram':
+                    html += (typeof window._diagramFieldHtml === 'function') ? window._diagramFieldHtml(f.id, val) : '<div class="text-sm text-slate-400">Diagram</div>';
+                    break;
                 case 'image':
                     html += '<div class="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center bg-slate-50/50">';
                     html += '<input type="file" accept="image/*" data-tplfield="' + f.id + '" class="form-tpl-field w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">';
@@ -610,7 +670,10 @@ function _renderFormTemplateFields(templateId, existingValues) {
                     var headers = f.tableHeaders || [];
                     var rowHdrs = f.tableRowHeaders || [];
                     var scoredRows = f.tableScoredRows || [];
+                    var scoredCols = f.tableScoredCols || [];
                     var hasScoring = f.scoringType && f.scoringType !== 'none';
+                    var hasRowGutter = hasScoring && scoredRows.length > 0;
+                    var hasColFooter = hasScoring && scoredCols.length > 0;
                     var tableVals = (val || '').split('\n');
                     html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                     html += '<thead><tr>';
@@ -618,6 +681,7 @@ function _renderFormTemplateFields(templateId, existingValues) {
                     for (var tc = 0; tc < cols; tc++) {
                         html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[tc] || 'Col ' + (tc+1)) + '</th>';
                     }
+                    if (hasRowGutter) html += '<th style="border:none;background:transparent;padding:2px 0 2px 8px;text-align:left;vertical-align:bottom;font-size:9px;color:#92400e;font-weight:700;white-space:nowrap">Score</th>';
                     html += '</tr></thead><tbody>';
                     for (var tr = 0; tr < rows; tr++) {
                         var rowParts = (tableVals[tr] || '').split(' | ');
@@ -625,31 +689,25 @@ function _renderFormTemplateFields(templateId, existingValues) {
                         html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                         html += '<td class="bg-slate-50 border border-slate-200 p-1.5 text-xs font-bold text-slate-500 text-left whitespace-nowrap">' + escapeHtml(rowHdrs[tr] || 'Row ' + (tr+1)) + '</td>';
                         for (var tc = 0; tc < cols; tc++) {
-                            var isLastCol = (tc === cols - 1);
-                            html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="' + tc + '" value="' + escapeHtml(rowParts[tc] || '') + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field focus:bg-white focus:ring-1 focus:ring-emerald-300 rounded" placeholder="">';
-                            if (isLastCol && rowScored) {
-                                var scType = f.scoringType || 'score_1_10';
-                                var existingScore = (existingValues && existingValues[f.id + '_r' + tr + '_c' + 'score']) || '';
-                                html += '<div class="flex gap-0.5 mt-1 justify-center">';
-                                if (scType === 'rag') {
-                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Green" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Green' ? ' ring-1 ring-offset-0' : '') + '">G</button>';
-                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Amber" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200' + (existingScore === 'Amber' ? ' ring-1 ring-offset-0' : '') + '">A</button>';
-                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Red" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Red' ? ' ring-1 ring-offset-0' : '') + '">R</button>';
-                                    html += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
-                                } else if (scType === 'passfail') {
-                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existingScore === 'Pass' ? ' ring-1 ring-offset-0' : '') + '">Pass</button>';
-                                    html += '<button type="button" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existingScore === 'Fail' ? ' ring-1 ring-offset-0' : '') + '">Fail</button>';
-                                    html += '<input type="hidden" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" value="' + escapeHtml(existingScore) + '" class="form-tpl-field">';
-                                } else {
-                                    html += '<input type="number" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="score" min="0" max="10" value="' + escapeHtml(existingScore) + '" class="w-10 p-0.5 text-[10px] border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
-                                }
-                                html += '</div>';
-                            }
-                            html += '</td>';
+                            html += '<td class="border border-slate-200 p-1"><input type="text" data-tplfield="' + f.id + '" data-row="' + tr + '" data-col="' + tc + '" value="' + escapeHtml(rowParts[tc] || '') + '" class="w-full p-1.5 text-sm border-0 bg-transparent form-tpl-field focus:bg-white focus:ring-1 focus:ring-emerald-300 rounded" placeholder=""></td>';
+                        }
+                        if (hasRowGutter) {
+                            html += '<td style="border:none;background:transparent;padding:2px 0 2px 8px;vertical-align:middle;white-space:nowrap">' + (rowScored ? _tplEdTableScoreCtrl(f, tr, 'score', existingValues) : '') + '</td>';
                         }
                         html += '</tr>';
                     }
-                    html += '</tbody></table></div>';
+                    html += '</tbody>';
+                    if (hasColFooter) {
+                        html += '<tfoot><tr>';
+                        html += '<td style="border:none;background:transparent;padding-top:6px;text-align:left;font-size:9px;color:#92400e;font-weight:700;vertical-align:top">Score</td>';
+                        for (var fc = 0; fc < cols; fc++) {
+                            var colScored = scoredCols.indexOf(fc) !== -1;
+                            html += '<td style="border:none;background:transparent;padding-top:6px;text-align:center;vertical-align:top">' + (colScored ? _tplEdTableScoreCtrl(f, 'score', fc, existingValues) : '') + '</td>';
+                        }
+                        if (hasRowGutter) html += '<td style="border:none;background:transparent"></td>';
+                        html += '</tr></tfoot>';
+                    }
+                    html += '</table></div>';
                     break;
             }
             // Scoring attachment for any field type (rag/score_1_10/passfail)
@@ -849,19 +907,29 @@ async function _renderFormTemplateView(templateId, existingValues) {
             case 'image':
                 html += '<p class="text-sm text-slate-600">' + escapeHtml(val || 'No photo uploaded') + '</p>';
                 break;
+            case 'richtext':
+                html += (typeof window._rtViewHtml === 'function') ? window._rtViewHtml(val) : ('<div class="text-sm whitespace-pre-wrap">' + escapeHtml(val || '—') + '</div>');
+                break;
+            case 'diagram':
+                html += (typeof window._diagramViewHtml === 'function') ? window._diagramViewHtml(val) : ('<p class="text-sm text-slate-600">' + escapeHtml(val || 'No diagram') + '</p>');
+                break;
             case 'table':
                 var tableRows = (val || '').split('\n');
                 var headers = f.tableHeaders || [];
                 var rowHdrs = f.tableRowHeaders || [];
                 var numCols = f.tableCols || 3;
                 var scoredRows = f.tableScoredRows || [];
+                var scoredCols = f.tableScoredCols || [];
                 var hasScoring = f.scoringType && f.scoringType !== 'none';
+                var hasRowGutter = hasScoring && scoredRows.length > 0;
+                var hasColFooter = hasScoring && scoredCols.length > 0;
                 html += '<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">';
                 html += '<thead><tr>';
                 html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(f.tableRowHeaderLabel || 'Item') + '</th>';
                 for (var hc = 0; hc < numCols; hc++) {
                     html += '<th class="bg-slate-100 border border-slate-200 p-2 text-left font-bold text-slate-600 text-xs">' + escapeHtml(headers[hc] || 'Col ' + (hc+1)) + '</th>';
                 }
+                if (hasRowGutter) html += '<th style="border:none;background:transparent;padding:2px 0 2px 8px;text-align:left;vertical-align:bottom;font-size:9px;color:#92400e;font-weight:700;white-space:nowrap">Score</th>';
                 html += '</tr></thead><tbody>';
                 tableRows.forEach(function(row, ri) {
                     var cells = row.split(' | ');
@@ -870,36 +938,71 @@ async function _renderFormTemplateView(templateId, existingValues) {
                     html += '<tr' + (rowScored ? ' style="background:rgba(255,243,205,0.3)"' : '') + '>';
                     html += '<td class="bg-slate-50 border border-slate-200 p-2 text-xs font-bold text-slate-500 text-left">' + escapeHtml(rowHdrs[ri] || 'Row ' + (ri+1)) + '</td>';
                     for (var cc = 0; cc < numCols; cc++) {
-                        var isLastCol = (cc === numCols - 1);
-                        html += '<td class="border border-slate-200 p-2 text-sm">' + escapeHtml(cells[cc] || '\u2014');
-                        if (isLastCol && rowScored) {
-                            var scType = f.scoringType || 'score_1_10';
-                            var scoreDisplay = '', scoreStyle = '';
-                            if (scType === 'rag') {
-                                scoreDisplay = existingScore || '\u2014';
-                                scoreStyle = existingScore === 'Green' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : existingScore === 'Amber' ? 'background:rgba(245,158,11,0.1);color:#92400e;border-color:rgba(245,158,11,0.3);' : existingScore === 'Red' ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
-                            } else if (scType === 'passfail') {
-                                scoreDisplay = existingScore || '\u2014';
-                                scoreStyle = existingScore === 'Pass' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : existingScore === 'Fail' ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
-                            } else {
-                                var sv = parseInt(existingScore) || 0;
-                                var max = f.scoreMax || 10;
-                                scoreDisplay = existingScore ? existingScore + '/' + max : '\u2014';
-                                scoreStyle = sv >= 8 ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : sv >= 4 ? 'background:rgba(245,158,11,0.1);color:#92400e;border-color:rgba(245,158,11,0.3);' : sv > 0 ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
-                            }
-                            html += '<div class="mt-1 text-center"><span class="inline-block text-[9px] font-black border px-1.5 py-0.5 rounded" style="' + scoreStyle + '">' + escapeHtml(scoreDisplay) + '</span></div>';
-                        }
-                        html += '</td>';
+                        html += '<td class="border border-slate-200 p-2 text-sm">' + escapeHtml(cells[cc] || '\u2014') + '</td>';
+                    }
+                    if (hasRowGutter) {
+                        html += '<td style="border:none;background:transparent;padding:2px 0 2px 8px;vertical-align:middle;white-space:nowrap">' + (rowScored ? _tblScoreBadgeHtml(existingScore, f.scoringType || 'score_1_10', f.scoreMax || 10) : '') + '</td>';
                     }
                     html += '</tr>';
                 });
-                html += '</tbody></table></div>';
+                html += '</tbody>';
+                if (hasColFooter) {
+                    html += '<tfoot><tr>';
+                    html += '<td style="border:none;background:transparent;padding-top:6px;text-align:left;font-size:9px;color:#92400e;font-weight:700;vertical-align:top">Score</td>';
+                    for (var fc = 0; fc < numCols; fc++) {
+                        var colScored = scoredCols.indexOf(fc) !== -1;
+                        var colScore = (existingValues && existingValues[f.id + '_c' + fc + 'score']) || '';
+                        html += '<td style="border:none;background:transparent;padding-top:6px;text-align:center;vertical-align:top">' + (colScored ? _tblScoreBadgeHtml(colScore, f.scoringType || 'score_1_10', f.scoreMax || 10) : '') + '</td>';
+                    }
+                    if (hasRowGutter) html += '<td style="border:none;background:transparent"></td>';
+                    html += '</tr></tfoot>';
+                }
+                html += '</table></div>';
                 break;
         }
         html += '</div>';
     });
     html += '</div></div>';
     return html;
+}
+
+function _tplEdTableScoreCtrl(f, dataRow, dataCol, existingValues) {
+    var existing = (existingValues && existingValues[f.id + (dataRow === 'score' ? '_c' + dataCol + 'score' : '_r' + dataRow + '_cscore')]) || '';
+    var scType = f.scoringType || 'score_1_10';
+    var h = '';
+    if (scType === 'rag') {
+        h += '<div class="flex gap-0.5 justify-center items-center">';
+        var ragVals = [['Green', 'G', 'emerald'], ['Amber', 'A', 'amber'], ['Red', 'R', 'red']];
+        ragVals.forEach(function(v) {
+            h += '<button type="button" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" data-val="' + v[0] + '" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-rag bg-' + v[2] + '-100 text-' + v[2] + '-700 border border-' + v[2] + '-300 hover:bg-' + v[2] + '-200' + (existing === v[0] ? ' ring-1 ring-offset-0' : '') + '">' + v[1] + '</button>';
+        });
+        h += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" value="' + escapeHtml(existing) + '" class="form-tpl-field">';
+    } else if (scType === 'passfail') {
+        h += '<div class="flex gap-0.5 justify-center items-center">';
+        h += '<button type="button" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" data-val="Pass" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200' + (existing === 'Pass' ? ' ring-1 ring-offset-0' : '') + '">Pass</button>';
+        h += '<button type="button" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" data-val="Fail" onclick="window._setTableCellScore(this)" class="text-[8px] font-bold px-1.5 py-0.5 rounded form-tpl-field form-tpl-ync bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' + (existing === 'Fail' ? ' ring-1 ring-offset-0' : '') + '">Fail</button>';
+        h += '</div><input type="hidden" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" value="' + escapeHtml(existing) + '" class="form-tpl-field">';
+    } else {
+        h += '<input type="number" data-tplfield="' + f.id + '" data-row="' + dataRow + '" data-col="' + dataCol + '" min="0" max="' + (f.scoreMax || 10) + '" value="' + escapeHtml(existing) + '" class="w-12 p-0.5 text-[10px] border border-amber-300 rounded text-center bg-amber-50 form-tpl-field" placeholder="\u2014">';
+    }
+    return h;
+}
+
+function _tblScoreBadgeHtml(scoreVal, scType, max) {
+    var scoreDisplay = '', scoreStyle = '';
+    if (scType === 'rag') {
+        scoreDisplay = scoreVal || '\u2014';
+        scoreStyle = scoreVal === 'Green' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : scoreVal === 'Amber' ? 'background:rgba(245,158,11,0.1);color:#92400e;border-color:rgba(245,158,11,0.3);' : scoreVal === 'Red' ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
+    } else if (scType === 'passfail') {
+        scoreDisplay = scoreVal || '\u2014';
+        scoreStyle = scoreVal === 'Pass' ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : scoreVal === 'Fail' ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
+    } else {
+        var sv = parseInt(scoreVal) || 0;
+        max = max || 10;
+        scoreDisplay = scoreVal ? scoreVal + '/' + max : '\u2014';
+        scoreStyle = sv >= 8 ? 'background:rgba(135,157,130,0.08);color:var(--edwardian-sage-dark);border-color:rgba(135,157,130,0.25);' : sv >= 4 ? 'background:rgba(245,158,11,0.1);color:#92400e;border-color:rgba(245,158,11,0.3);' : sv > 0 ? 'background:rgba(239,68,68,0.1);color:#991b1b;border-color:rgba(239,68,68,0.3);' : 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;';
+    }
+    return '<span class="inline-block text-[9px] font-black border px-1.5 py-0.5 rounded" style="' + scoreStyle + '">' + escapeHtml(scoreDisplay) + '</span>';
 }
 
 function _gatherFormTemplateFields(templateId) {
@@ -919,7 +1022,7 @@ function _gatherFormTemplateFields(templateId) {
             } else if (at === 'yesno') {
                 var hidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
                 values[f.id] = hidden ? hidden.value : '';
-            } else if (f.scoringType && f.scoringType !== 'none') {
+            } else if (at !== 'table' && f.scoringType && f.scoringType !== 'none') {
                 var scoreHidden = document.querySelector('input[type="hidden"].form-tpl-field[data-tplfield="' + f.id + '"]');
                 values[f.id] = scoreHidden ? scoreHidden.value : '';
             } else if (at === 'three_col') {
@@ -956,9 +1059,18 @@ function _gatherFormTemplateFields(templateId) {
                     var scoreEl = document.querySelector('input.form-tpl-field[data-tplfield="' + f.id + '"][data-row="' + ri + '"][data-col="score"]');
                     values[f.id + '_r' + ri + '_c' + 'score'] = scoreEl ? scoreEl.value : '';
                 });
+                var scoredCols = f.tableScoredCols || [];
+                scoredCols.forEach(function(ci) {
+                    var scoreEl = document.querySelector('input.form-tpl-field[data-tplfield="' + f.id + '"][data-row="score"][data-col="' + ci + '"]');
+                    values[f.id + '_c' + ci + 'score'] = scoreEl ? scoreEl.value : '';
+                });
             } else if (at === 'image') {
                 var fileInput = document.querySelector('input[type="file"].form-tpl-field[data-tplfield="' + f.id + '"]');
                 values[f.id] = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0].name : '';
+            } else if (at === 'richtext') {
+                values[f.id] = (typeof window._rtCollect === 'function') ? window._rtCollect(f.id) : '';
+            } else if (at === 'diagram') {
+                values[f.id] = (typeof window._diagramCollect === 'function') ? window._diagramCollect(f.id) : '';
             } else {
                 var el = document.querySelector('.form-tpl-field[data-tplfield="' + f.id + '"]');
                 values[f.id] = el ? el.value : '';
@@ -970,6 +1082,12 @@ function _gatherFormTemplateFields(templateId) {
 }
 
 /* ─── Scoring & Summary Calculator ───────────────────────────── */
+function _formScoreRawValue(values, f) {
+    var v = values[f.id + '_score'];
+    if (v === undefined || v === null || v === '') v = values[f.id];
+    return (v === undefined || v === null) ? '' : String(v);
+}
+
 async function _calculateFormSummary(templateId, values) {
     var tmpl = await _getFormTemplate(templateId);
     if (!tmpl) return null;
@@ -990,6 +1108,8 @@ async function _calculateFormSummary(templateId, values) {
         ragRedCount: 0,
         ragAmberCount: 0,
         ragGreenCount: 0,
+        passCount: 0,
+        failCount: 0,
         fieldResults: [],
         categories: [],
         overallRating: ''
@@ -1039,7 +1159,7 @@ async function _calculateFormSummary(templateId, values) {
         var weight = f.scoreWeight || 1;
         var val = 0;
         var max = f.scoreMax || 10;
-        var rawVal = values[f.id] || '';
+        var rawVal = _formScoreRawValue(values, f);
         var st = f.scoringType || 'none';
 
         if (st === 'rag') {
@@ -1071,7 +1191,8 @@ async function _calculateFormSummary(templateId, values) {
             max: max,
             weight: weight,
             percent: max > 0 ? Math.round((val / max) * 100) : 0,
-            category: currentCategory
+            category: currentCategory,
+            rawValue: rawVal
         };
         summary.fieldResults.push(fieldResult);
         categoryMap[currentCategory].totalScore += weightedVal;
@@ -1080,7 +1201,7 @@ async function _calculateFormSummary(templateId, values) {
     });
 
     // Table row/col scoring (new scoringType attachment)
-    tmpl.fields.filter(function(f) { return f.answerType === 'table' && f.scoringType && f.scoringType !== 'none' && f.tableScoredRows && f.tableScoredRows.length; }).forEach(function(f) {
+    tmpl.fields.filter(function(f) { return f.answerType === 'table' && f.scoringType && f.scoringType !== 'none' && ((f.tableScoredRows && f.tableScoredRows.length) || (f.tableScoredCols && f.tableScoredCols.length)); }).forEach(function(f) {
         // Find category for this table
         var tableCat = 'General';
         for (var ti = 0; ti < tmpl.fields.length; ti++) {
@@ -1092,9 +1213,11 @@ async function _calculateFormSummary(templateId, values) {
         }
         var weight = f.scoreWeight || 1;
         var rows = f.tableRows || 3;
+        var cols = f.tableCols || 3;
         var headers = f.tableHeaders || [];
         var rowHdrs = f.tableRowHeaders || [];
         var scoredRows = f.tableScoredRows || [];
+        var scoredCols = f.tableScoredCols || [];
         var max = f.scoreMax || 10;
         var scType = f.scoringType || 'score_1_10';
         scoredRows.forEach(function(rowIdx) {
@@ -1130,6 +1253,39 @@ async function _calculateFormSummary(templateId, values) {
             categoryMap[tableCat].maxScore += weightedMax;
             categoryMap[tableCat].fieldResults.push(trResult);
         });
+        scoredCols.forEach(function(colIdx) {
+            if (colIdx >= cols) return;
+            var ckey = f.id + '_c' + colIdx + 'score';
+            var crawVal = values[ckey] || '';
+            if (!crawVal) return;
+            var cval = 0;
+            if (scType === 'rag') {
+                cval = crawVal === 'Green' ? max : crawVal === 'Amber' ? Math.round(max * 0.5) : 0;
+            } else if (scType === 'passfail') {
+                cval = crawVal === 'Pass' ? max : 0;
+            } else {
+                cval = parseFloat(crawVal) || 0;
+            }
+            var cweightedVal = cval * weight;
+            var cweightedMax = max * weight;
+            summary.totalScore += cweightedVal;
+            summary.maxScore += cweightedMax;
+            var tcResult = {
+                label: (headers[colIdx] || 'Col ' + (colIdx+1)),
+                type: 'table_col',
+                scoringType: scType,
+                rawValue: crawVal,
+                value: cval,
+                max: max,
+                weight: weight,
+                percent: max > 0 ? Math.round((cval / max) * 100) : 0,
+                category: tableCat
+            };
+            summary.fieldResults.push(tcResult);
+            categoryMap[tableCat].totalScore += cweightedVal;
+            categoryMap[tableCat].maxScore += cweightedMax;
+            categoryMap[tableCat].fieldResults.push(tcResult);
+        });
     });
 
     // Build categories array
@@ -1149,21 +1305,32 @@ async function _calculateFormSummary(templateId, values) {
         else if (val === 'No') summary.noCount++;
     });
 
+    var pfFields = scoredFields.filter(function(f) { return f.scoringType === 'passfail'; });
+    pfFields.forEach(function(f) {
+        var v = _formScoreRawValue(values, f);
+        if (v === 'Pass') summary.passCount++;
+        else if (v === 'Fail') summary.failCount++;
+    });
+
     // RAG counts
     ragFields.forEach(function(f) {
-        var val = values[f.id] || '';
+        var val = _formScoreRawValue(values, f);
         if (val === 'Red') summary.ragRedCount++;
         else if (val === 'Amber') summary.ragAmberCount++;
         else if (val === 'Green') summary.ragGreenCount++;
     });
 
-    // Count table_row RAG values too
+    // Count table row/col RAG and Pass/Fail values too
     summary.fieldResults.forEach(function(r) {
-        if (r.type === 'table_row' && r.scoringType === 'rag') {
+        if ((r.type === 'table_row' || r.type === 'table_col') && r.scoringType === 'rag') {
             var rv = r.rawValue || '';
             if (rv === 'Red') summary.ragRedCount++;
             else if (rv === 'Amber') summary.ragAmberCount++;
             else if (rv === 'Green') summary.ragGreenCount++;
+        } else if ((r.type === 'table_row' || r.type === 'table_col') && r.scoringType === 'passfail') {
+            var pv = r.rawValue || '';
+            if (pv === 'Pass') summary.passCount++;
+            else if (pv === 'Fail') summary.failCount++;
         }
     });
 
@@ -1239,11 +1406,20 @@ async function _renderSummaryPanel(templateId, values) {
         html += '</div>';
     }
 
-    // Yes/No + RAG counts in a clean grid
+    // Pass/Fail + Yes/No + RAG counts in a clean grid
+    var hasPassFail = summary.passCount + summary.failCount > 0;
     var hasYesNo = summary.yesCount + summary.noCount > 0;
     var hasRag = summary.ragRedCount + summary.ragAmberCount + summary.ragGreenCount > 0;
-    if (hasYesNo || hasRag) {
+    if (hasPassFail || hasYesNo || hasRag) {
         html += '<div class="grid grid-cols-2 gap-2 mb-3">';
+        if (hasPassFail) {
+            html += '<div class="bg-white rounded-lg p-2.5 border border-slate-100 text-center">';
+            html += '<div class="text-[9px] font-bold text-slate-400 uppercase mb-1">Pass / Fail</div>';
+            html += '<div class="flex justify-center gap-3">';
+            html += '<span class="text-sm font-black" style="color:var(--edwardian-sage-dark);">' + summary.passCount + ' Pass</span>';
+            html += '<span class="text-sm font-black text-red-600">' + summary.failCount + ' Fail</span>';
+            html += '</div></div>';
+        }
         if (hasYesNo) {
             html += '<div class="bg-white rounded-lg p-2.5 border border-slate-100 text-center">';
             html += '<div class="text-[9px] font-bold text-slate-400 uppercase mb-1">Yes / No</div>';
@@ -1304,7 +1480,7 @@ async function _renderSummaryPanel(templateId, values) {
                 html += '<div class="mt-1.5 space-y-1">';
                 cat.fieldResults.forEach(function(fr) {
                     var display = '', badgeClass = '';
-                    if (fr.scoringType === 'rag' || fr.type === 'rag' || fr.type === 'table_row') {
+                    if (fr.scoringType === 'rag' || fr.type === 'rag' || fr.type === 'table_row' || fr.type === 'table_col') {
                         var rv = fr.rawValue || fr.value || '';
                         display = rv || '\u2014';
                         badgeClass = rv === 'Green' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : rv === 'Amber' ? 'bg-amber-50 text-amber-700 border-amber-200' : rv === 'Red' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-400 border-slate-200';
@@ -1328,7 +1504,7 @@ async function _renderSummaryPanel(templateId, values) {
     }
 
     // Field breakdown (flat list when no sections, or all results below section cards)
-    var nonTableResults = summary.fieldResults.filter(function(r) { return r.type !== 'table_row'; });
+    var nonTableResults = summary.fieldResults.filter(function(r) { return r.type !== 'table_row' && r.type !== 'table_col'; });
     if (nonTableResults.length > 0) {
         var hasMultipleCats = summary.categories.length > 1;
         html += '<div class="pt-3 border-t border-slate-200">';
@@ -1427,12 +1603,13 @@ window._downloadSummaryCSV = async function() {
         var st = f.scoringType || 'none';
         var score = '', max = '', weight = f.scoreWeight || 1, pct = '';
         if (st !== 'none') {
+            var rawScore = _formScoreRawValue(doc.formTemplateValues, f);
             max = f.scoreMax || 10;
-            if (st === 'rag') score = val === 'Green' ? max : val === 'Amber' ? Math.round(max * 0.5) : 0;
-            else if (st === 'passfail') score = val === 'Pass' ? max : 0;
-            else if (st === 'score_1_10') score = parseFloat(val) || 0;
-            else if (f.answerType === 'yesno') score = val === 'Yes' ? max : 0;
-            else score = val ? max : 0;
+            if (st === 'rag') score = rawScore === 'Green' ? max : rawScore === 'Amber' ? Math.round(max * 0.5) : 0;
+            else if (st === 'passfail') score = rawScore === 'Pass' ? max : 0;
+            else if (st === 'score_1_10') score = parseFloat(rawScore) || 0;
+            else if (f.answerType === 'yesno') score = rawScore === 'Yes' ? max : 0;
+            else score = rawScore ? max : 0;
             pct = max > 0 ? Math.round((score / max) * 100) + '%' : '';
             score = score + ' / ' + max;
             max = max;
@@ -1483,260 +1660,149 @@ window._downloadTemplatePDF = async function(docId, folder) {
 
     var { jsPDF } = window.jspdf;
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    var W = 210, H = 297, M = 15, CW = W - 2 * M;
-    var x0 = M, y = 8;
-    var FONT = 'helvetica';
+    var W = 210, H = 297, M = 12;
     var vals = docData.formTemplateValues || {};
-    var summary = await _calculateFormSummary(docData.formTemplateId, vals);
 
-    function checkPage(h) { if (y + h > H - M) { doc.addPage(); y = M; } }
-    function bold() { doc.setFont(FONT, 'bold'); }
-    function normal() { doc.setFont(FONT, 'normal'); }
-    function sz(s) { doc.setFontSize(s); }
-    function clr(r, g, b) { doc.setTextColor(r, g, b); }
-    function bg(r, g, b) { doc.setFillColor(r, g, b); }
-    function line(y_) { doc.setDrawColor(200, 200, 200); doc.line(M, y_, W - M, y_); }
+    function _pdfEsc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
 
-    /* ── Page 1: Header ── */
-    bg(135, 157, 130); doc.rect(0, 0, W, 30, 'F');
-    clr(255, 255, 255); sz(16); bold();
-    doc.text(docData.name || docData.title || 'Document', M, 12);
-    sz(9); normal();
-    doc.text('Birds of Derby — ' + (docData.type || ''), M, 20);
-    doc.text('Reference: ' + (docData.reference || '—') + '  |  Date: ' + (docData.date || '—') + '  |  Author: ' + (docData.creator || '—'), M, 26);
-    y = 38;
-
-    /* ── Section Scores ── */
-    if (summary && summary.maxScore > 0) {
-        checkPage(30);
-        clr(40, 40, 40); sz(12); bold();
-        doc.text('Section Scores', M, y); y += 8;
-
-        /* Overall score bar */
-        bg(248, 246, 242); doc.roundedRect(M, y, CW, 12, 2, 2, 'F');
-        clr(60, 60, 60); sz(10); bold();
-        doc.text(summary.totalScore + ' / ' + summary.maxScore + '  (' + summary.scorePercent + '%)', M + 4, y + 8);
-        var barPct = Math.min(summary.scorePercent, 100);
-        var barW = (CW - 8) * barPct / 100;
-        if (barW > 2) {
-            var br = barPct >= 80 ? 135 : barPct >= 40 ? 245 : 239;
-            var bg2 = barPct >= 80 ? 157 : barPct >= 40 ? 158 : 68;
-            var bb = barPct >= 80 ? 130 : barPct >= 40 ? 11 : 68;
-            bg(br, bg2, bb); doc.roundedRect(M + 4, y + 10, barW, 2, 1, 1, 'F');
-        }
-        y += 16;
-
-        /* Overall rating */
-        if (summary.overallRating) {
-            clr(40, 40, 40); sz(9); bold();
-            doc.text('Overall Rating: ' + summary.overallRating, M, y); y += 6;
-        }
-
-        /* Section cards */
-        if (summary.categories.length > 0) {
-            summary.categories.forEach(function(cat) {
-                if (cat.maxScore === 0) return;
-                checkPage(14);
-                bg(255, 255, 255); doc.roundedRect(M, y, CW, 10, 1, 1, 'F');
-                doc.setDrawColor(220, 220, 220); doc.roundedRect(M, y, CW, 10, 1, 1, 'S');
-                clr(60, 60, 60); sz(9); bold();
-                doc.text(cat.name, M + 3, y + 7);
-                normal();
-                doc.text(cat.totalScore + ' / ' + cat.maxScore + '  (' + cat.percent + '%)', x0 + CW - 40, y + 7);
-                y += 13;
-            });
-        }
-
-        /* RAG counts */
-        if (summary.ragGreenCount + summary.ragAmberCount + summary.ragRedCount > 0) {
-            checkPage(6); sz(8); normal(); clr(100, 100, 100);
-            doc.text('RAG: ' + summary.ragGreenCount + ' Green, ' + summary.ragAmberCount + ' Amber, ' + summary.ragRedCount + ' Red', M, y);
-            y += 5;
-        }
-        if (summary.yesCount + summary.noCount > 0) {
-            checkPage(6); sz(8); normal(); clr(100, 100, 100);
-            doc.text('Yes/No: ' + summary.yesCount + ' Yes, ' + summary.noCount + ' No', M, y);
-            y += 5;
-        }
-
-        /* Question-level breakdown */
-        if (summary.fieldResults.length > 0) {
-            checkPage(12); y += 2;
-            clr(40, 40, 40); sz(10); bold();
-            doc.text('Question Scores', M, y); y += 7;
-
-            var lastCat = '';
-            summary.fieldResults.forEach(function(fr) {
-                if (fr.category && fr.category !== lastCat) {
-                    lastCat = fr.category;
-                    checkPage(10); y += 1;
-                    clr(100, 100, 100); sz(7); bold();
-                    doc.text(fr.category.toUpperCase(), M, y); y += 5;
-                }
-                checkPage(6);
-                clr(60, 60, 60); sz(8); normal();
-                var label = fr.label || '—';
-                var display = '';
-                if (fr.scoringType === 'rag' || fr.type === 'rag' || fr.type === 'table_row') {
-                    display = fr.rawValue || '—';
-                } else if (fr.scoringType === 'passfail') {
-                    display = fr.value || '—';
-                } else {
-                    display = (fr.value || 0) + ' / ' + (fr.max || 10);
-                }
-                doc.text(label.substring(0, 60), M, y);
-                bold();
-                doc.text(display, x0 + CW - 20, y);
-                normal();
-                y += 5;
-            });
+    async function _captureToCanvas(el, scale) {
+        var anchor = document.createElement('div');
+        anchor.style.cssText = 'position:absolute;left:-99999px;top:0;width:0;height:0;overflow:visible;pointer-events:none;';
+        document.body.appendChild(anchor);
+        anchor.appendChild(el);
+        _applyGapSpacing(el);
+        try {
+            await new Promise(function(res) { setTimeout(res, 60); });
+            return await html2canvas(el, { scale: scale || 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+        } finally {
+            if (anchor.parentNode) anchor.parentNode.removeChild(anchor);
         }
     }
 
-    /* ── Page break before Report ── */
-    doc.addPage(); y = M;
-
-    /* ── Report: All Questions + Answers ── */
-    clr(40, 40, 40); sz(12); bold();
-    doc.text('Report — Questions & Answers', M, y); y += 10;
-
-    tmpl.fields.forEach(function(f, i) {
-        var at = f.answerType || 'text';
-        var val = vals[f.id] || '';
-
-        if (at === 'header') {
-            checkPage(14); y += 2;
-            bg(240, 248, 240); doc.roundedRect(M, y - 4, CW, 10, 2, 2, 'F');
-            clr(80, 100, 70); sz(11); bold();
-            doc.text(f.label || 'Header', M + 3, y + 3); y += 12;
-            return;
+    function _addCanvasPages(canvas, startNewPage) {
+        var mmPerPx = W / canvas.width;
+        var usable = H - M * 2 - 10;
+        var pxPerPage = usable / mmPerPx;
+        var totalPx = canvas.height;
+        var page = 0;
+        var first = true;
+        while (page * pxPerPage < totalPx) {
+            if (startNewPage || !first) doc.addPage();
+            var srcY = page * pxPerPage;
+            var srcH = Math.min(pxPerPage, totalPx - srcY);
+            var slice = document.createElement('canvas');
+            slice.width = canvas.width;
+            slice.height = Math.ceil(srcH);
+            slice.getContext('2d').drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+            doc.addImage(slice.toDataURL('image/png'), 'PNG', 0, 0, W, srcH * mmPerPx, undefined, 'FAST');
+            first = false;
+            page++;
         }
-        if (at === 'section') {
-            checkPage(10); y += 2;
-            clr(60, 60, 60); sz(10); bold();
-            doc.text(f.label || 'Section', M, y); y += 4;
-            line(y); y += 6;
-            return;
+    }
+
+    function _applyGapSpacing(root) {
+        function px(v) {
+            if (!v) return 0;
+            var m = /^([\d.]+)px$/.exec(String(v).trim());
+            return m ? parseFloat(m[1]) : 0;
         }
-        if (at === 'divider') { checkPage(8); y += 2; line(y); y += 6; return; }
-        if (at === 'signoff') {
-            checkPage(20); y += 3;
-            clr(60, 60, 60); sz(9); bold();
-            doc.text('Sign-off', M, y); y += 6;
-            var parts = (val || '').split(' | ');
-            var roleVal = parts[0] || f.signoffRole || 'Manager';
-            var nameVal = parts[1] || '';
-            var dateVal = parts[2] || '';
-            var sigVal = '';
-            for (var si = 2; si < parts.length; si++) {
-                if (parts[si] && parts[si].indexOf('data:image') === 0) { sigVal = parts[si]; break; }
-                else if (parts[si]) dateVal = dateVal || parts[si];
-            }
-            normal(); sz(8); clr(80, 80, 80);
-            doc.text('Role: ' + roleVal, M, y); y += 5;
-            doc.text('Name: ' + (nameVal || '—'), M, y); y += 5;
-            doc.text('Date: ' + (dateVal || '—'), M, y); y += 5;
-            if (sigVal) {
-                try {
-                    doc.addImage(sigVal, 'PNG', M, y, 50, 20);
-                    y += 22;
-                } catch(e) { doc.text('[Signature]', M, y); y += 5; }
-            }
-            y += 4;
-            return;
-        }
-
-        /* Regular field */
-        var displayVal = '';
-        if (at === 'table') {
-            var lines = (val || '').split('\n');
-            var hdrs = f.tableHeaders || [];
-            var rowHdrs = f.tableRowHeaders || [];
-            var numCols = f.tableCols || 3;
-            var rows = f.tableRows || 3;
-
-            checkPage(12);
-            clr(60, 60, 60); sz(8); bold();
-            doc.text('Q' + (i + 1) + '. ' + (f.label || ''), M, y); y += 5;
-            normal(); sz(7);
-
-            /* Table header */
-            var colW = (CW - 20) / numCols;
-            bg(240, 240, 240); doc.rect(M, y - 3, CW, 5, 'F');
-            bold();
-            doc.text(f.tableRowHeaderLabel || 'Item', M + 1, y);
-            for (var hc = 0; hc < numCols; hc++) {
-                doc.text(hdrs[hc] || ('Col ' + (hc + 1)), M + 20 + hc * colW, y);
-            }
-            y += 5; normal();
-
-            for (var ri = 0; ri < rows; ri++) {
-                var cells = (lines[ri] || '').split(' | ');
-                checkPage(5);
-                doc.text(rowHdrs[ri] || ('Row ' + (ri + 1)), M + 1, y);
-                for (var cc = 0; cc < numCols; cc++) {
-                    doc.text(cells[cc] || '—', M + 20 + cc * colW, y);
+        root.querySelectorAll('*').forEach(function(el) {
+            if (!el.children || !el.children.length) return;
+            var cs = window.getComputedStyle(el);
+            var disp = cs.display;
+            if (disp !== 'flex' && disp !== 'inline-flex' && disp !== 'grid' && disp !== 'inline-grid') return;
+            var cg = px(cs.columnGap);
+            var rg = px(cs.rowGap);
+            if (!cg && !rg) return;
+            var children = Array.prototype.slice.call(el.children);
+            var fd = cs.flexDirection || '';
+            var isColumn = fd.indexOf('column') === 0;
+            if (disp === 'grid') {
+                var tmpl = cs.gridTemplateColumns || '';
+                var cols = Math.max(1, (tmpl.match(/ /g) || []).length);
+                for (var gi = 0; gi < children.length; gi++) {
+                    if (cg && (gi + 1) % cols !== 0) children[gi].style.marginRight = ((px(children[gi].style.marginRight) || 0) + cg) + 'px';
+                    if (rg && gi + cols < children.length) children[gi].style.marginBottom = ((px(children[gi].style.marginBottom) || 0) + rg) + 'px';
                 }
-                y += 5;
+            } else if (isColumn) {
+                for (var gi = 0; gi < children.length - 1; gi++) children[gi].style.marginBottom = ((px(children[gi].style.marginBottom) || 0) + rg) + 'px';
+            } else {
+                for (var gi = 0; gi < children.length - 1; gi++) children[gi].style.marginRight = ((px(children[gi].style.marginRight) || 0) + cg) + 'px';
             }
+        });
+    }
 
-            /* Table row scores */
-            var scoredRows = f.tableScoredRows || [];
-            if (scoredRows.length > 0 && f.scoringType && f.scoringType !== 'none') {
-                y += 1;
-                scoredRows.forEach(function(ri2) {
-                    var scKey = f.id + '_r' + ri2 + '_c' + 'score';
-                    var scVal = vals[scKey] || '';
-                    if (scVal) {
-                        checkPage(5); sz(7); clr(100, 100, 100);
-                        doc.text((rowHdrs[ri2] || 'Row ' + (ri2 + 1)) + ' Score: ' + scVal, M + 4, y);
-                        y += 4;
-                    }
-                });
-            }
-            y += 2;
-            return;
-        }
+    var summaryPanelHtml = await _renderSummaryPanel(docData.formTemplateId, vals);
+    if (!summaryPanelHtml) {
+        summaryPanelHtml = '<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:24px;color:#94a3b8;font-size:13px;font-weight:700;text-align:center;">No scored questions in this template.</div>';
+    }
 
-        checkPage(10);
-        clr(60, 60, 60); sz(8); bold();
-        doc.text('Q' + (i + 1) + '. ' + (f.label || ''), M, y); y += 5;
-        normal(); sz(8);
+    var cap = document.createElement('div');
+    cap.style.cssText = 'width:1000px;background:#ffffff;';
+    cap.innerHTML =
+        '<div style="display:flex;align-items:center;gap:18px;background:#879d82;padding:26px 32px;">' +
+            '<img src="logo.png" style="width:60px;height:60px;object-fit:contain;background:#ffffff;border-radius:10px;padding:6px;" onerror="this.style.display=\'none\'">' +
+            '<div style="flex:1;min-width:0;">' +
+                '<div style="font-size:10px;font-weight:800;letter-spacing:3px;color:#e9f0e8;">BIRDS OF DERBY</div>' +
+                '<h1 style="font-size:24px;font-weight:900;color:#ffffff;margin:3px 0 0;line-height:1.2;">' + _pdfEsc(docData.name || docData.title || 'Document') + '</h1>' +
+                '<div style="font-size:12px;font-weight:700;color:#f2f5f1;">' + _pdfEsc(docData.type || '') + (docData.formTemplateName || docData.templateName ? ' — ' + _pdfEsc(docData.formTemplateName || docData.templateName) : '') + '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px 22px;background:#f4f7f3;border-bottom:2px solid #879d82;padding:9px 32px;font-size:11px;font-weight:800;color:#5a6b58;">' +
+            '<span>Doc No: ' + _pdfEsc(docData.reference || '—') + '</span>' +
+            '<span>Date: ' + _pdfEsc(docData.date || '—') + '</span>' +
+            '<span>Author: ' + _pdfEsc(docData.creator || '—') + '</span>' +
+            '<span>Status: ' + _pdfEsc(docData.status || '—') + '</span>' +
+            (docData.department ? '<span>Dept: ' + _pdfEsc(docData.department) + '</span>' : '') +
+        '</div>' +
+        '<div style="padding:24px 32px 20px;">' +
+            summaryPanelHtml +
+            '<div style="margin-top:24px;border-top:1px solid #e2e8f0;padding-top:14px;text-align:center;font-size:10px;color:#94a3b8;font-weight:700;">Generated by Birds of Derby — ' + _pdfEsc(new Date().toLocaleString()) + '</div>' +
+        '</div>';
 
-        if (at === 'text' || at === 'number' || at === 'date' || at === 'checkbox' || at === 'multichoice' || at === 'yesno' || at === 'rag') {
-            displayVal = val || '—';
-        } else if (at === 'textarea') {
-            displayVal = val || '—';
-        } else if (at === 'three_col') {
-            var labels = f.colLabels || ['Field 1', 'Field 2', 'Field 3'];
-            var subVals = (val || '').split(' | ');
-            labels.forEach(function(l, si2) {
-                checkPage(5);
-                clr(120, 120, 120); sz(7); bold();
-                doc.text(l + ':', M + 3, y);
-                normal();
-                doc.text(subVals[si2] || '—', M + 30, y);
-                y += 4;
-            });
-            y += 2;
-            return;
-        } else if (at === 'image') {
-            displayVal = val || '[No photo]';
-        } else {
-            displayVal = val || '—';
-        }
-
-        if (displayVal) {
-            var wrapped = doc.splitTextToSize(displayVal, CW - 6);
-            checkPage(wrapped.length * 4 + 2);
-            clr(80, 80, 80);
-            doc.text(wrapped, M + 3, y);
-            y += wrapped.length * 4 + 3;
-        }
-        y += 2;
+    cap.querySelectorAll('details').forEach(function(d) { d.open = true; });
+    cap.querySelectorAll('[style*="conic-gradient"]').forEach(function(el) {
+        var m = el.getAttribute('style').match(/conic-gradient\(\s*(#[0-9a-fA-F]{3,6}|[a-zA-Z]+)/);
+        if (m) el.style.background = m[1];
     });
+    _addCanvasPages(await _captureToCanvas(cap, 2), false);
 
-    /* ── Save ── */
+    var srcEl = document.getElementById('print-doc-area');
+    var formCap = srcEl ? srcEl.cloneNode(true) : document.createElement('div');
+    if (srcEl) {
+        formCap.removeAttribute('id');
+    } else {
+        formCap.innerHTML = '<div style="padding:16px;">' + await _renderFormTemplateView(docData.formTemplateId, vals) + '</div>';
+    }
+    formCap.style.cssText = 'width:1000px;background:#ffffff;';
+
+    formCap.querySelectorAll('[class*="print:hidden"]').forEach(function(n) { n.remove(); });
+
+    var sumPanel = Array.prototype.find.call(formCap.children, function(c) {
+        return c.textContent && c.textContent.indexOf('Visit Summary & Scoring') !== -1;
+    });
+    if (sumPanel && sumPanel.parentNode) sumPanel.parentNode.removeChild(sumPanel);
+
+    var replyHeading = Array.prototype.find.call(formCap.querySelectorAll('h3'), function(h) {
+        return h.textContent && h.textContent.indexOf('Reply with template') !== -1;
+    });
+    if (replyHeading && replyHeading.parentNode) replyHeading.parentNode.remove();
+
+    _addCanvasPages(await _captureToCanvas(formCap, 2), true);
+
+    var pgCount = doc.internal.getNumberOfPages();
+    for (var pi = 1; pi <= pgCount; pi++) {
+        doc.setPage(pi);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(170, 170, 170);
+        doc.text('Birds of Derby — ' + (docData.reference || docData.name || '') + '  |  Page ' + pi + ' of ' + pgCount, M, H - 6);
+    }
+
     doc.save((docData.name || docData.id || 'document') + '.pdf');
     showToast('PDF downloaded.', 'success');
 };
@@ -1773,6 +1839,45 @@ async function resolveDocumentEvidenceUrl(doc) {
 }
 
 /* ─── Render Document Hub ───────────────────────────────────── */
+/* ─── Creator: all creation tools in one place ─────────────── */
+window.renderCreatorView = async function() {
+    var mv = document.getElementById('mainView');
+    if (!mv) return;
+    var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    var quickTpls = [];
+    try { quickTpls = await _loadFormTemplates(); } catch(e) {}
+    if (user) {
+        quickTpls = quickTpls.filter(function(t) {
+            if (t.ownerId && t.ownerId === user.id) return true;
+            if (t.scope === 'personal') return false;
+            if (t.scope === 'department') return !t.sharedDepartments || t.sharedDepartments.indexOf(user.department) >= 0;
+            if (t.scope === 'group') return !t.sharedUsers || t.sharedUsers.indexOf(user.id) >= 0;
+            return true;
+        });
+    }
+    var tplCards = quickTpls.map(function(t) {
+        return '<button onclick="window._startDocFromTemplate(\'' + t.id + '\')" class="text-left p-4 rounded-lg border border-slate-200 bg-white hover:border-birds-green hover:shadow-md transition-all" style="display:flex;flex-direction:column;gap:4px;">' +
+            '<span class="text-sm font-black text-slate-800">' + escapeHtml(t.name) + '</span>' +
+            '<span class="text-[11px] text-slate-400 line-clamp-2">' + escapeHtml(t.description || '') + '</span>' +
+            '<span class="text-[10px] font-bold text-birds-green mt-1">\u25B6 Start a document</span></button>';
+    }).join('');
+
+    mv.innerHTML = '<div style="max-width:1000px;margin:0 auto;padding:8px;">' +
+        '<h2 class="text-3xl font-black outfit birds-green mb-1">Creator</h2>' +
+        '<p class="text-sm text-slate-400 mb-6">All creation tools in one place \u2014 start a document from a template, build a new template, or launch a project.</p>' +
+        '<div class="flex flex-wrap gap-3 mb-8">' +
+        '<button onclick="setView(\'templatebuilder\')" style="background:#6E8E6D;color:#fff;padding:10px 18px;border-radius:8px;font-weight:800;font-size:13px;border:none;cursor:pointer;">+ New Template</button>' +
+        '<button onclick="setView(\'projectcreate\')" style="background:#555B6E;color:#fff;padding:10px 18px;border-radius:8px;font-weight:800;font-size:13px;border:none;cursor:pointer;">+ New Project</button>' +
+        '<button onclick="setView(\'templatelibrary\')" style="background:rgba(85,91,110,0.08);color:#555B6E;padding:10px 18px;border-radius:8px;font-weight:800;font-size:13px;border:none;cursor:pointer;">Browse all templates</button>' +
+        '</div>' +
+        '<h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">\u26A1 Start a document from a template</h3>' +
+        (tplCards ? '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">' + tplCards + '</div>' : '<p class="text-sm text-slate-400 mb-8">No templates available yet \u2014 create one with \u201c+ New Template\u201d.</p>') +
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
+        '<div class="card p-5"><h4 class="font-black text-slate-700 mb-1">Blank document</h4><p class="text-xs text-slate-400 mb-3">A free-form document without a template.</p><button onclick="renderDocumentCreate()" style="background:var(--edwardian-rose);color:#fff;padding:8px 16px;border-radius:6px;font-weight:800;font-size:12px;border:none;cursor:pointer;">+ Blank Document</button></div>' +
+        '<div class="card p-5"><h4 class="font-black text-slate-700 mb-1">Template library</h4><p class="text-xs text-slate-400 mb-3">Browse, share and manage every template.</p><button onclick="setView(\'templatelibrary\')" style="background:#6E8E6D;color:#fff;padding:8px 16px;border-radius:6px;font-weight:800;font-size:12px;border:none;cursor:pointer;">Open Library</button></div>' +
+        '</div></div>';
+};
+
 async function renderDocuments(useCache = false) {
     if (!useCache) window.currentLoadedDocs = await loadDocuments();
     const docs = window.currentLoadedDocs;
@@ -1919,8 +2024,36 @@ async function renderDocuments(useCache = false) {
         return;
     }
 
+    /* Quick-start: common templates shared with the user */
+    var quickStartHtml = '';
+    try {
+        var quickTpls = await _loadFormTemplates();
+        var qUser = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+        quickTpls = quickTpls.filter(function(t) {
+            if (!qUser) return true;
+            if (t.ownerId && t.ownerId === qUser.id) return true;
+            if (t.scope === 'personal') return false;
+            if (t.scope === 'department') return !t.sharedDepartments || t.sharedDepartments.indexOf(qUser.department) >= 0;
+            if (t.scope === 'group') return !t.sharedUsers || t.sharedUsers.indexOf(qUser.id) >= 0;
+            return true;
+        }).slice(0, 8);
+        if (quickTpls.length) {
+            quickStartHtml = '<div class="mb-6 border border-slate-200 rounded-none p-4" style="background:rgba(135,157,130,0.05);">' +
+                '<div class="flex items-center justify-between mb-3">' +
+                '<h3 class="text-sm font-black text-slate-600 uppercase tracking-widest">\u26A1 Start a document from a template</h3>' +
+                '<button onclick="renderDocumentCreate()" style="background:var(--edwardian-rose);color:white;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">+ New Document</button>' +
+                '</div>' +
+                '<div class="flex flex-wrap gap-2">' +
+                quickTpls.map(function(t) {
+                    return '<button onclick="window._startDocFromTemplate(\'' + t.id + '\')" class="text-xs font-black px-3 py-2 rounded-none border border-slate-200 bg-white hover:border-birds-green hover:text-birds-green transition-all text-left" style="color:#555B6E;" title="' + escapeHtml(t.description || '') + '">' + escapeHtml(t.name) + '</button>';
+                }).join('') +
+                '</div></div>';
+        }
+    } catch(e) {}
+
     document.getElementById("mainView").innerHTML = `
         <h2 class="text-[36px] font-black outfit birds-green mb-6">Document Hub</h2>
+        ${quickStartHtml}
         <div class="flex flex-wrap gap-2 mb-4">
             <button class="px-4 py-2 text-xs font-black uppercase tracking-wider rounded-none transition-all ${fAttention === 'All' ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" onclick="document.getElementById('filter-attention').value='All';renderDocuments(true)">All</button>
             ${attentionOptions.map(a => `<button class="px-4 py-2 text-xs font-black uppercase tracking-wider rounded-none transition-all ${fAttention === a ? 'bg-birds-green text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" onclick="document.getElementById('filter-attention').value='${escapeHtml(a)}';renderDocuments(true)">${escapeHtml(a)}</button>`).join('')}
@@ -2057,14 +2190,6 @@ async function renderDocumentCreate() {
                 <select id="doc-form-template" class="input-chip rounded-none w-full" onchange="_previewDocTemplate(this.value)">
                     ${tplOptions}
                 </select>
-            </div>
-            <div class="md:col-span-2">
-                <label class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1 block">Follow-up Template (when resolved)</label>
-                <select id="doc-followup-template" class="input-chip rounded-none w-full">
-                    <option value="">-- No follow-up --</option>
-                    ${templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
-                </select>
-                <p class="text-[10px] text-slate-400 mt-1">When this document is resolved, a new document will be created from this template.</p>
             </div>` : ''}
         </div>
         <div id="doc-template-preview"></div>
@@ -2085,7 +2210,27 @@ async function renderDocumentCreate() {
             <button onclick="renderDocuments()" style="background:rgba(85,91,110,0.08);color:#555B6E;padding:8px 16px;border-radius:6px;font-weight:800;font-size:13px;">Discard</button>
         </div>
     </div>`;
+
+    /* Preselect a template when starting from a quick-start card */
+    if (window._docCreateTemplateId) {
+        var _sel = document.getElementById('doc-form-template');
+        if (_sel) {
+            _sel.value = window._docCreateTemplateId;
+            _previewDocTemplate(window._docCreateTemplateId);
+            var _nameEl = document.getElementById('doc-name');
+            if (_nameEl && !_nameEl.value) {
+                var _found = templates.find(function(x) { return x.id === window._docCreateTemplateId; });
+                if (_found) _nameEl.value = _found.name;
+            }
+        }
+        window._docCreateTemplateId = null;
+    }
 }
+
+window._startDocFromTemplate = function(templateId) {
+    window._docCreateTemplateId = templateId || null;
+    setView('documentcreate');
+};
 
 window._previewDocTemplate = async function(templateId) {
     var container = document.getElementById('doc-template-preview');
@@ -2145,10 +2290,6 @@ async function saveDocumentRecord() {
         }
     }
 
-    // Follow-up template
-    var followupId = document.getElementById("doc-followup-template")?.value || '';
-    if (followupId) data.followupTemplateId = followupId;
-
     const fileInput = document.getElementById("doc-evidence");
     if (fileInput.files.length > 0) {
         try {
@@ -2183,14 +2324,29 @@ async function addDocumentReply(id, folder) {
     if (!doc) return;
     const author = document.getElementById("reply-author")?.value?.trim();
     const body = document.getElementById("reply-body")?.value?.trim();
-    if (!author || !body) { showToast('Author and reply body are required.', 'warning'); return; }
+    const tplId = document.getElementById("reply-template")?.value || '';
+    if (!author) { showToast('Author is required.', 'warning'); return; }
+    if (!body && !tplId) { showToast('Add a reply message or choose a template.', 'warning'); return; }
 
     const reply = {
         author,
         date: document.getElementById("reply-date")?.value || new Date().toISOString().substring(0, 10),
-        body,
+        body: body || '',
         photo: null
     };
+
+    /* Structured reply built from a template */
+    if (tplId) {
+        try {
+            const formData = await _gatherFormTemplateFields(tplId);
+            if (formData) {
+                reply.formTemplateId = tplId;
+                reply.formTemplateName = formData.templateName;
+                reply.formTemplateValues = formData.values;
+                if (!reply.body) reply.body = 'Reply using ' + formData.templateName;
+            }
+        } catch (e) { console.warn('Reply template gather failed:', e); }
+    }
 
     const fileInput = document.getElementById("reply-photo");
     if (fileInput.files.length > 0) {
@@ -2226,15 +2382,32 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
     const replies = Array.isArray(doc.replies) ? doc.replies : [];
     const today = new Date().toISOString().substring(0, 10);
 
-    const replyHtml = replies.length ? replies.map((r, idx) => `
-        <div class="reply-item bg-slate-50 border-l-4 border-l-slate-300 rounded-none p-4 mb-3" id="reply-${idx}">
-            <div class="flex items-center justify-between mb-1">
-                <p class="text-xs font-bold text-slate-500">${escapeHtml(r.author)} • ${escapeHtml(r.date)}</p>
-                <button onclick="editReplyInline('${doc.id}','${folder}',${idx})" class="text-[10px] font-bold text-birds-green hover:underline print:hidden">Edit</button>
-            </div>
-            <div id="reply-body-${idx}" class="text-sm text-slate-800 whitespace-pre-wrap">${escapeHtml(r.body)}</div>
-            ${r.photo ? `<img src="${r.photo}" class="mt-2 max-w-xs rounded border border-slate-200" />` : ''}
-        </div>`).join('') : '';
+    var tplOptions = '';
+    try {
+        var allTpls = await _loadFormTemplates();
+        tplOptions = allTpls.map(function(t) { return '<option value="' + t.id + '">' + escapeHtml(t.name) + '</option>'; }).join('');
+    } catch(e) {}
+
+    var replyHtml = '';
+    if (replies.length) {
+        var rParts = [];
+        for (var ri = 0; ri < replies.length; ri++) {
+            var r = replies[ri];
+            var tplBlock = '';
+            if (r.formTemplateId && r.formTemplateValues) {
+                try { tplBlock = '<div class="mt-3 pt-3 border-t border-slate-200">' + await _renderFormTemplateView(r.formTemplateId, r.formTemplateValues) + '</div>'; } catch(e) {}
+            }
+            rParts.push('<div class="reply-item bg-slate-50 border-l-4 border-l-slate-300 rounded-none p-4 mb-3" id="reply-' + ri + '">' +
+                '<div class="flex items-center justify-between mb-1">' +
+                '<p class="text-xs font-bold text-slate-500">' + escapeHtml(r.author) + ' \u2022 ' + escapeHtml(r.date) + '</p>' +
+                '<button onclick="editReplyInline(\'' + doc.id + '\',\'' + folder + '\',' + ri + ')" class="text-[10px] font-bold text-birds-green hover:underline print:hidden">Edit</button></div>' +
+                '<div id="reply-body-' + ri + '" class="text-sm text-slate-800 whitespace-pre-wrap">' + escapeHtml(r.body) + '</div>' +
+                (r.photo ? '<img src="' + r.photo + '" class="mt-2 max-w-xs rounded border border-slate-200" />' : '') +
+                tplBlock +
+                '</div>');
+        }
+        replyHtml = rParts.join('');
+    }
 
     // Render form template fields (read-only view)
     var formTplHtml = '';
@@ -2307,7 +2480,15 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
                     <input type="text" id="reply-author" class="input-chip rounded-none w-full" placeholder="Your name">
                     <input type="date" id="reply-date" class="input-chip rounded-none w-full" value="${today}">
                 </div>
-                <textarea id="reply-body" class="w-full h-28 p-3 mb-3 border border-slate-300 rounded-lg resize-y" placeholder="Reply message..."></textarea>
+                ${tplOptions ? `<div class="mb-3 print:hidden">
+                    <label class="text-xs font-bold text-slate-500 mb-1 block">Reply using a template (optional)</label>
+                    <select id="reply-template" onchange="window._previewReplyTemplate(this.value)" class="input-chip rounded-none w-full">
+                        <option value="">-- Plain reply (no template) --</option>
+                        ${tplOptions}
+                    </select>
+                </div>
+                <div id="reply-template-fields" class="mb-3"></div>` : ''}
+                <textarea id="reply-body" class="w-full h-28 p-3 mb-3 border border-slate-300 rounded-lg resize-y" placeholder="Reply message (optional if using a template)..."></textarea>
                 <div class="mb-3 print:hidden">
                     <label class="text-xs font-bold text-slate-500 mb-1 block">Attach Photo (optional)</label>
                     <input type="file" id="reply-photo" accept="image/*" class="text-sm">
@@ -2331,6 +2512,14 @@ async function renderLinearViewer(doc, evidenceUrl, folder, userFolderId) {
             </div>
         </div>`;
 }
+
+window._previewReplyTemplate = async function(tplId) {
+    var container = document.getElementById('reply-template-fields');
+    if (!container) return;
+    if (!tplId) { container.innerHTML = ''; return; }
+    container.innerHTML = await _renderFormTemplateFields(tplId);
+    if (typeof window._initSignatures === 'function') window._initSignatures();
+};
 
 /* ─── Edit Document Body (inline) ───────────────────────────── */
 async function editDocumentBodyInline(id, folder) {
@@ -2493,49 +2682,10 @@ async function resolveDocument(id, userFolderId) {
         window.currentLoadedDocs.open = (window.currentLoadedDocs.open || []).filter(function(d) { return d.id !== id; });
     }
 
-    // Offer follow-up document creation
-    if (doc.followupTemplateId) {
-        var createFollowup = confirm("Create a follow-up document from template?");
-        if (createFollowup) {
-            await _createFollowupDocument(doc);
-        }
-    }
-
     showToast("Document Resolved.", 'success');
     _busyOps.delete(id);
     if (userFolderId) { window.currentUserFolder = userFolderId; }
     renderDocuments();
-}
-
-async function _createFollowupDocument(originalDoc) {
-    var tmpl = await _getFormTemplate(originalDoc.followupTemplateId);
-    if (!tmpl) { showToast("Follow-up template not found.", 'error'); return; }
-    var id = _uid("DOC-");
-    var typePrefix = { 'General query': 'GQ', 'Investigation': 'INV', 'Review': 'REV', 'Issue raised': 'IR', 'Feedback': 'FB' };
-    var prefix = typePrefix[originalDoc.type] || 'DOC';
-    var seq = String(Date.now()).slice(-4);
-    var newData = {
-        id: id,
-        creator: originalDoc.creator || '',
-        date: new Date().toISOString().substring(0, 10),
-        attentionOf: originalDoc.attentionOf || '',
-        department: originalDoc.department || '',
-        name: (originalDoc.name || 'Untitled') + ' (Follow-up)',
-        title: (originalDoc.title || 'Untitled') + ' (Follow-up)',
-        type: originalDoc.type || 'General query',
-        body: 'Follow-up from: ' + (originalDoc.reference || originalDoc.id),
-        status: 'Open',
-        replies: [],
-        reference: prefix + '-' + new Date().getFullYear() + '-' + seq,
-        formTemplateId: originalDoc.followupTemplateId,
-        formTemplateName: tmpl.name,
-        formTemplateValues: {},
-        parentDocId: originalDoc.id,
-        parentDocRef: originalDoc.reference || ''
-    };
-    if (originalDoc.userFolderId) newData.userFolderId = originalDoc.userFolderId;
-    await _cloudWriteDoc('Open', id, newData);
-    openDocumentViewer(id, 'Open', newData.userFolderId || '');
 }
 
 async function archiveDocument(id, folder, userFolderId) {
@@ -2617,6 +2767,54 @@ async function deleteDocument(id, folder) {
     _busyOps.delete(id);
     renderDocuments();
 }
+
+/* ─── My Work: delete a single document (stays on My Work) ──── */
+window.deleteWorkDocument = async function(id, status) {
+    if (!confirm('Permanently delete this document?')) return;
+    try {
+        if (status === 'Archived') {
+            var doc = await _cloudGetDoc('Archive', id);
+            await _cloudDeleteDoc('Archive', id);
+            if (doc && doc.evidenceFile && window._localDocsConnection) {
+                try { var tx = window._localDocsConnection.transaction('files', 'readwrite'); tx.objectStore('files').delete('Evidence/' + doc.evidenceFile); } catch(e) {}
+            }
+        } else {
+            await _cloudDeleteDoc(status || 'Open', id);
+        }
+    } catch(e) { console.warn('[MyWork] Delete failed:', e.message); }
+    if (window.currentLoadedDocs) {
+        var fl = (status || 'open').toLowerCase();
+        if (window.currentLoadedDocs[fl]) window.currentLoadedDocs[fl] = window.currentLoadedDocs[fl].filter(function(d) { return d.id !== id; });
+    }
+    showToast('Document deleted.', 'success');
+    if (typeof Projects !== 'undefined' && Projects.renderMyWork) { try { await Projects.renderMyWork(); return; } catch(e) {} }
+    renderDocuments();
+};
+
+/* ─── My Work: clear the current user's completed documents ─── */
+window.clearMyCompletedWork = async function() {
+    var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
+    if (!user) return;
+    var docs = await loadDocuments();
+    var all = [].concat(docs.open || [], docs.resolved || [], docs.archived || []);
+    var mine = all.filter(function(d) { return d.creatorId === user.id || d.creator === user.name; });
+    var completed = mine.filter(function(d) { return d.status === 'Resolved' || d.status === 'Archived'; });
+    if (!completed.length) { showToast('No completed documents of yours to clear', 'info'); return; }
+    if (!confirm('Permanently delete ' + completed.length + ' of your completed document(s)? This cannot be undone.')) return;
+    for (var i = 0; i < completed.length; i++) {
+        var d = completed[i];
+        try {
+            var folder = d.status === 'Archived' ? 'Archive' : 'Resolved';
+            await _cloudDeleteDoc(folder, d.id);
+            if (d.evidenceFile && window._localDocsConnection) {
+                try { var tx = window._localDocsConnection.transaction('files', 'readwrite'); tx.objectStore('files').delete('Evidence/' + d.evidenceFile); } catch(e) {}
+            }
+        } catch(e) {}
+    }
+    window.currentLoadedDocs = await loadDocuments();
+    showToast('Cleared ' + completed.length + ' completed document(s)', 'success');
+    if (typeof Projects !== 'undefined' && Projects.renderMyWork) { try { await Projects.renderMyWork(); } catch(e) {} }
+};
 
 /* ─── Archive Tab ───────────────────────────────────────────── */
 async function renderDocumentArchive() {

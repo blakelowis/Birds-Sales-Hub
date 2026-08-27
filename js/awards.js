@@ -1,4 +1,4 @@
-async function rebuildAwardsFromData(){
+﻿async function rebuildAwardsFromData(){
   try {
     const year = currentAwardsYear || new Date().getFullYear();
     const allKpis = await idbGetAll('kpi');
@@ -43,8 +43,11 @@ async function renderHallOfFame(){
       let periodStores = storeLog.filter(l => l.Year == currentAwardsYear && l.Week >= from && l.Week <= to);
       let periodAreas = areaLog.filter(l => l.Year == currentAwardsYear && l.Week >= from && l.Week <= to);
 
-      if(periodStores.length === 0){
-        periodStores = []; periodAreas = [];
+      if(periodStores.length === 0 && kpis.length){
+        // No awards data — auto-rebuild from KPI
+        await recordPersistentWinnersForWeeks(currentAwardsYear, [...new Set(yearKpis.map(k=>k.Week))].sort((a,b)=>a-b));
+        periodStores = (await idbGetAll('store_winners_log')).filter(l => l.Year == currentAwardsYear && l.Week >= from && l.Week <= to);
+        periodAreas = (await idbGetAll('area_winners_log')).filter(l => l.Year == currentAwardsYear && l.Week >= from && l.Week <= to);
       }
 
       const areaWins = periodAreas.reduce((acc, l)=>{ acc[l.Winner] = (acc[l.Winner]||0)+1; return acc; }, {});
@@ -550,8 +553,12 @@ async function renderBandingView(){
 }
 
 async function renderChampionsView(){
-
     const rawKpis = await idbGetAll('kpi');
+    if (!rawKpis || !rawKpis.length) { document.getElementById('mainView').innerHTML = '<div class="card p-12 text-center"><h2 class="text-2xl font-black outfit birds-green mb-2">No Data</h2><p class="text-slate-500">Sync KPI data first.</p></div>'; return; }
+    var maxWk = Math.max(...rawKpis.map(function(k){return Number(k.Week)||0;}));
+    var maxYr = Math.max(...rawKpis.map(function(k){return Number(k.Year)||0;}));
+    if (maxWk > latestWkGlobal) latestWkGlobal = maxWk;
+    if (maxYr > currentAwardsYear) currentAwardsYear = maxYr;
     const effectiveWeek = archiveWeekOverride || latestWkGlobal;
 
     const monthlyChampions =
@@ -748,7 +755,7 @@ async function renderChampionsView(){
     `;
 }
 
-function exportAllChampions(){
+async function exportAllChampions(){
     try{
         const champions = document.querySelector('#mainView .grid');
         if(!champions){ alert('No champions to export.'); return; }

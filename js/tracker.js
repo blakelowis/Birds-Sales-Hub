@@ -312,6 +312,7 @@ function _doRenderTracker() {
         trackerApplyFilter();
         _updateTrackerLockBtn();
     }
+    window._trackerRerender = function() { renderTable(_trackerDataCache, stores); };
 
     // Always render immediately with empty data
     renderTable({});
@@ -527,7 +528,7 @@ window.trackerToggleLock = function() {
     window._trackerLocked = !window._trackerLocked;
     idbPut('settings', { id: 'trackerLocked', value: window._trackerLocked });
     _updateTrackerLockBtn();
-    renderTable(_trackerDataCache, stores);
+    if (typeof window._trackerRerender === 'function') window._trackerRerender();
 };
 
 function _updateTrackerLockBtn() {
@@ -542,12 +543,12 @@ function _updateTrackerLockBtn() {
     }
 }
 
-window.trackerField = function(storeId, field, value) {
+window.trackerField = async function(storeId, field, value) {
     var rec = trackerFindData(_trackerDataCache, storeId, null); if (!rec.StoreId) rec = { StoreId: storeId };
     rec[field] = value;
     rec.updatedAt = new Date().toISOString();
     _trackerDataCache[storeId] = rec;
-    idbPut('eho_data', rec);
+    await idbPut('eho_data', rec);
     trackerScheduleSave();
     // Update row data attributes for sort without full re-render
     var row = document.querySelector('.tracker-row[data-storeid="' + storeId.replace(/"/g, '') + '"]');
@@ -622,8 +623,13 @@ async function trackerSaveToFolder() {
         // v148: Save to SharePoint via Graph if logged in
         if (typeof GraphClient !== 'undefined' && typeof BirdsAuth !== 'undefined' && BirdsAuth.isLoggedIn()) {
             try {
-                await GraphClient.writeFile('tracker_data.json', json);
-                _trackerSetSaveStatus('\u2713 Saved to SharePoint', '#2d7a3a', '');
+                var writeResult = await GraphClient.writeFile('tracker_data.json', json);
+                if (writeResult === false) {
+                    console.warn('[Tracker] Graph writeFile returned false — write may have failed');
+                    _trackerSetSaveStatus('\u26A0 Saved locally \u2014 SharePoint write failed (check console)', '#b45309', '');
+                } else {
+                    _trackerSetSaveStatus('\u2713 Saved to SharePoint', '#2d7a3a', '');
+                }
             } catch(e) {
                 console.warn('[Tracker] Graph save failed:', e);
                 _trackerSetSaveStatus('\u26A0 Saved locally \u2014 Graph save failed', '#b45309', '');

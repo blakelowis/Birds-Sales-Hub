@@ -472,7 +472,7 @@ async function validateAndCorrectData(weeksTouched){
       fixed.HotBev = Math.max(0, _finiteOr0(rec.HotBev));
       await idbPut('kpi', fixed);
     }
-    const audits = await idbGetAll('audits');
+    const audits = (await idbGetAll('audits')).filter(a => !a.isTraining);
     for (const rec of audits) {
       if (Array.isArray(weeksTouched) && weeksTouched.length && !weeksTouched.includes(rec.Week)) continue;
       const fixed = { ...rec };
@@ -672,6 +672,42 @@ async function recordPersistentWinnersForWeeks(year, weeks){
   }
 }
   }
+}
+
+function computeAreaLeaderboard(week, year, kpis) {
+  const validAMs = AM_LIST.filter(a => a !== 'Unassigned');
+  const wkKpis = kpis.filter(k => (k.Year ?? year) == year && k.Week == week && !k.IsAnomaly);
+  if (!wkKpis.length) return [];
+  const pResult = getPreviousAvailableWeek(week, year, kpis);
+  const prevKpis = kpis.filter(k => (k.Year ?? pResult.year) == pResult.year && k.Week == pResult.week && !k.IsAnomaly);
+  const wkWithAM = wkKpis.map(k => ({ ...k, _am: safeGetAM(k.Branch) }));
+  const prevWithAM = prevKpis.map(k => ({ ...k, _am: safeGetAM(k.Branch) }));
+  const metrics = [
+    { id: 'Sales', order: 'desc' }, { id: 'Product', order: 'desc' },
+    { id: 'Waste', order: 'asc' }, { id: 'Labour', order: 'asc' },
+    { id: 'ATV', order: 'desc' }, { id: 'Energy', order: 'asc' }
+  ];
+  const points = {};
+  validAMs.forEach(am => { points[am] = { total: 0, breakdown: {} }; });
+  metrics.forEach(m => {
+    const deltas = validAMs.map(am => {
+      const c = wkWithAM.filter(k => k._am === am);
+      const p = prevWithAM.filter(k => k._am === am);
+      if (!c.length || !p.length) return { am, gain: -999999 };
+      const cAvg = c.reduce((a, b) => a + _finiteOr0(b[m.id]), 0) / c.length;
+      const pAvg = p.reduce((a, b) => a + _finiteOr0(b[m.id]), 0) / p.length;
+      return { am, gain: m.order === 'desc' ? (cAvg - pAvg) : (pAvg - cAvg) };
+    });
+    deltas.sort((a, b) => b.gain - a.gain);
+    deltas.forEach((item, idx) => {
+      const pts = 5 - idx;
+      points[item.am].total += pts;
+      points[item.am].breakdown[m.id] = pts;
+    });
+  });
+  return Object.entries(points)
+    .map(([am, data]) => ({ am, score: data.total, breakdown: data.breakdown }))
+    .sort((a, b) => b.score - a.score);
 }
 
 function _periodWeeks(period, latestWeek){
@@ -1074,7 +1110,7 @@ window.BirdsPDF = {
     }
 };
 
-window.isAdmin = function(){ return false; };
+window.isAdmin = function(){ var u = typeof Users !== 'undefined' ? Users.getCurrentUser() : null; if (!u || !u.email) return false; return ['blake.lowis@birdsofderby.co.uk','sam.pike@birdsofderby.co.uk','glen.arrowsmith@birdsofderby.co.uk','mirel.dinu@birdsofderby.co.uk'].indexOf(u.email.toLowerCase()) >= 0; };
 
 // === safeDownload: reliable cross-browser file download ===
 // Chrome/Edge on localhost require the anchor to be in the DOM before clicking.
