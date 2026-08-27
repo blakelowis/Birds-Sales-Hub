@@ -23,6 +23,7 @@ window.ShopTools = (function() {
     }
 
     /* ─── Init / helpers ────────────────────────────────────────── */
+    function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function _init() {
         var u = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
         /* Auto-detect the store from the user's email (e.g. branston@... → Branston) */

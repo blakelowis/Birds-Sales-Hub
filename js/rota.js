@@ -9,7 +9,7 @@ window.Rota = (function() {
     var DAYS = ['sun','mon','tue','wed','thu','fri','sat'];
     var DAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
     var DAY_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    varPOSITIONS = ['Manager','Asst Manager','Third','Staff'];
+    var POSITIONS = ['Manager','Asst Manager','Third','Staff'];
 
     var SHIFT_PRESETS = [
         { label: 'Early',   start: '06:00', end: '14:00', breakStart: '10:00', breakEnd: '10:30', color: '#6E8E6D' },
