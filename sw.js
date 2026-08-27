@@ -40,6 +40,7 @@ const ASSETS = [
   './js/audit-perform.js',
   './js/overview.js',
   './js/shop.js',
+  './js/it-helpdesk.js',
   './js/activity.js',
   './js/app.js',
   './js/build-master.js',
