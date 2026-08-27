@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v183';
+const CACHE_NAME = 'birds-hub-v184';
 
 const ASSETS = [
   './',
@@ -42,6 +42,19 @@ const ASSETS = [
   './js/shop.js',
   './js/activity.js',
   './js/app.js',
+  './js/build-master.js',
+  './js/access.js',
+  './js/area.js',
+  './js/data-snippets.js',
+  './js/messages.js',
+  './js/mywork-hub.js',
+  './js/mywork-todos.js',
+  './js/mywork-contacts.js',
+  './js/mywork-kanban.js',
+  './js/mywork-calendar.js',
+  './js/rota.js',
+  './js/store-context.js',
+  './js/module-registry.js',
   './fonts/inter-v20-latin-regular.woff2',
   './fonts/inter-v20-latin-600.woff2',
   './fonts/inter-v20-latin-700.woff2',
