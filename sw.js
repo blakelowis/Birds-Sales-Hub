@@ -1,4 +1,4 @@
-const CACHE_NAME = 'birds-hub-v184';
+const CACHE_NAME = 'birds-hub-v185';
 
 const ASSETS = [
   './',
@@ -55,6 +55,9 @@ const ASSETS = [
   './js/rota.js',
   './js/store-context.js',
   './js/module-registry.js',
+  './vanilla-calendar.min.js',
+  './Sortable.min.js',
+  './css/vanilla-calendar.min.css',
   './fonts/inter-v20-latin-regular.woff2',
   './fonts/inter-v20-latin-600.woff2',
   './fonts/inter-v20-latin-700.woff2',

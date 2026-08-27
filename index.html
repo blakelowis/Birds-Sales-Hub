@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="fonts/fonts.css">
   <link rel="stylesheet" href="tailwind.min.css?v=100">
   <link rel="stylesheet" href="css/app.css?v=132">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro@2.10.5/build/vanilla-calendar.min.css">
+  <link rel="stylesheet" href="css/vanilla-calendar.min.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#8BA88A">
@@ -168,8 +168,8 @@
   <script src="js/data-snippets.js?v=1"></script>
   <script src="js/store-context.js?v=1"></script>
   <script src="js/shop.js?v=9"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro@2.10.5/build/vanilla-calendar.min.js"></script>
+  <script src="Sortable.min.js"></script>
+  <script src="vanilla-calendar.min.js"></script>
   <script src="js/app.js?v=175"></script>
   <script src="js/build-master.js?v=1"></script>
   <script>
@@ -327,7 +327,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=184').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=185').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
