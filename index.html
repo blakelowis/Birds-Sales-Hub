@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="fonts/fonts.css">
   <link rel="stylesheet" href="tailwind.min.css?v=100">
   <link rel="stylesheet" href="css/app.css?v=132">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro@2.10.5/build/vanilla-calendar.min.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2300843D'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#8BA88A">
@@ -64,7 +65,7 @@
           <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
           <button onclick="document.getElementById('mobileAuditZipInput').click()" style="background:#7A7A7A;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
           <button onclick="doRefresh()" style="background:transparent;color:#4A4A4A;font-size:11px;font-weight:600;padding:6px 14px;border-radius:8px;border:1px solid #E8E5E0;cursor:pointer;white-space:nowrap;" id="syncBtn" title="Refresh Data">&#x21bb; Refresh</button>
-          <button onclick="buildMasterJson()" style="background:#14532d;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" id="buildMasterBtn" title="Build kpi_master.json from all weekly XLSX files">Build Master JSON</button>
+
           <span id="folderStatus" style="font-size:10px;font-weight:600;color:#aaa;"></span>
 
         </div>
@@ -82,8 +83,9 @@
       <div class="nav-tab-bar">
         <div class="nav-tab active" data-tab="sales" onclick="setActiveTab('sales')">Sales &amp; KPIs</div>
         <div class="nav-tab" data-tab="audits" onclick="setActiveTab('audits')">Audits &amp; Complaints</div>
-        <div class="nav-tab" data-tab="docs" onclick="setActiveTab('docs')">Documents</div>
-        <div class="nav-tab" data-tab="admin" onclick="setActiveTab('admin')" id="adminTab" style="display:none;">Admin</div>
+      <div class="nav-tab" data-tab="docs" onclick="setActiveTab('docs')">Documents</div>
+      <div class="nav-tab" data-tab="shop" onclick="setActiveTab('shop')" id="shopTab">Shop Tools</div>
+      <div class="nav-tab" data-tab="admin" onclick="setActiveTab('admin')" id="adminTab" style="display:none;">Admin</div>
       </div>
       <div class="nav-panel open" data-panel="sales">
         <button onclick="setView('overview')" id="btn-overview" class="seg-btn seg-btn-active flex-1 whitespace-nowrap">Overview</button>
@@ -105,16 +107,19 @@
       </div>
       <div class="nav-panel" data-panel="docs">
         <button onclick="setView('mywork')" id="btn-mywork" class="seg-btn flex-1 whitespace-nowrap">My Work</button>
-        <button onclick="setView('documents')" id="btn-documents" class="seg-btn flex-1 whitespace-nowrap">Documents</button>
+        <button onclick="setView('kanban')" id="btn-kanban" class="seg-btn flex-1 whitespace-nowrap">Kanban</button>
+        <button onclick="setView('calendar')" id="btn-calendar" class="seg-btn flex-1 whitespace-nowrap">Calendar</button>
+        <button onclick="setView('creator')" id="btn-creator" class="seg-btn flex-1 whitespace-nowrap">Creator</button>
         <button onclick="setView('projects')" id="btn-projects" class="seg-btn flex-1 whitespace-nowrap">Projects</button>
-        <span class="nav-divider"></span>
-        <button onclick="setView('documentcreate')" id="btn-documentcreate" class="seg-btn flex-1 whitespace-nowrap">+ Create</button>
-        <button onclick="setView('templatelibrary')" id="btn-templatebuilder" class="seg-btn flex-1 whitespace-nowrap">+ Template</button>
-        <button onclick="setView('documentarchive')" id="btn-documentarchive" class="seg-btn flex-1 whitespace-nowrap">Archive</button>
+        <button onclick="setView('area')" id="btn-area" class="seg-btn flex-1 whitespace-nowrap">Area</button>
       </div>
-      <div class="nav-panel" data-panel="admin">
-        <button onclick="setView('adminmodules')" id="btn-adminmodules" class="seg-btn flex-1 whitespace-nowrap">Module Management</button>
-        <button onclick="setView('adminusers')" id="btn-adminusers" class="seg-btn flex-1 whitespace-nowrap">User Admin</button>
+      <div class="nav-panel" data-panel="shop">
+        <button onclick="setView('shop-home')" id="btn-shop-home" class="seg-btn flex-1 whitespace-nowrap">Home</button>
+        <button onclick="setView('rota')" id="btn-rota" class="seg-btn flex-1 whitespace-nowrap">Rota</button>
+        <button onclick="setView('shop-incident')" id="btn-shop-incident" class="seg-btn flex-1 whitespace-nowrap">Incident</button>
+        <button onclick="setView('shop-complaint')" id="btn-shop-complaint" class="seg-btn flex-1 whitespace-nowrap">Complaint</button>
+        <button onclick="setView('shop-uniform')" id="btn-shop-uniform" class="seg-btn flex-1 whitespace-nowrap">Uniform</button>
+        <button onclick="setView('shop-messages')" id="btn-shop-messages" class="seg-btn flex-1 whitespace-nowrap">Messages</button>
       </div>
     </nav>
 
@@ -134,28 +139,42 @@
   <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
   <script src="js/auth.js?v=164"></script>
   <script src="js/graph.js?v=164"></script>
-  <script src="js/db.js?v=164"></script>
-  <script src="js/utils.js?v=128"></script>
+  <script src="js/db.js?v=167"></script>
+  <script src="js/utils.js?v=129"></script>
   <script src="js/data.js?v=168"></script>
-  <script src="js/charts.js?v=116"></script>
+  <script src="js/charts.js?v=117"></script>
   <script src="js/scorecards.js?v=116"></script>
   <script src="js/reports.js?v=121"></script>
   <script src="js/complaints.js?v=116"></script>
-  <script src="js/documents.js?v=151"></script>
-  <script src="js/users.js?v=160"></script>
-  <script src="js/projects.js?v=151"></script>
-  <script src="js/template-builder.js?v=132"></script>
-  <script src="js/audits.js?v=167"></script>
+  <script src="js/documents.js?v=159"></script>
+  <script src="js/users.js?v=162"></script>
+  <script src="js/projects.js?v=158"></script>
+  <script src="js/template-builder.js?v=135"></script>
+  <script src="js/audits.js?v=168"></script>
   <script src="js/tracker_defaults.js?v=116"></script>
   <script src="js/tracker.js?v=116"></script>
   <script src="js/awards.js?v=118"></script>
-  <script src="js/audit-perform.js?v=1873"></script>
-  <script src="js/overview.js?v=117"></script>
-  <script src="js/app.js?v=171"></script>
+  <script src="js/audit-perform.js?v=1875"></script>
+  <script src="js/overview.js?v=119"></script>
+  <script src="js/messages.js?v=1"></script>
+  <script src="js/mywork-hub.js?v=1"></script>
+  <script src="js/mywork-todos.js?v=1"></script>
+  <script src="js/mywork-contacts.js?v=1"></script>
+  <script src="js/mywork-kanban.js?v=1"></script>
+  <script src="js/mywork-calendar.js?v=1"></script>
+  <script src="js/rota.js?v=1"></script>
+  <script src="js/area.js?v=1"></script>
+  <script src="js/access.js?v=1"></script>
+  <script src="js/data-snippets.js?v=1"></script>
+  <script src="js/store-context.js?v=1"></script>
+  <script src="js/shop.js?v=9"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro@2.10.5/build/vanilla-calendar.min.js"></script>
+  <script src="js/app.js?v=175"></script>
   <script src="js/build-master.js?v=1"></script>
   <script>
     var _activeTab = 'sales';
-    var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'mywork' };
+    var _tabDefaults = { sales: 'overview', audits: 'auditexport', docs: 'mywork', admin: 'adminusers', shop: 'shop-home' };
 
     function setActiveTab(tab) {
       if (tab === _activeTab) return;
@@ -173,18 +192,22 @@
     function applyNavPermissions() {
       if (typeof Users === 'undefined') return;
       var user = Users.getEffectiveUser();
-      if (!user) return; // No user logged in — show all tabs, login screen will handle it
+      if (!user) return;
+      /* Use Access module for role-based filtering if available */
+      if (typeof Access !== 'undefined') {
+        Access.applyNavPermissions();
+        return;
+      }
+      /* Fallback: legacy filtering */
       document.querySelectorAll('.nav-tab').forEach(function(tab) {
         var tabId = tab.getAttribute('data-tab');
         if (tabId === 'admin') {
-          var user = Users.getEffectiveUser();
-          tab.style.display = (user && user.role === 'admin') ? '' : 'none';
+          tab.style.display = (typeof window.isAdmin === 'function' && isAdmin()) ? '' : 'none';
           return;
         }
         var canSee = Users.canSeeTab(tabId);
         tab.style.display = canSee ? '' : 'none';
       });
-      /* Hide views the user can't see */
       document.querySelectorAll('.nav-panel button').forEach(function(btn) {
         var onclick = btn.getAttribute('onclick') || '';
         var match = onclick.match(/setView\('([^']+)'\)/);
@@ -194,6 +217,9 @@
         }
       });
     }
+    // Apply nav permissions on page load
+    if (typeof applyNavPermissions === 'function') { setTimeout(applyNavPermissions, 100); }
+
     // Initial tab set — view is rendered by db.js boot flow
 
     // PNG export for scorecards and audit views
@@ -230,21 +256,27 @@
       btn.innerHTML = '&#x21bb; Syncing...';
       btn.disabled = true;
       btn.classList.add('opacity-50','cursor-not-allowed');
+      var lo = document.getElementById('loadingOverlay');
+      var ls = document.getElementById('loadingStatus');
+      if (lo) lo.style.display = 'flex';
+      if (ls) ls.textContent = 'Refreshing data...';
         try {
             _clearCache();
+            if (typeof GraphClient !== 'undefined' && GraphClient.clearCache) { try { GraphClient.clearCache(); } catch(e) {} }
             const stores = ['kpi','audits','complaints','ingest_log',
                             'area_winners_log','area_metric_winners_log','store_winners_log'];
             for (const s of stores) { try { await idbClear(s); } catch(e) {} }
-            // Clear cached manifests so data is re-read from source
             try { await idbPut('settings', { id: 'weekly_file_manifest', files: null, cachedAt: 0 }); } catch(e) {}
             if (typeof invalidateAuditCache === 'function') { try { await invalidateAuditCache(); } catch(e) {} }
         storeMap.clear(); originalStoreNames.clear();
-        window.ComplaintsData = null;
-        await syncData();
+        window.ComplaintsData = null; window.__complaintsSourceCSV = false;
+        await syncData(true);
+        renderDashboard();
       } catch(e) {
         console.error('[Refresh] Sync failed:', e);
         alert('Refresh failed: ' + e.message);
       } finally {
+        if (lo) lo.style.display = 'none';
         btn.innerHTML = origText;
         btn.disabled = false;
         btn.classList.remove('opacity-50','cursor-not-allowed');
@@ -257,7 +289,11 @@
       await idbClear('actions'); await idbClear('settings'); await idbClear('area_winners_log');
       await idbClear('area_metric_winners_log'); await idbClear('store_winners_log');
       await idbClear('ingest_log'); await idbClear('tracker_audits'); await idbClear('eho_data');
-      await idbClear('complaints');
+      await idbClear('complaints'); await idbClear('questionBank'); await idbClear('training_audits');
+      await idbClear('messages'); await idbClear('message_responses');
+      await idbClear('my_todos'); await idbClear('my_lists'); await idbClear('my_contacts');
+      await idbClear('rota_staff'); await idbClear('rota_week'); await idbClear('rota_leave');
+      await idbClear('shared_views');
       _clearCache();
       storeMap.clear(); originalStoreNames.clear();
       window.ComplaintsData = null;
@@ -291,7 +327,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=155').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=177').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
@@ -323,5 +359,11 @@
       });
     }
   </script>
+  <div id="loadingOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(251,250,246,0.95);z-index:9999;flex-direction:column;align-items:center;justify-content:center;">
+    <div class="text-2xl font-black outfit" style="color:#6E8E6D;margin-bottom:12px;">The Hub</div>
+    <div class="text-sm font-bold text-slate-500" id="loadingStatus">Loading...</div>
+    <div style="margin-top:16px;width:200px;height:3px;background:#e2e8f0;border-radius:2px;overflow:hidden;"><div style="width:30%;height:100%;background:#6E8E6D;border-radius:2px;animation:loadBar 1.5s ease-in-out infinite;"></div></div>
+    <style>@keyframes loadBar{0%{width:0%;margin-left:0}50%{width:50%;margin-left:25%}100%{width:0%;margin-left:100%}}</style>
+  </div>
 </body>
 </html>

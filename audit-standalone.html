@@ -1430,6 +1430,7 @@
       <button class="btn green" id="exportAPJsonBtn" type="button">Export AP JSON</button>
       <button class="btn green" id="exportPdfBtn">Export PDF (print)</button>
       <button class="btn green" id="btnDownloadEvidence" type="button">Download Photos</button>
+      <button class="btn green" id="btnExportAuditZip" type="button">Save Audit ZIP</button>
     </div>
     <label class="btn ghost" style="cursor:pointer">
       <input hidden="" id="modeToggle" type="checkbox" />
@@ -2944,6 +2945,129 @@ function clearWorkingCopy() { if (!confirm('Clear all progress on this page? Thi
         if(btn) { btn.textContent = originalText; btn.disabled = false; }
       });
     }
+
+    // ===== Export Audit ZIP (for server import) =====
+    function exportAuditZIP() {
+      if (typeof JSZip === 'undefined') { alert('JSZip library not loaded. Check internet connection.'); return; }
+      var zip = new JSZip();
+      var store = document.getElementById('storeName').value.trim() || 'Unknown Store';
+      var auditor = document.getElementById('auditorName').value.trim() || '';
+      var manager = document.getElementById('storeManager').value.trim() || '';
+      var areaManager = document.getElementById('areaManager').value.trim() || '';
+      var d = document.getElementById('auditDate').value || new Date().toISOString().slice(0, 10);
+      var summary = document.getElementById('auditorFeedback') ? document.getElementById('auditorFeedback').value.trim() : '';
+      var storeEmail = (document.getElementById('storeSelector') && document.getElementById('storeSelector').value) ? document.getElementById('storeSelector').value.trim() : '';
+      var scores = overallMetrics();
+
+      // Build questions array
+      var questions = [];
+      for (var sid in state.sectors) {
+        var sec = state.sectors[sid];
+        (sec.categories || []).forEach(function (cat) {
+          (cat.questions || []).forEach(function (q) {
+            if (q.answer === 'Pass' || q.answer === 'Fail' || q.answer === 'NA') {
+              questions.push({
+                sectorId: sid,
+                categoryId: cat.id,
+                questionId: q.id,
+                answer: q.answer,
+                comment: q.comment || ''
+              });
+            }
+          });
+        });
+      }
+
+      // Build actions array
+      var actions = [];
+      for (var sid2 in state.sectors) {
+        var sec2 = state.sectors[sid2];
+        (sec2.categories || []).forEach(function (cat2) {
+          (cat2.questions || []).forEach(function (q2) {
+            if (q2.action && q2.action.enabled) {
+              actions.push({
+                questionId: q2.id,
+                description: q2.action.description || '',
+                personResponsible: q2.action.person || '',
+                actionNeeded: q2.action.actionNeeded || '',
+                critical: q2.action.critical ? true : false,
+                status: q2.action.status || 'Open',
+                closedOn: q2.action.closedOn || '',
+                createdAt: q2.action.createdAt || new Date().toISOString()
+              });
+            }
+          });
+        });
+      }
+
+      // Build metadata
+      var metadata = {
+        storeName: store,
+        storeEmail: storeEmail,
+        branchId: '',
+        manager: manager,
+        auditor: auditor,
+        areaManager: areaManager,
+        date: d,
+        summary: summary,
+        isTraining: false
+      };
+
+      // Create audit_session.json
+      var sessionData = {
+        metadata: metadata,
+        questions: questions,
+        actions: actions,
+        scores: { overall: scores.pct }
+      };
+      zip.file('audit_session.json', JSON.stringify(sessionData, null, 2));
+
+      // Add photos
+      var photoCount = 0;
+      var photosFolder = zip.folder('photos');
+      for (var sid3 in state.sectors) {
+        (state.sectors[sid3].categories || []).forEach(function (cat3) {
+          (cat3.questions || []).forEach(function (q3) {
+            if (q3.photo) {
+              var base64Data = q3.photo.split(',')[1];
+              if (base64Data) {
+                photosFolder.file(sid3 + '_' + cat3.id + '_' + q3.id + '.jpg', base64Data, { base64: true });
+                photoCount++;
+              }
+            }
+            if (q3.extraPhoto) {
+              var base64Extra = q3.extraPhoto.split(',')[1];
+              if (base64Extra) {
+                photosFolder.file(sid3 + '_' + cat3.id + '_' + q3.id + '_extra.jpg', base64Extra, { base64: true });
+                photoCount++;
+              }
+            }
+          });
+        });
+      }
+
+      var btn = document.getElementById('btnExportAuditZip');
+      var originalText = btn ? btn.textContent : 'Save Audit ZIP';
+      if (btn) { btn.textContent = 'Zipping...'; btn.disabled = true; }
+
+      zip.generateAsync({ type: 'blob' }).then(function (content) {
+        var fileName = 'audit_' + store.replace(/[^a-z0-9]/gi, '_') + '_' + d.replace(/[^a-z0-9]/gi, '_') + '.zip';
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        if (btn) { btn.textContent = originalText; btn.disabled = false; }
+        toast('Audit ZIP saved (' + questions.length + ' answers, ' + actions.length + ' actions, ' + photoCount + ' photos) ✓');
+      }).catch(function (err) {
+        alert('Error generating ZIP: ' + err);
+        if (btn) { btn.textContent = originalText; btn.disabled = false; }
+      });
+    }
+    window.exportAuditZIP = exportAuditZIP;
+    var __btnExportAuditZip = document.getElementById('btnExportAuditZip');
+    if (__btnExportAuditZip) { __btnExportAuditZip.addEventListener('click', exportAuditZIP); }
 
     document.getElementById('btnClearCache').addEventListener('click', function () {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
