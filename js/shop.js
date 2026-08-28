@@ -83,13 +83,19 @@ window.ShopTools = (function() {
     /* ═══════════════════════════════════════════════════════════════
        STORE HUB: Home screen — Messages + Quick Actions + Activity
        ═══════════════════════════════════════════════════════════════ */
+    /* ─── SMART DASHBOARD ──────────────────────────────────────── */
     window.renderShopHome = async function() {
         _init();
         var mv = document.getElementById('mainView');
         if (!mv) return;
 
-        /* Gather data in parallel */
+        /* Gather all data in parallel */
         var pendingMsgs = 0, taskMsgs = [], recentReports = [];
+        var openTickets = 0, latestTicket = null;
+        var rotaGaps = 0, staffCount = 0;
+        var overdueActions = 0;
+        var kpiData = null;
+
         try {
             if (typeof Messages !== 'undefined' && _shopStoreId) {
                 var msgs = Messages.getForStore(_shopStoreId);
@@ -97,143 +103,162 @@ window.ShopTools = (function() {
                 taskMsgs = msgs.filter(function(m) { return m.type === 'action_required' && !Messages.hasStoreResponded(m.id, _shopStoreId); });
             }
         } catch(e) {}
+
+        try {
+            if (typeof ITHelpdesk !== 'undefined') {
+                await ITHelpdesk._loadTickets();
+                var allTickets = ITHelpdesk._loadTickets ? [] : [];
+                /* Access tickets through the module's internal state */
+                var tickets = [];
+                try { tickets = await idbGetAll('it_tickets'); } catch(e) {}
+                var myTickets = tickets.filter(function(t) { return t.storeId === _shopStoreId; });
+                openTickets = myTickets.filter(function(t) { return t.status === 'received' || t.status === 'processing'; }).length;
+                latestTicket = myTickets.find(function(t) { return t.status === 'received' || t.status === 'processing'; }) || null;
+            }
+        } catch(e) {}
+
+        try {
+            if (typeof Rota !== 'undefined' && _shopStoreId) {
+                var currentMonday = Rota.getMonday(new Date());
+                var staff = await Rota.loadStaff(_shopStoreId);
+                var weekData = await Rota.loadWeek(_shopStoreId, currentMonday);
+                staffCount = staff.length;
+                if (staff.length > 0 && weekData && weekData.shifts) {
+                    var shifts = weekData.shifts;
+                    var todayIdx = new Date().getDay();
+                    Rota.DAYS.forEach(function(day, i) {
+                        staff.forEach(function(person) {
+                            var shift = (shifts[person.id] || {})[day] || {};
+                            if (!shift.start && !shift.type && i <= todayIdx) rotaGaps++;
+                        });
+                    });
+                }
+            }
+        } catch(e) {}
+
+        try {
+            var actions = await idbGetAll('actions');
+            var today = new Date().toISOString().slice(0, 10);
+            overdueActions = actions.filter(function(a) {
+                return a.Store === _storeName && a.Status !== 'Closed' && a.DueDate && a.DueDate < today;
+            }).length;
+        } catch(e) {}
+
+        try {
+            var rawKpis = await idbGetAll('kpi');
+            var latestWeek = Math.max(...rawKpis.map(function(k) { return Number(k.Week) || 0; }));
+            var storeKpis = rawKpis.filter(function(k) {
+                var cid = typeof canonicalStoreId === 'function' ? canonicalStoreId(k.Branch || k.BranchId || '') : (k.Branch || k.BranchId || '');
+                return cid === _shopStoreId || (k.Branch || '').toLowerCase() === (_storeName || '').toLowerCase();
+            });
+            kpiData = storeKpis.find(function(k) { return k.Week == latestWeek; }) || null;
+        } catch(e) {}
+
         try {
             var incidents = await _loadReports('incidents');
             var complaints = await _loadReports('complaints');
             var uniforms = await _loadReports('uniform-orders');
             recentReports = incidents.concat(complaints, uniforms)
                 .sort(function(a,b){ return (b.submittedAt||'').localeCompare(a.submittedAt||''); })
-                .slice(0, 5);
+                .slice(0, 3);
         } catch(e) {}
 
         var userName = (typeof Users !== 'undefined' && Users.getCurrentUser()) ? Users.getCurrentUser().name : '';
         var greeting = _getGreeting();
+        var todayDate = new Date().toISOString().slice(0, 10);
 
-        var html = '<div style="max-width:1000px;margin:0 auto;padding:8px;">'
-            /* Header */
-            + '<div class="mb-6">'
+        /* ── Build HTML ── */
+        var html = '<div style="max-width:1000px;margin:0 auto;padding:8px;">';
+
+        /* Header */
+        html += '<div class="mb-4">'
             + '<h1 class="text-2xl font-black text-slate-800">' + greeting + ', ' + _esc(userName.split(' ')[0] || 'there') + '</h1>'
             + '<p class="text-sm text-slate-400 mt-1">' + _esc(_storeName || _shopStoreId) + '</p>'
             + '</div>';
 
-        /* Messages banner (if pending) */
-        if (pendingMsgs > 0) {
-            html += '<div onclick="setView(\'shop-messages\')" class="card p-4 mb-6 cursor-pointer hover:shadow-md transition-all" style="border-left:4px solid #3B82F6;background:#EFF6FF;">'
+        /* ── KPI Snapshot (one line) ── */
+        if (kpiData) {
+            var salesVal = ((kpiData.Sales || 0) * 100).toFixed(1);
+            var productVal = ((kpiData.Product || 0) * 100).toFixed(1);
+            var wasteVal = ((kpiData.Waste || 0) * 100).toFixed(1);
+            var labourVal = ((kpiData.Labour || 0) * 100).toFixed(1);
+            var kpiColor = salesVal >= 95 ? '#059669' : salesVal >= 90 ? '#D97706' : '#DC2626';
+            html += '<div onclick="setView(\'shop-scorecard\')" class="card p-3 mb-4 cursor-pointer hover:shadow-md transition-all" style="border-left:4px solid ' + kpiColor + ';">'
                 + '<div class="flex items-center justify-between">'
-                + '<div class="flex items-center gap-3">'
-                + '<div style="background:#3B82F6;color:#fff;width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;">' + pendingMsgs + '</div>'
-                + '<div><p class="text-sm font-bold text-blue-800">New message' + (pendingMsgs > 1 ? 's' : '') + ' awaiting response</p><p class="text-xs text-blue-500">Tap to view and respond</p></div>'
+                + '<div class="flex items-center gap-4">'
+                + '<div><span class="text-[10px] font-bold text-slate-400 uppercase">Sales</span><p class="text-lg font-black" style="color:' + (salesVal >= 95 ? '#059669' : salesVal >= 90 ? '#D97706' : '#DC2626') + ';">' + salesVal + '%</p></div>'
+                + '<div><span class="text-[10px] font-bold text-slate-400 uppercase">Product</span><p class="text-lg font-black" style="color:' + (productVal >= 95 ? '#059669' : '#DC2626') + ';">' + productVal + '%</p></div>'
+                + '<div><span class="text-[10px] font-bold text-slate-400 uppercase">Waste</span><p class="text-lg font-black" style="color:' + (wasteVal <= 3 ? '#059669' : '#DC2626') + ';">' + wasteVal + '%</p></div>'
+                + '<div><span class="text-[10px] font-bold text-slate-400 uppercase">Labour</span><p class="text-lg font-black" style="color:' + (labourVal <= 12 ? '#059669' : '#DC2626') + ';">' + labourVal + '%</p></div>'
                 + '</div>'
-                + '<span style="color:#3B82F6;font-size:20px;">&#8250;</span>'
+                + '<span class="text-slate-400">Week ' + kpiData.Week + ' &#8250;</span>'
                 + '</div></div>';
         }
 
-        /* ── Rota Summary (current week mini grid) ── */
-        html += '<div class="mb-6">'
-            + '<div class="flex items-center justify-between mb-2">'
-            + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest">This Week\'s Rota</h2>'
-            + '<button onclick="setView(\'rota\')" style="background:#6E8E6D;color:#fff;font-size:10px;font-weight:700;padding:4px 10px;border-radius:5px;border:none;cursor:pointer;">Open Rota &#8250;</button>'
-            + '</div>';
+        /* ── Needs Attention ── */
+        var attentionItems = [];
+        if (pendingMsgs > 0) attentionItems.push({ icon: '\uD83D\uDCE8', text: pendingMsgs + ' pending message' + (pendingMsgs > 1 ? 's' : ''), color: '#3B82F6', bg: '#EFF6FF', view: 'shop-messages' });
+        if (openTickets > 0) attentionItems.push({ icon: '\uD83D\uDCE6', text: openTickets + ' open IT ticket' + (openTickets > 1 ? 's' : ''), color: '#D97706', bg: '#FEF3C7', view: 'shop-ith-list' });
+        if (rotaGaps > 0) attentionItems.push({ icon: '\uD83D\uDCC5', text: rotaGaps + ' shift' + (rotaGaps > 1 ? 's' : '') + ' with no cover', color: '#DC2626', bg: '#FEF2F2', view: 'rota' });
+        if (overdueActions > 0) attentionItems.push({ icon: '\u26A0', text: overdueActions + ' overdue action' + (overdueActions > 1 ? 's' : ''), color: '#DC2626', bg: '#FEF2F2', view: 'shop-home' });
 
-        try {
-            if (typeof Rota !== 'undefined' && _shopStoreId) {
-                var todayDate = new Date().toISOString().slice(0,10);
-                var currentMonday = Rota.getMonday(new Date());
-                var weekDates = Rota.getWeekDates(currentMonday);
-                var staff = await Rota.loadStaff(_shopStoreId);
-                var weekData = await Rota.loadWeek(_shopStoreId, currentMonday);
-                var shifts = weekData ? weekData.shifts : {};
-                var days = Rota.DAYS;
-                var dayLabels = Rota.DAY_LABELS;
-
-                if (staff.length > 0) {
-                    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:10px;">'
-                        + '<thead><tr style="border-bottom:1px solid #E2E8F0;">'
-                        + '<th style="padding:6px 8px;text-align:left;min-width:100px;font-size:9px;font-weight:800;color:#64748B;">Staff</th>';
-                    days.forEach(function(day, i) {
-                        var isToday = weekDates[i] === todayDate;
-                        html += '<th style="padding:6px;text-align:center;min-width:70px;' + (isToday ? 'background:#6E8E6D;color:#fff;border-radius:4px;' : '') + '">'
-                            + '<div style="font-size:8px;font-weight:800;text-transform:uppercase;">' + dayLabels[i] + '</div></th>';
-                    });
-                    html += '<th style="padding:6px;text-align:center;font-size:9px;font-weight:800;color:#64748B;">Hrs</th></tr></thead><tbody>';
-
-                    staff.slice(0, 6).forEach(function(person) {
-                        var personShifts = shifts[person.id] || {};
-                        var totalHours = 0;
-                        html += '<tr style="border-bottom:1px solid #F1F5F9;">'
-                            + '<td style="padding:5px 8px;font-weight:700;color:#1E293B;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;">' + _esc(person.name) + '</td>';
-                        days.forEach(function(day) {
-                            var shift = personShifts[day] || {};
-                            var dayType = shift.type || '';
-                            var hours = Rota.calcDayHours(shift);
-                            totalHours += hours;
-                            var bg = '', color = '', txt = '';
-                            if (dayType === 'off') { bg = '#F1F5F9'; color = '#94A3B8'; txt = 'Off'; }
-                            else if (dayType === 'sick') { bg = '#FEF2F2'; color = '#DC2626'; txt = 'Sick'; }
-                            else if (dayType === 'holiday') { bg = '#EFF6FF'; color = '#2563EB'; txt = 'Hol'; }
-                            else if (dayType === 'absent') { bg = '#FEF3C7'; color = '#D97706'; txt = 'Absent'; }
-                            else if (shift.start) { bg = '#F0FDF4'; color = '#166534'; txt = shift.start + '-' + (shift.end || '').slice(0,5); }
-                            html += '<td style="padding:3px;text-align:center;background:' + bg + ';border:1px solid #E2E8F0;border-radius:3px;color:' + color + ';font-weight:600;">' + txt + '</td>';
-                        });
-                        var contracted = person.contractedHours || 0;
-                        var hrsColor = contracted > 0 ? (totalHours > contracted ? '#DC2626' : totalHours < contracted ? '#D97706' : '#059669') : '#64748B';
-                        html += '<td style="padding:5px;text-align:center;font-weight:800;color:' + hrsColor + ';font-size:10px;">' + totalHours.toFixed(1) + (contracted > 0 ? '/' + contracted : '') + '</td>';
-                        html += '</tr>';
-                    });
-                    html += '</tbody></table></div>';
-                } else {
-                    html += '<div class="card p-4 text-center text-slate-400"><p class="text-xs">No staff on the rota yet. Tap "Open Rota" to add your team.</p></div>';
-                }
-            } else {
-                html += '<div class="card p-4 text-center text-slate-400"><p class="text-xs">Rota system loading...</p></div>';
-            }
-        } catch(e) {
-            html += '<div class="card p-4 text-center text-slate-400"><p class="text-xs">Could not load rota.</p></div>';
+        if (attentionItems.length > 0) {
+            html += '<div class="mb-4">'
+                + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Needs Attention</h2>'
+                + '<div class="space-y-2">';
+            attentionItems.forEach(function(item) {
+                html += '<div onclick="setView(\'' + item.view + '\')" class="card p-3 flex items-center gap-3 cursor-pointer hover:shadow-md transition-all" style="border-left:4px solid ' + item.color + ';background:' + item.bg + ';">'
+                    + '<span style="font-size:18px;">' + item.icon + '</span>'
+                    + '<p class="text-sm font-bold flex-1" style="color:' + item.color + ';">' + item.text + '</p>'
+                    + '<span style="color:' + item.color + ';font-size:16px;">&#8250;</span>'
+                    + '</div>';
+            });
+            html += '</div></div>';
+        } else {
+            html += '<div class="card p-4 mb-4 text-center" style="background:#F0FDF4;border-left:4px solid #059669;">'
+                + '<p class="text-sm font-bold" style="color:#059669;">All clear! Nothing needs your attention right now.</p></div>';
         }
-        html += '</div>';
 
-        /* ── HQ Tasks (action_required messages as checkboxes) ── */
+        /* ── HQ Tasks (action_required messages) ── */
         if (taskMsgs.length > 0) {
-            html += '<div class="mb-6">'
+            html += '<div class="mb-4">'
                 + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">HQ Tasks</h2>'
                 + '<div class="space-y-2">';
-            taskMsgs.slice(0, 8).forEach(function(msg) {
+            taskMsgs.slice(0, 5).forEach(function(msg) {
                 var due = msg.dueDate || '';
                 var isOverdue = due && due < todayDate;
-                var dueStyle = isOverdue ? 'color:#DC2626;font-weight:800;' : 'color:#94A3B8;';
                 html += '<div class="card p-3 flex items-center gap-3" style="' + (isOverdue ? 'border-left:3px solid #DC2626;' : 'border-left:3px solid #6E8E6D;') + '">'
-                    + '<button onclick="ShopTools._completeTask(\'' + msg.id + '\')" style="width:22px;height:22px;min-width:22px;border-radius:5px;border:2px solid #6E8E6D;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:#6E8E6D;">&#10003;</button>'
+                    + '<button onclick="event.stopPropagation();ShopTools._completeTask(\'' + msg.id + '\')" style="width:22px;height:22px;min-width:22px;border-radius:5px;border:2px solid #6E8E6D;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:#6E8E6D;">&#10003;</button>'
                     + '<div class="flex-1 min-w-0">'
                     + '<p class="text-sm font-bold text-slate-700 truncate">' + _esc(msg.title || msg.subject || 'Task') + '</p>'
                     + '<p class="text-[10px] text-slate-400 truncate">' + _esc(msg.body || msg.message || '') + '</p>'
                     + '</div>'
-                    + (due ? '<span style="font-size:9px;white-space:nowrap;' + dueStyle + '">' + _esc(due) + '</span>' : '')
+                    + (due ? '<span style="font-size:9px;white-space:nowrap;color:' + (isOverdue ? '#DC2626' : '#94A3B8') + ';font-weight:' + (isOverdue ? '800' : '400') + ';">' + _esc(due) + '</span>' : '')
                     + '</div>';
             });
             html += '</div></div>';
         }
 
         /* ── Quick Actions ── */
-        html += '<div class="mb-6">'
-            + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Actions</h2>'
+        html += '<div class="mb-4">'
+            + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Quick Actions</h2>'
             + '<div class="grid grid-cols-3 gap-3">';
-
-        html += _quickActionCard('rota', 'Rota', 'Manage staff rota', '#6E8E6D', '#F0FDF4', '\uD83D\uDCC5');
         html += _quickActionCard('shop-incident', 'Incident', 'Record an incident', '#D94F4F', '#FEF2F2', '\u26A0');
         html += _quickActionCard('shop-complaint', 'Complaint', 'Log a complaint', '#D97706', '#FEF3C7', '\uD83D\uDCAC');
         html += _quickActionCard('shop-uniform', 'Uniform', 'Request uniforms', '#2563EB', '#EFF6FF', '\uD83C\uDFF5');
-        html += _quickActionCard('shop-messages', 'Messages', pendingMsgs > 0 ? pendingMsgs + ' pending' : 'View all', '#3B82F6', '#EFF6FF', '\uD83D\uDCE8');
-        html += _quickActionCard('shop-home', 'Stock', 'Uniform stock levels', '#7C3AED', '#F5F3FF', '\uD83D\uDCE6');
-
+        html += _quickActionCard('rota', 'Rota', 'Manage staff rota', '#6E8E6D', '#F0FDF4', '\uD83D\uDCC5');
+        html += _quickActionCard('shop-trends', 'Trends', 'View KPI trends', '#059669', '#F0FDF4', '\uD83D\uDCC8');
+        html += _quickActionCard('shop-scorecard', 'Scorecard', 'This week\'s score', '#3B82F6', '#EFF6FF', '\uD83C\uDFAF');
         html += '</div></div>';
 
-        /* Recent Activity */
-        html += '<div>'
-            + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Recent Activity</h2>';
-        if (recentReports.length === 0) {
-            html += '<div class="card p-6 text-center text-slate-400"><p class="text-sm">No recent submissions</p></div>';
-        } else {
-            html += '<div class="space-y-2">';
+        /* ── Recent Activity (last 3) ── */
+        if (recentReports.length > 0) {
+            html += '<div>'
+                + '<div class="flex items-center justify-between mb-2">'
+                + '<h2 class="text-xs font-black text-slate-400 uppercase tracking-widest">Recent</h2>'
+                + '<button onclick="setView(\'shop-home\')" style="background:transparent;color:#6E8E6D;font-size:10px;font-weight:700;border:none;cursor:pointer;">View All &#8250;</button>'
+                + '</div>'
+                + '<div class="space-y-2">';
             recentReports.forEach(function(r) {
                 var typeColors = { incident: '#D94F4F', complaint: '#D97706', uniform: '#2563EB' };
                 var typeLabels = { incident: 'Incident', complaint: 'Complaint', uniform: 'Uniform' };
@@ -241,18 +266,18 @@ window.ShopTools = (function() {
                 var label = typeLabels[r.type] || r.type;
                 var dateStr = r.date || (r.submittedAt ? r.submittedAt.substring(0, 10) : '');
                 html += '<div class="card p-3 flex items-center gap-3">'
-                    + '<div style="width:4px;height:32px;border-radius:2px;background:' + color + ';"></div>'
+                    + '<div style="width:4px;height:28px;border-radius:2px;background:' + color + ';"></div>'
                     + '<div class="flex-1">'
                     + '<p class="text-sm font-bold text-slate-700">' + _esc(label) + '</p>'
-                    + '<p class="text-xs text-slate-400">' + _esc(dateStr) + '</p>'
+                    + '<p class="text-[10px] text-slate-400">' + _esc(dateStr) + '</p>'
                     + '</div>'
-                    + '<button onclick="ShopTools._viewReport(\'' + r.id + '\',\'' + (r.type === 'incident' ? 'incidents' : r.type === 'complaint' ? 'complaints' : 'uniform-orders') + '\')" style="background:#F1F5F9;color:#475569;font-size:11px;font-weight:700;padding:6px 12px;border-radius:6px;border:none;cursor:pointer;">View</button>'
+                    + '<button onclick="ShopTools._viewReport(\'' + r.id + '\',\'' + (r.type === 'incident' ? 'incidents' : r.type === 'complaint' ? 'complaints' : 'uniform-orders') + '\')" style="background:#F1F5F9;color:#475569;font-size:10px;font-weight:700;padding:5px 10px;border-radius:5px;border:none;cursor:pointer;">View</button>'
                     + '</div>';
             });
-            html += '</div>';
+            html += '</div></div>';
         }
-        html += '</div></div>';
 
+        html += '</div>';
         mv.innerHTML = html;
     };
 
@@ -792,6 +817,163 @@ window.ShopTools = (function() {
         else if (currentView === 'shop-uniform') window.renderShopUniform();
     };
 
+    /* ─── Store Trends View ────────────────────────────────────── */
+    window.renderStoreTrends = async function() {
+        _init();
+        var mv = document.getElementById('mainView');
+        if (!mv) return;
+        var storeName = _storeName || _shopStoreId;
+        if (!_shopStoreId) { mv.innerHTML = '<div class="card p-8 text-center"><p class="text-slate-400">No store associated with your account.</p></div>'; return; }
+
+        var raw = await idbGetAll('kpi');
+        /* Filter to this store only */
+        var storeKpis = raw.filter(function(k) {
+            var cid = typeof canonicalStoreId === 'function' ? canonicalStoreId(k.Branch || k.BranchId || '') : (k.Branch || k.BranchId || '');
+            return cid === _shopStoreId || (k.Branch || '').toLowerCase() === storeName.toLowerCase();
+        }).sort(function(a, b) { return ((a.Week || 0) - (b.Week || 0)); });
+
+        if (!storeKpis.length) {
+            mv.innerHTML = '<div style="max-width:800px;margin:0 auto;padding:8px;">'
+                + '<h2 class="text-2xl font-black text-slate-800 mb-2">My Trends</h2>'
+                + '<div class="card p-8 text-center"><p class="text-slate-400">No KPI data found for your store yet.</p></div></div>';
+            return;
+        }
+
+        var latest = storeKpis[storeKpis.length - 1];
+        var html = '<div style="max-width:800px;margin:0 auto;padding:8px;">'
+            + '<div class="mb-4">'
+            + '<button onclick="setView(\'shop-home\')" style="background:transparent;color:#6E8E6D;font-size:12px;font-weight:700;border:none;cursor:pointer;padding:4px 0;">&larr; Back to Home</button>'
+            + '<h2 class="text-2xl font-black text-slate-800 mt-1">' + _esc(storeName) + ' Trends</h2>'
+            + '<p class="text-sm text-slate-400">' + storeKpis.length + ' weeks of data</p></div>';
+
+        /* KPI Cards */
+        var metrics = [
+            { key: 'Sales', label: 'Sales', color: '#6E8E6D', good: 95 },
+            { key: 'Product', label: 'Product', color: '#3B82F6', good: 95 },
+            { key: 'Waste', label: 'Waste', color: '#DC2626', good: 3, lower: true },
+            { key: 'Labour', label: 'Labour', color: '#D97706', good: 12, lower: true },
+            { key: 'Energy', label: 'Energy', color: '#7C3AED', good: 5, lower: true }
+        ];
+
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px;">';
+        metrics.forEach(function(m) {
+            var val = latest[m.key] || 0;
+            var displayVal = m.key === 'Energy' ? (val * 100).toFixed(1) + '%' : (val * 100).toFixed(1) + '%';
+            var isGood = m.lower ? val <= m.good / 100 : val >= m.good / 100;
+            html += '<div class="card p-4 text-center" style="border-top:3px solid ' + m.color + ';">'
+                + '<p class="text-xs font-bold text-slate-400 uppercase">' + m.label + '</p>'
+                + '<p class="text-2xl font-black" style="color:' + (isGood ? '#059669' : '#DC2626') + ';">' + displayVal + '</p>'
+                + '<p class="text-[10px] text-slate-400">Week ' + latest.Week + '</p></div>';
+        });
+        html += '</div>';
+
+        /* Simple trend table */
+        html += '<div class="card p-4"><h3 class="text-sm font-black text-slate-600 mb-3">Weekly Trend</h3>'
+            + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;">'
+            + '<thead><tr style="border-bottom:2px solid #E2E8F0;">'
+            + '<th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:800;color:#64748B;">Week</th>';
+        metrics.forEach(function(m) {
+            html += '<th style="padding:6px 8px;text-align:right;font-size:10px;font-weight:800;color:#64748B;">' + m.label + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+        storeKpis.slice(-12).forEach(function(k) {
+            html += '<tr style="border-bottom:1px solid #F1F5F9;">'
+                + '<td style="padding:6px 8px;font-weight:700;">W' + k.Week + '</td>';
+            metrics.forEach(function(m) {
+                var val = k[m.key] || 0;
+                var display = (val * 100).toFixed(1) + '%';
+                var isGood = m.lower ? val <= m.good / 100 : val >= m.good / 100;
+                html += '<td style="padding:6px 8px;text-align:right;color:' + (isGood ? '#059669' : '#DC2626') + ';font-weight:700;">' + display + '</td>';
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table></div></div></div>';
+        mv.innerHTML = html;
+    };
+
+    /* ─── Store Scorecard View ─────────────────────────────────── */
+    window.renderStoreScorecard = async function() {
+        _init();
+        var mv = document.getElementById('mainView');
+        if (!mv) return;
+        var storeName = _storeName || _shopStoreId;
+        if (!_shopStoreId) { mv.innerHTML = '<div class="card p-8 text-center"><p class="text-slate-400">No store associated with your account.</p></div>'; return; }
+
+        var raw = await idbGetAll('kpi');
+        var storeKpis = raw.filter(function(k) {
+            var cid = typeof canonicalStoreId === 'function' ? canonicalStoreId(k.Branch || k.BranchId || '') : (k.Branch || k.BranchId || '');
+            return cid === _shopStoreId || (k.Branch || '').toLowerCase() === storeName.toLowerCase();
+        }).sort(function(a, b) { return ((b.Week || 0) - (a.Week || 0)); });
+
+        if (!storeKpis.length) {
+            mv.innerHTML = '<div style="max-width:800px;margin:0 auto;padding:8px;">'
+                + '<h2 class="text-2xl font-black text-slate-800 mb-2">My Scorecard</h2>'
+                + '<div class="card p-8 text-center"><p class="text-slate-400">No KPI data found for your store yet.</p></div></div>';
+            return;
+        }
+
+        var latest = storeKpis[0];
+        var prev = storeKpis.length > 1 ? storeKpis[1] : null;
+
+        var html = '<div style="max-width:800px;margin:0 auto;padding:8px;">'
+            + '<div class="mb-4">'
+            + '<button onclick="setView(\'shop-home\')" style="background:transparent;color:#6E8E6D;font-size:12px;font-weight:700;border:none;cursor:pointer;padding:4px 0;">&larr; Back to Home</button>'
+            + '<h2 class="text-2xl font-black text-slate-800 mt-1">' + _esc(storeName) + ' Scorecard</h2>'
+            + '<p class="text-sm text-slate-400">Week ' + latest.Week + ', ' + latest.Year + '</p></div>';
+
+        var metrics = [
+            { key: 'Sales', label: 'Sales', color: '#6E8E6D', good: 95, icon: '\uD83D\uDCC8' },
+            { key: 'Product', label: 'Product', color: '#3B82F6', good: 95, icon: '\uD83C\uDF7D\uFE0F' },
+            { key: 'Waste', label: 'Waste', color: '#DC2626', good: 3, lower: true, icon: '\uD83D\uDDD1\uFE0F' },
+            { key: 'Labour', label: 'Labour', color: '#D97706', good: 12, lower: true, icon: '\uD83D\uDC64' },
+            { key: 'Energy', label: 'Energy', color: '#7C3AED', good: 5, lower: true, icon: '\u26A1' },
+            { key: 'ATV', label: 'ATV', color: '#059669', good: 8, lower: true, icon: '\uD83D\uDCB3' }
+        ];
+
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px;">';
+        metrics.forEach(function(m) {
+            var val = latest[m.key] || 0;
+            var prevVal = prev ? (prev[m.key] || 0) : null;
+            var displayVal = (val * 100).toFixed(1) + '%';
+            var isGood = m.lower ? val <= m.good / 100 : val >= m.good / 100;
+            var change = '';
+            if (prevVal !== null) {
+                var diff = ((val - prevVal) * 100).toFixed(1);
+                if (diff > 0) change = '<span style="color:#059669;">+' + diff + '%</span>';
+                else if (diff < 0) change = '<span style="color:#DC2626;">' + diff + '%</span>';
+                else change = '<span style="color:#94A3B8;">0%</span>';
+            }
+            html += '<div class="card p-4" style="border-left:4px solid ' + m.color + ';">'
+                + '<div class="flex items-center justify-between mb-1">'
+                + '<span class="text-xs font-bold text-slate-400">' + m.icon + ' ' + m.label + '</span>'
+                + '<span class="text-xs">' + change + '</span></div>'
+                + '<p class="text-2xl font-black" style="color:' + (isGood ? '#059669' : '#DC2626') + ';">' + displayVal + '</p>'
+                + '<div style="height:4px;background:#F1F5F9;border-radius:2px;margin-top:6px;">'
+                + '<div style="height:100%;width:' + Math.min(100, val * 100) + '%;background:' + (isGood ? '#059669' : '#DC2626') + ';border-radius:2px;"></div></div></div>';
+        });
+        html += '</div>';
+
+        /* Audit score if available */
+        var audits = await idbGetAll('audits');
+        var storeAudit = audits.find(function(a) { return a.Store === storeName || a.BranchId === _shopStoreId; });
+        if (storeAudit && storeAudit.Score) {
+            html += '<div class="card p-4 mb-4" style="border-left:4px solid #6E8E6D;">'
+                + '<div class="flex items-center justify-between">'
+                + '<div><p class="text-xs font-bold text-slate-400">Latest Audit Score</p>'
+                + '<p class="text-3xl font-black" style="color:' + (storeAudit.Score >= 80 ? '#059669' : storeAudit.Score >= 60 ? '#D97706' : '#DC2626') + ';">' + storeAudit.Score + '%</p></div>'
+                + '<div class="text-right"><p class="text-xs text-slate-400">Week ' + (storeAudit.Week || '?') + '</p>'
+                + '<p class="text-xs text-slate-400">' + (storeAudit.Auditor || '') + '</p></div></div></div>';
+        }
+
+        /* Share button */
+        html += '<div class="mt-4 text-center">'
+            + '<button onclick="shareScorecard(\'' + _esc(storeName).replace(/'/g, "\\'") + '\')" style="background:#fff;color:#6E8E6D;font-size:12px;font-weight:700;padding:8px 20px;border-radius:8px;border:1px solid #6E8E6D;cursor:pointer;">📋 Copy Report to Clipboard</button>'
+            + '</div>';
+
+        html += '</div>';
+        mv.innerHTML = html;
+    };
+
     return {
         _restrictShopUser: _restrictShopUser,
         renderShopHome: window.renderShopHome,
@@ -799,6 +981,8 @@ window.ShopTools = (function() {
         renderShopIncident: window.renderShopIncident,
         renderShopComplaint: window.renderShopComplaint,
         renderShopUniform: window.renderShopUniform,
+        renderStoreTrends: window.renderStoreTrends,
+        renderStoreScorecard: window.renderStoreScorecard,
         _saveIncident: window._saveIncident,
         _saveComplaint: window._saveComplaint,
         _saveUniform: window._saveUniform,

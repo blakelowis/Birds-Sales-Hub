@@ -196,7 +196,9 @@ ${(window.storeMedalsMap && window.storeMedalsMap[s.Branch]) ? `<div class="flex
 
 
 window.renderStoreScorecards = function(){
-  idbGetAll('kpi').then(raw => {
+  idbGetAll('kpi').then(rawAll => {
+    /* Filter by user's allowed areas */
+    var raw = (typeof Access !== 'undefined' && Access.filterByArea) ? Access.filterByArea(rawAll) : rawAll;
 
     const wk = archiveWeekOverride || latestWkGlobal;
     const yr = currentAwardsYear || new Date().getFullYear();

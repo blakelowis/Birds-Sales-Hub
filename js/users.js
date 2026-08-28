@@ -259,20 +259,22 @@ window.Users = (function() {
     function canSeeView(viewId) { return true; }
 
     /* ─── Role & Area helpers ─────────────────────────────────────── */
-    /* Roles: 'shop' | 'area_manager' | 'hq' | 'admin'               */
+    /* Roles: 'shop' | 'it' | 'area_manager' | 'hq' | 'admin'        */
     /* If no role set, infer from shopStoreId (shop) or default to hq  */
     function getRole(user) {
         user = user || getEffectiveUser();
         if (!user) return 'hq';
-        if (user.role === 'admin') return 'admin';
+        if (user.role) return user.role;
         if (user.userRole) return user.userRole;
         if (user.shopStoreId) return 'shop';
         return 'hq';
     }
 
     function getArea(user) {
-        user = user || _currentUser;
+        user = user || getEffectiveUser();
         if (!user) return '';
+        /* Use the areas field if set */
+        if (user.areas && user.areas.length && user.areas[0] !== 'all') return user.areas[0];
         if (user.area) return user.area;
         /* Auto-derive from KPI data if area_manager */
         if (getRole(user) === 'area_manager' && user.name && typeof safeGetAM === 'function') {
@@ -282,7 +284,8 @@ window.Users = (function() {
     }
 
     function isShop(user) { return getRole(user) === 'shop'; }
-    function isAreaManager(user) { var r = getRole(user); return r === 'area_manager'; }
+    function isIT(user) { return getRole(user) === 'it'; }
+    function isAreaManager(user) { return getRole(user) === 'area_manager'; }
     function isHQ(user) { var r = getRole(user); return r === 'hq' || r === 'admin'; }
     function isAdmin(user) { return getRole(user) === 'admin'; }
 
@@ -499,7 +502,7 @@ window.Users = (function() {
         if (idx < 0) return false;
         var u = _users[idx];
         var before = JSON.stringify(u);
-        ['department', 'jobTitle', 'name', 'email', 'role', 'projectView', 'projectViewDepts', 'shopStoreId', 'userRole', 'area'].forEach(function(k) {
+        ['department', 'jobTitle', 'name', 'email', 'role', 'areas', 'coverageAreas', 'coverageUntil', 'projectView', 'projectViewDepts', 'shopStoreId', 'userRole', 'area'].forEach(function(k) {
             if (updates && updates[k] !== undefined) u[k] = updates[k];
         });
         if (JSON.stringify(u) === before) return true;
@@ -588,11 +591,17 @@ window.Users = (function() {
         var jobTitle = document.getElementById('ujt-' + idx) ? document.getElementById('ujt-' + idx).value.trim() : '';
         var department = document.getElementById('udpt-' + idx) ? document.getElementById('udpt-' + idx).value : '';
         var projectView = document.getElementById('upv-' + idx) ? document.getElementById('upv-' + idx).value : '';
-        var userRole = document.getElementById('urole-' + idx) ? document.getElementById('urole-' + idx).value : '';
+        var role = document.getElementById('urole-' + idx) ? document.getElementById('urole-' + idx).value : 'hq';
+        var areasStr = document.getElementById('uareas-' + idx) ? document.getElementById('uareas-' + idx).value.trim() : 'all';
+        var areas = areasStr ? areasStr.split(',').map(function(a) { return a.trim(); }).filter(Boolean) : ['all'];
+        if (!areas.length) areas = ['all'];
+        var coverageStr = document.getElementById('ucoverage-' + idx) ? document.getElementById('ucoverage-' + idx).value.trim() : '';
+        var coverageAreas = coverageStr ? coverageStr.split(',').map(function(a) { return a.trim(); }).filter(Boolean) : [];
+        var coverageUntil = document.getElementById('ucoverageuntil-' + idx) ? document.getElementById('ucoverageuntil-' + idx).value : '';
         var depts = [];
         var cbs = document.querySelectorAll('#upvd-' + idx + ' input[type="checkbox"]:checked');
         cbs.forEach(function(cb) { depts.push(cb.value); });
-        updateUser(id, { jobTitle: jobTitle, department: department, projectView: projectView, projectViewDepts: depts, userRole: userRole }).then(function() {
+        updateUser(id, { jobTitle: jobTitle, department: department, projectView: projectView, projectViewDepts: depts, role: role, areas: areas, coverageAreas: coverageAreas, coverageUntil: coverageUntil }).then(function() {
             showToast('User updated', 'success');
             renderUserAdmin();
         });
@@ -626,15 +635,36 @@ window.Users = (function() {
             var saveBtn = canEdit
                 ? '<button onclick="Users.saveUserRow(' + i + ',\'' + u.id + '\')" style="background:#6E8E6D;color:#fff;padding:6px 12px;border:none;border-radius:6px;font-weight:800;font-size:11px;cursor:pointer;white-space:nowrap;">Save</button>'
                 : '';
-            var curRole = u.userRole || (u.role === 'admin' ? 'admin' : (u.shopStoreId ? 'shop' : 'hq'));
+            var curRole = u.role || u.userRole || (u.shopStoreId ? 'shop' : 'hq');
             var roleCell = canEdit
                 ? '<select id="urole-' + i + '" style="padding:6px 8px;border:1px solid #d5ddd0;border-radius:6px;font-size:12px;">'
                   + '<option value="hq"' + (curRole === 'hq' ? ' selected' : '') + '>HQ</option>'
                   + '<option value="shop"' + (curRole === 'shop' ? ' selected' : '') + '>Shop</option>'
+                  + '<option value="it"' + (curRole === 'it' ? ' selected' : '') + '>I.T.</option>'
                   + '<option value="area_manager"' + (curRole === 'area_manager' ? ' selected' : '') + '>Area Manager</option>'
                   + '<option value="admin"' + (curRole === 'admin' ? ' selected' : '') + '>Admin</option>'
                   + '</select>'
                 : '<span style="font-size:11px;font-weight:700;color:#555;text-transform:capitalize;">' + escapeHtml(curRole) + '</span>';
+            /* Areas cell */
+            var curAreas = u.areas || ['all'];
+            var areasStr = curAreas.join(', ');
+            var areasCell = canEdit
+                ? '<input type="text" id="uareas-' + i + '" value="' + escapeHtml(areasStr) + '" placeholder="all" style="padding:6px 8px;border:1px solid #d5ddd0;border-radius:6px;font-size:11px;width:140px;box-sizing:border-box;" title="Comma-separated area names, or \'all\'">'
+                : '<span style="font-size:11px;font-weight:700;color:#555;">' + escapeHtml(areasStr) + '</span>';
+            /* Coverage fields (only for area managers) */
+            var coverageCell = '';
+            if (curRole === 'area_manager') {
+                var curCoverage = (u.coverageAreas || []).join(', ');
+                var curUntil = u.coverageUntil || '';
+                if (canEdit) {
+                    coverageCell = '<div style="font-size:10px;color:#94A3B8;margin-top:4px;">'
+                        + 'Covering: <input type="text" id="ucoverage-' + i + '" value="' + escapeHtml(curCoverage) + '" placeholder="none" style="padding:4px 6px;border:1px solid #d5ddd0;border-radius:4px;font-size:10px;width:120px;">'
+                        + ' Until: <input type="date" id="ucoverageuntil-' + i + '" value="' + escapeHtml(curUntil) + '" style="padding:4px 6px;border:1px solid #d5ddd0;border-radius:4px;font-size:10px;width:110px;">'
+                        + '</div>';
+                } else {
+                    coverageCell = curCoverage ? '<span style="font-size:10px;color:#94A3B8;">Covering: ' + escapeHtml(curCoverage) + (curUntil ? ' until ' + escapeHtml(curUntil) : '') + '</span>' : '';
+                }
+            }
             return '<tr style="border-bottom:1px solid #eee;font-size:13px;vertical-align:top;">' +
                 '<td style="padding:8px 12px;font-weight:700;">' + escapeHtml(u.name) + '</td>' +
                 '<td style="padding:8px 12px;">' + escapeHtml(u.email || '') + '</td>' +
@@ -642,13 +672,14 @@ window.Users = (function() {
                 '<td style="padding:8px 12px;">' + jobTitleCell + '</td>' +
                 '<td style="padding:8px 12px;min-width:190px;">' + pvCell + '</td>' +
                 '<td style="padding:8px 12px;">' + roleCell + '</td>' +
+                '<td style="padding:8px 12px;">' + areasCell + coverageCell + '</td>' +
                 '<td style="padding:8px 12px;">' + saveBtn + '</td>' +
                 '</tr>';
         }).join('');
-        document.getElementById('mainView').innerHTML = '<div style="max-width:1080px;margin:0 auto;padding:16px;"><h2 style="font-family:Merriweather,Georgia,serif;font-size:22px;color:#20231F;margin-bottom:16px;">User Admin</h2>' +
-            (canEdit ? '<p style="font-size:12px;color:#6E8E6D;font-weight:700;margin-bottom:12px;">\u270E Edit role, job title, department and Project View, then Save. <b>Role</b> controls what each user can see and access.</p>' : '') +
-            '<div style="background:#fff;border:1px solid #d5ddd0;border-radius:12px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:960px;"><thead><tr style="background:#f8f7f4;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;"><th style="padding:10px 12px;text-align:left;">Name</th><th style="padding:10px 12px;text-align:left;">Email</th><th style="padding:10px 12px;text-align:left;">Department</th><th style="padding:10px 12px;text-align:left;">Job Title</th><th style="padding:10px 12px;text-align:left;">Project View</th><th style="padding:10px 12px;text-align:left;">Role</th><th style="padding:10px 12px;text-align:left;"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-            '<p style="font-size:11px;color:#888;margin-top:12px;">' + _users.length + ' users total &mdash; Roles: <b>Shop</b> = own store only, <b>Area Manager</b> = their area, <b>HQ</b> = all stores, <b>Admin</b> = full access</p>'
+        document.getElementById('mainView').innerHTML = '<div style="max-width:1200px;margin:0 auto;padding:16px;"><h2 style="font-family:Merriweather,Georgia,serif;font-size:22px;color:#20231F;margin-bottom:16px;">User Admin</h2>' +
+            (canEdit ? '<p style="font-size:12px;color:#6E8E6D;font-weight:700;margin-bottom:12px;">\u270E Edit role, department, areas and Project View, then Save. <b>Role</b> controls what each user can see. <b>Areas</b> limits which store areas they can access (comma-separated, or "all").</p>' : '') +
+            '<div style="background:#fff;border:1px solid #d5ddd0;border-radius:12px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:1100px;"><thead><tr style="background:#f8f7f4;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;"><th style="padding:10px 12px;text-align:left;">Name</th><th style="padding:10px 12px;text-align:left;">Email</th><th style="padding:10px 12px;text-align:left;">Department</th><th style="padding:10px 12px;text-align:left;">Job Title</th><th style="padding:10px 12px;text-align:left;">Project View</th><th style="padding:10px 12px;text-align:left;">Role</th><th style="padding:10px 12px;text-align:left;">Areas</th><th style="padding:10px 12px;text-align:left;"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<p style="font-size:11px;color:#888;margin-top:12px;">' + _users.length + ' users total &mdash; Roles: <b>Shop</b> = own store only, <b>I.T.</b> = IT Helpdesk only, <b>Area Manager</b> = their area, <b>HQ</b> = all stores, <b>Admin</b> = full access</p>'
             + '<div id="testViewSwitcher" style="margin-top:24px;"></div></div>';
         /* Render test view switcher */
         if (typeof Access !== 'undefined' && Access.renderTestViewSwitcher) {
@@ -688,6 +719,7 @@ window.Users = (function() {
         getRole: getRole,
         getArea: getArea,
         isShop: isShop,
+        isIT: isIT,
         isAreaManager: isAreaManager,
         isHQ: isHQ,
         getStoresForUser: getStoresForUser

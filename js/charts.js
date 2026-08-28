@@ -28,13 +28,19 @@ function calculateTrendSummary(storeSeries, companySeries, inverse=false){
 
 async function renderTrendsPanel() {
     const validAMs = Array.from(new Set(Array.from(storeMap.values()))).filter(am => am !== 'Unassigned');
+    /* Filter to only allowed areas for non-admin users */
+    const allowedAreas = (typeof Access !== 'undefined' && Access.getAllowedAreas) ? Access.getAllowedAreas() : ['all'];
+    const filteredAMs = allowedAreas.indexOf('all') >= 0 ? validAMs : validAMs.filter(function(am) { return allowedAreas.indexOf(am) >= 0; });
     const rawKpisAll = await idbGetAll('kpi'); const auditsAll = (await idbGetAll('audits')).filter(a => !a.isTraining);
-    const allYears = [...rawKpisAll.map(k => k.Year), ...auditsAll.map(a => a.Year)].filter(y => y); const effectiveYear = allYears.length ? Math.max(...allYears) : new Date().getFullYear();
-    const yearKpis = rawKpisAll.filter(k => (k.Year || effectiveYear) === effectiveYear); const yearAudits = auditsAll.filter(a => (a.Year || effectiveYear) === effectiveYear);
+    /* Filter by user's allowed areas */
+    const rawKpisFiltered = (typeof Access !== 'undefined' && Access.filterByArea) ? Access.filterByArea(rawKpisAll) : rawKpisAll;
+    const auditsFiltered = (typeof Access !== 'undefined' && Access.filterAuditsByArea) ? Access.filterAuditsByArea(auditsAll) : auditsAll;
+    const allYears = [...rawKpisFiltered.map(k => k.Year), ...auditsFiltered.map(a => a.Year)].filter(y => y); const effectiveYear = allYears.length ? Math.max(...allYears) : new Date().getFullYear();
+    const yearKpis = rawKpisFiltered.filter(k => (k.Year || effectiveYear) === effectiveYear); const yearAudits = auditsFiltered.filter(a => (a.Year || effectiveYear) === effectiveYear);
     const allWeeks = new Set([...yearKpis.map(k => k.Week), ...yearAudits.map(a => a.Week)]);
     const existingWeeks = [...allWeeks].sort((a,b)=>a-b);
     const weeksOptions = existingWeeks.map(w => `<option value="${w}" ${archiveWeekOverride == w ? 'selected':''}>Week ${w}</option>`).join('');
-    const amOptions = validAMs.map(am => `<option value="${am}">${am}</option>`).join('');
+    const amOptions = filteredAMs.map(am => `<option value="${am}">${am}</option>`).join('');
     
     const storeOptions = Array.from(new Set(
   Array.from(originalStoreNames.values()).map(n => {

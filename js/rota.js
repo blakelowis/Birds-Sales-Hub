@@ -184,6 +184,8 @@ window.Rota = (function() {
             + '<button onclick="Rota.prevWeek()" style="background:#F1F5F9;color:#475569;font-size:12px;font-weight:700;padding:8px 12px;border-radius:6px;border:1px solid #E2E8F0;cursor:pointer;">&#8249; Prev</button>'
             + '<button onclick="Rota.thisWeek()" style="background:#6E8E6D;color:#fff;font-size:11px;font-weight:700;padding:8px 12px;border-radius:6px;border:none;cursor:pointer;">Today</button>'
             + '<button onclick="Rota.nextWeek()" style="background:#F1F5F9;color:#475569;font-size:12px;font-weight:700;padding:8px 12px;border-radius:6px;border:1px solid #E2E8F0;cursor:pointer;">Next &#8250;</button>'
+            + '<button onclick="Rota.exportWeekCSV()" style="background:#fff;color:#6E8E6D;font-size:11px;font-weight:700;padding:8px 12px;border-radius:6px;border:1px solid #6E8E6D;cursor:pointer;">Export CSV</button>'
+            + '<button onclick="Rota.exportAllWeeksCSV()" style="background:#fff;color:#475569;font-size:11px;font-weight:700;padding:8px 12px;border-radius:6px;border:1px solid #E2E8F0;cursor:pointer;" title="Export all weeks for payroll">Export All</button>'
             + '</div></div>';
 
         /* Rota table */
@@ -595,6 +597,129 @@ window.Rota = (function() {
         if (typeof showToast === 'function') showToast('Staff removed', 'success');
     }
 
+    /* ─── CSV Export for Payroll ───────────────────────────────── */
+    function _csvEscape(val) {
+        var s = String(val == null ? '' : val);
+        if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    }
+
+    function _downloadCSV(csvContent, filename) {
+        var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async function exportWeekCSV(storeId, weekStart) {
+        storeId = storeId || _storeId;
+        weekStart = weekStart || _currentMonday;
+        if (!storeId) { alert('No store selected'); return; }
+        var staff = await loadStaff(storeId);
+        var weekData = await loadWeek(storeId, weekStart);
+        var shifts = weekData ? weekData.shifts : {};
+        var weekDates = getWeekDates(weekStart);
+
+        var rows = ['Staff Name,Position,Contracted Hours,Day,Date,Shift Start,Shift End,Break Start,Break End,Hours,Type'];
+        staff.forEach(function(person) {
+            var personShifts = shifts[person.id] || {};
+            var totalHours = 0;
+            DAYS.forEach(function(day, i) {
+                var shift = personShifts[day] || {};
+                var dayType = shift.type || '';
+                var hours = calcDayHours(shift);
+                totalHours += hours;
+                rows.push([
+                    _csvEscape(person.name),
+                    _csvEscape(person.position || ''),
+                    person.contractedHours || 0,
+                    DAY_LABELS[i],
+                    weekDates[i] || '',
+                    shift.start || '',
+                    shift.end || '',
+                    shift.breakStart || '',
+                    shift.breakEnd || '',
+                    hours.toFixed(2),
+                    dayType || (shift.start ? 'Working' : '')
+                ].join(','));
+            });
+            /* Total row */
+            var contracted = person.contractedHours || 0;
+            var overtime = Math.max(0, totalHours - contracted);
+            rows.push([
+                _csvEscape(person.name + ' (TOTAL)'),
+                '',
+                contracted,
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                totalHours.toFixed(2),
+                overtime > 0 ? 'OT: ' + overtime.toFixed(2) : ''
+            ].join(','));
+        });
+
+        var csv = rows.join('\n');
+        var storeName = (typeof originalStoreNames !== 'undefined' && storeId) ? (originalStoreNames.get(storeId) || storeId) : storeId;
+        _downloadCSV(csv, 'Rota_' + storeName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + weekStart + '.csv');
+        if (typeof showToast === 'function') showToast('Rota exported for payroll', 'success');
+    }
+
+    async function exportAllWeeksCSV(storeId) {
+        storeId = storeId || _storeId;
+        if (!storeId) { alert('No store selected'); return; }
+        var staff = await loadStaff(storeId);
+        var allWeeks = (await idbGetAll('rota_week')).filter(function(w) { return w.storeId === storeId; });
+        allWeeks.sort(function(a, b) { return (a.weekStart || '').localeCompare(b.weekStart || ''); });
+
+        var rows = ['Staff Name,Position,Contracted Hours,Week Starting,Mon,Tue,Wed,Thu,Fri,Sat,Sun,Total Hours,Overtime'];
+        staff.forEach(function(person) {
+            allWeeks.forEach(function(week) {
+                var shifts = week.shifts || {};
+                var personShifts = shifts[person.id] || {};
+                var dayHours = [];
+                var totalHours = 0;
+                DAYS.forEach(function(day) {
+                    var shift = personShifts[day] || {};
+                    var hours = calcDayHours(shift);
+                    dayHours.push(hours);
+                    totalHours += hours;
+                });
+                var contracted = person.contractedHours || 0;
+                var overtime = Math.max(0, totalHours - contracted);
+                rows.push([
+                    _csvEscape(person.name),
+                    _csvEscape(person.position || ''),
+                    contracted,
+                    week.weekStart || '',
+                    dayHours[1].toFixed(2),
+                    dayHours[2].toFixed(2),
+                    dayHours[3].toFixed(2),
+                    dayHours[4].toFixed(2),
+                    dayHours[5].toFixed(2),
+                    dayHours[6].toFixed(2),
+                    dayHours[0].toFixed(2),
+                    totalHours.toFixed(2),
+                    overtime > 0 ? overtime.toFixed(2) : ''
+                ].join(','));
+            });
+        });
+
+        var csv = rows.join('\n');
+        var storeName = (typeof originalStoreNames !== 'undefined' && storeId) ? (originalStoreNames.get(storeId) || storeId) : storeId;
+        _downloadCSV(csv, 'Rota_AllWeeks_' + storeName.replace(/[^a-zA-Z0-9]/g, '_') + '.csv');
+        if (typeof showToast === 'function') showToast('All weeks exported for payroll', 'success');
+    }
+
     /* ─── Public API ────────────────────────────────────────────── */
     return {
         renderStoreRota: renderStoreRota,
@@ -616,6 +741,8 @@ window.Rota = (function() {
         doAddStaff: doAddStaff,
         fillFromPrevious: fillFromPrevious,
         printRota: printRota,
+        exportWeekCSV: exportWeekCSV,
+        exportAllWeeksCSV: exportAllWeeksCSV,
         loadStaff: loadStaff,
         loadWeek: loadWeek,
         loadLeave: loadLeave,

@@ -338,6 +338,7 @@ window.renderComplaintsHub = function(){
                 <div id="comp-data-source" class="text-[10px] font-bold px-3 py-1 rounded-full" style="background: var(--edwardian-sage-pale); color: var(--birds-text-light)"></div>
                 <button onclick="generateComplaintsPDF()" class="btn" style="background: var(--edwardian-rose); color: white"> PDF Summary</button>
                 <button onclick="generateComplaintsDetailedPDF()" class="btn" style="background: #555B6E; color: white"> Detailed Report</button>
+                <button onclick="exportComplaintsCSV()" class="btn" style="background: #6E8E6D; color: white"> CSV Export</button>
             </div>
         </div>
         <div id="complaints-kpi-row" class="grid grid-cols-3 md:grid-cols-7 gap-3 mb-6"></div>
@@ -1152,4 +1153,42 @@ async function generateComplaintsPDF() {
 
     const stamp = new Date().toISOString().slice(0, 10);
     doc.save('Complaints_Summary_' + stamp + '.pdf');
+}
+
+/* ─── CSV Export ──────────────────────────────────────────────── */
+function exportComplaintsCSV() {
+    var data = window._compDataCache || window.ComplaintsData || [];
+    if (!data.length) { alert('No complaints data to export'); return; }
+    function csvEscape(val) {
+        var s = String(val == null ? '' : val);
+        if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    }
+    var headers = ['Date','Store','Status','Category','Details','Responsible Person','Outcome','Voucher Amount','Area Manager','Source'];
+    var rows = [headers.join(',')];
+    data.forEach(function(c) {
+        rows.push([
+            csvEscape(c['Date of complaint'] || ''),
+            csvEscape(c['Shop bought from'] || ''),
+            csvEscape(c['Status'] || ''),
+            csvEscape(c['Type of complaint'] || ''),
+            csvEscape(c['Details of complaint'] || c['Complaint details'] || ''),
+            csvEscape(c['Person responsible'] || ''),
+            csvEscape(c['Outcome'] || ''),
+            csvEscape(c['Voucher amount'] || ''),
+            csvEscape(c['Area Manager'] || ''),
+            csvEscape(c['Source'] || '')
+        ].join(','));
+    });
+    var blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'Complaints_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }

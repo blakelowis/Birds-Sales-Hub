@@ -1140,3 +1140,87 @@ window.U.toast = window.U.toast || function(msg) {
     U._toastTimer = setTimeout(function() { toast.style.opacity = '0'; }, 2000);
   }
 };
+
+/* ─── Report Sharing ──────────────────────────────────────────── */
+/* Copy formatted report summary to clipboard for Teams/email.       */
+function shareReport(title, data) {
+    var text = '📊 ' + title + '\n';
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    if (data.store) text += 'Store: ' + data.store + '\n';
+    if (data.date) text += 'Date: ' + data.date + '\n';
+    if (data.period) text += 'Period: ' + data.period + '\n';
+    text += '\n';
+    if (data.metrics) {
+        data.metrics.forEach(function(m) {
+            text += m.label + ': ' + m.value + (m.trend ? ' (' + m.trend + ')' : '') + '\n';
+        });
+        text += '\n';
+    }
+    if (data.summary) text += data.summary + '\n';
+    if (data.actions) {
+        text += 'Actions:\n';
+        data.actions.forEach(function(a) { text += '• ' + a + '\n'; });
+    }
+    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    text += 'Birds Bakery — The Hub';
+
+    navigator.clipboard.writeText(text).then(function() {
+        if (typeof showToast === 'function') showToast('Report copied to clipboard — paste into Teams/email', 'success');
+    }).catch(function() {
+        /* Fallback: create a textarea */
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (typeof showToast === 'function') showToast('Report copied to clipboard', 'success');
+    });
+}
+
+function shareScorecard(storeName, kpiData, auditScore) {
+    var metrics = [];
+    if (kpiData) {
+        metrics.push({ label: 'Sales', value: ((kpiData.Sales || 0) * 100).toFixed(1) + '%' });
+        metrics.push({ label: 'Product', value: ((kpiData.Product || 0) * 100).toFixed(1) + '%' });
+        metrics.push({ label: 'Waste', value: ((kpiData.Waste || 0) * 100).toFixed(1) + '%' });
+        metrics.push({ label: 'Labour', value: ((kpiData.Labour || 0) * 100).toFixed(1) + '%' });
+        metrics.push({ label: 'Energy', value: ((kpiData.Energy || 0) * 100).toFixed(1) + '%' });
+    }
+    if (auditScore) metrics.push({ label: 'Audit Score', value: auditScore + '%' });
+    shareReport(storeName + ' — Weekly Scorecard', {
+        store: storeName,
+        date: new Date().toLocaleDateString('en-GB'),
+        period: 'Week ' + (kpiData ? kpiData.Week : '?') + ', ' + (kpiData ? kpiData.Year : ''),
+        metrics: metrics
+    });
+}
+
+function shareTrends(storeName, kpis) {
+    if (!kpis || !kpis.length) return;
+    var metrics = [];
+    var latest = kpis[kpis.length - 1];
+    metrics.push({ label: 'Current Week', value: 'Week ' + latest.Week });
+    metrics.push({ label: 'Sales', value: ((latest.Sales || 0) * 100).toFixed(1) + '%' });
+    metrics.push({ label: 'Product', value: ((latest.Product || 0) * 100).toFixed(1) + '%' });
+    metrics.push({ label: 'Waste', value: ((latest.Waste || 0) * 100).toFixed(1) + '%' });
+    shareReport(storeName + ' — KPI Trends', {
+        store: storeName,
+        period: kpis.length + ' weeks of data',
+        metrics: metrics
+    });
+}
+
+function shareTicket(ticket) {
+    var status = ticket.status === 'resolved' ? '✅ Resolved' : ticket.status === 'processing' ? '⚙️ Processing' : '📦 Open';
+    shareReport('IT Ticket: ' + (ticket.subject || ''), {
+        store: ticket.storeName,
+        date: (ticket.createdAt || '').slice(0, 10),
+        metrics: [
+            { label: 'Status', value: status },
+            { label: 'Category', value: ticket.category || '' },
+            { label: 'Priority', value: ticket.priority || '' }
+        ],
+        summary: ticket.description || ''
+    });
+}

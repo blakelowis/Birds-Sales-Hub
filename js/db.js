@@ -49,6 +49,9 @@ req.onupgradeneeded = e => {
   if(!d.objectStoreNames.contains('rota_leave')) d.createObjectStore('rota_leave', { keyPath: 'id' });
   if(!d.objectStoreNames.contains('shared_views')) d.createObjectStore('shared_views', { keyPath: 'id' });
   if(!d.objectStoreNames.contains('it_tickets')) d.createObjectStore('it_tickets', { keyPath: 'id' });
+  if(!d.objectStoreNames.contains('form_templates')) d.createObjectStore('form_templates', { keyPath: 'id' });
+  if(!d.objectStoreNames.contains('form_submissions')) d.createObjectStore('form_submissions', { keyPath: 'id' });
+  if(!d.objectStoreNames.contains('documents')) d.createObjectStore('documents', { keyPath: 'id' });
 };
 req.onerror = e => {
   console.error('[DB] Failed to open:', e.target.error);

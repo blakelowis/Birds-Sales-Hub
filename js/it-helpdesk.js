@@ -311,9 +311,12 @@ window.ITHelpdesk = (function() {
         var resolvedCount = _tickets.filter(function(t) { return t.status === 'resolved' || t.status === 'rejected'; }).length;
 
         var html = '<div style="max-width:1100px;margin:0 auto;padding:8px;">'
-            + '<div class="mb-4">'
+            + '<div class="flex items-center justify-between mb-4">'
+            + '<div>'
             + '<h2 class="text-2xl font-black text-slate-800">IT Helpdesk</h2>'
             + '<p class="text-sm text-slate-400">' + _tickets.length + ' total tickets</p></div>'
+            + '<button onclick="ITHelpdesk.exportTicketsCSV()" style="background:#fff;color:#6E8E6D;font-size:11px;font-weight:700;padding:8px 16px;border-radius:6px;border:1px solid #6E8E6D;cursor:pointer;">Export CSV</button>'
+            + '</div>'
             /* Stats row */
             + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">'
             + '<div class="card p-4 text-center" style="border-top:3px solid #3B82F6;cursor:pointer;" onclick="ITHelpdesk.renderITDashboard(\'open\')">'
@@ -478,6 +481,54 @@ window.ITHelpdesk = (function() {
     async function _viewStoreTicket(ticketId) { window._ithDetailId = ticketId; setView('shop-ith-detail'); }
     async function _viewITTicket(ticketId) { window._ithDetailId = ticketId; setView('ith-detail'); }
 
+    /* ─── CSV Export ────────────────────────────────────────────── */
+    function _csvEscape(val) {
+        var s = String(val == null ? '' : val);
+        if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    }
+
+    function _downloadCSV(csvContent, filename) {
+        var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async function exportTicketsCSV() {
+        await _loadTickets();
+        var rows = ['Ticket ID,Store,Store Email,Category,Subject,Description,Priority,Status,Created,Updated,Response Count,Last Response'];
+        _tickets.forEach(function(t) {
+            var st = STATUSES[t.status] || STATUSES.received;
+            var responses = t.responses || [];
+            var lastResponse = responses.length > 0 ? responses[responses.length - 1] : null;
+            rows.push([
+                _csvEscape(t.id),
+                _csvEscape(t.storeName || ''),
+                _csvEscape(t.storeEmail || ''),
+                _csvEscape(t.category || ''),
+                _csvEscape(t.subject || ''),
+                _csvEscape(t.description || ''),
+                _csvEscape(t.priority || ''),
+                _csvEscape(st.label),
+                _csvEscape(t.createdAt || ''),
+                _csvEscape(t.updatedAt || ''),
+                responses.length,
+                lastResponse ? _csvEscape(lastResponse.note || '') : ''
+            ].join(','));
+        });
+        var csv = rows.join('\n');
+        _downloadCSV(csv, 'IT_Tickets_' + new Date().toISOString().slice(0, 10) + '.csv');
+        if (typeof showToast === 'function') showToast('IT tickets exported', 'success');
+    }
+
     /* ─── Public API ────────────────────────────────────────────── */
     return {
         renderStoreTicketForm: renderStoreTicketForm,
@@ -485,6 +536,7 @@ window.ITHelpdesk = (function() {
         renderStoreTicketDetail: renderStoreTicketDetail,
         renderITDashboard: renderITDashboard,
         renderITTicketDetail: renderITTicketDetail,
+        exportTicketsCSV: exportTicketsCSV,
         _submitTicket: _submitTicket,
         _updateStatus: _updateStatus,
         _addResponse: _addResponse,

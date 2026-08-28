@@ -5,8 +5,19 @@
 window.Access = (function() {
     'use strict';
 
-    /* ─── View → minimum role mapping ──────────────────────────── */
-    /* If a view isn't listed, it's visible to all roles.            */
+    /* ─── Role hierarchy (higher = more access) ─────────────────── */
+    var ROLE_ORDER = ['shop', 'it', 'area_manager', 'hq', 'admin'];
+
+    /* ─── Tab → allowed roles ──────────────────────────────────── */
+    var TAB_ROLES = {
+        'sales':    ['area_manager', 'hq', 'admin'],
+        'audits':   ['area_manager', 'hq', 'admin'],
+        'docs':     ['area_manager', 'hq', 'admin'],
+        'shop':     ['shop', 'area_manager', 'hq', 'admin'],
+        'admin':    ['admin']
+    };
+
+    /* ─── View → allowed roles ─────────────────────────────────── */
     var VIEW_ROLES = {
         'area':             ['area_manager', 'hq', 'admin'],
         'rota-admin':       ['hq', 'admin'],
@@ -21,15 +32,18 @@ window.Access = (function() {
         'charts':           ['hq', 'admin'],
         'auditexport':      ['hq', 'admin'],
         'masterreview':     ['hq', 'admin'],
-        'ith-dashboard':    ['hq', 'admin']
+        'ith-dashboard':    ['it', 'hq', 'admin'],
+        'formbuilder':      ['admin'],
+        'formreview':       ['hq', 'admin']
     };
 
-    /* ─── Tab → minimum role mapping ───────────────────────────── */
-    var TAB_ROLES = {
-        'sales':    ['hq', 'admin'],
-        'audits':   ['hq', 'admin'],
-        'docs':     ['area_manager', 'hq', 'admin'],
-        'shop':     ['shop', 'area_manager', 'hq', 'admin']
+    /* ─── Role → default tab mapping ───────────────────────────── */
+    var ROLE_DEFAULT_TAB = {
+        'shop':         'shop-home',
+        'it':           'ith-dashboard',
+        'area_manager': 'overview',
+        'hq':           'overview',
+        'admin':        'overview'
     };
 
     function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -48,6 +62,61 @@ window.Access = (function() {
         var required = TAB_ROLES[tabId];
         if (!required) return true;
         return required.indexOf(role) >= 0;
+    }
+
+    /* ─── Get allowed areas for current user ───────────────────── */
+    /* Includes own areas + any active coverage areas.                */
+    function getAllowedAreas() {
+        var user = (typeof Users !== 'undefined') ? Users.getEffectiveUser() : null;
+        if (!user) return [];
+        var areas = (user.areas || []).slice();
+        /* If user has 'all', they can see everything */
+        if (areas.indexOf('all') >= 0) return ['all'];
+        /* Check coverage areas — only active if coverageUntil is in the future or empty */
+        var coverage = user.coverageAreas || [];
+        var until = user.coverageUntil || '';
+        var now = new Date().toISOString().slice(0, 10);
+        if (coverage.length && (!until || until >= now)) {
+            coverage.forEach(function(a) {
+                if (areas.indexOf(a) < 0) areas.push(a);
+            });
+        }
+        return areas;
+    }
+
+    /* ─── Is the given store in the user's allowed areas? ──────── */
+    function canAccessStore(storeId) {
+        var allowed = getAllowedAreas();
+        if (allowed.indexOf('all') >= 0) return true;
+        if (!allowed.length) return false;
+        /* Look up which area this store belongs to */
+        if (typeof storeMap !== 'undefined' && storeMap.has(storeId)) {
+            var storeAM = storeMap.get(storeId);
+            return allowed.indexOf(storeAM) >= 0;
+        }
+        return false;
+    }
+
+    /* ─── Filter an array of KPI records by allowed areas ──────── */
+    function filterByArea(kpiRecords) {
+        var allowed = getAllowedAreas();
+        if (allowed.indexOf('all') >= 0) return kpiRecords;
+        if (!allowed.length) return [];
+        return kpiRecords.filter(function(k) {
+            var branchId = canonicalStoreId(k.Branch || k.BranchId || '');
+            return canAccessStore(branchId);
+        });
+    }
+
+    /* ─── Filter an array of audit records by allowed areas ────── */
+    function filterAuditsByArea(auditRecords) {
+        var allowed = getAllowedAreas();
+        if (allowed.indexOf('all') >= 0) return auditRecords;
+        if (!allowed.length) return [];
+        return auditRecords.filter(function(a) {
+            var storeId = a.BranchId || a.Store || a.StoreId || '';
+            return canAccessStore(canonicalStoreId(storeId));
+        });
     }
 
     /* ─── Apply nav visibility based on role ───────────────────── */
@@ -74,19 +143,34 @@ window.Access = (function() {
             }
         });
 
-        /* Auto-switch to shop tab if current tab is hidden */
-        var activeTab = document.querySelector('.nav-tab.active');
-        if (activeTab && activeTab.style.display === 'none') {
-            if (role === 'shop') {
-                if (typeof setActiveTab === 'function') setActiveTab('shop');
-            } else {
-                /* Find first visible tab */
-                var firstVisible = document.querySelector('.nav-tab[style*=""],.nav-tab:not([style*="display"])');
-                if (firstVisible) {
-                    var tabId = firstVisible.getAttribute('data-tab');
-                    if (typeof setActiveTab === 'function') setActiveTab(tabId);
+        /* Hide/show individual nav buttons within panels */
+        document.querySelectorAll('.nav-panel button').forEach(function(btn) {
+            var onclick = btn.getAttribute('onclick') || '';
+            var match = onclick.match(/setView\('([^']+)'\)/);
+            if (match) {
+                var viewId = match[1];
+                if (!canView(viewId)) {
+                    btn.style.display = 'none';
+                } else {
+                    btn.style.display = '';
                 }
             }
+        });
+
+        /* Auto-switch tab if current tab is hidden for this role */
+        var activeTab = document.querySelector('.nav-tab.active');
+        if (activeTab && activeTab.style.display === 'none') {
+            /* Find the default tab for this role */
+            var defaultTab = ROLE_DEFAULT_TAB[role] || 'overview';
+            var defaultPanel = defaultTab;
+            /* Map view to panel */
+            if (['overview','trends','masterreview','areas','storecards','storereports','leaderboard','halloffame','winners','champions'].indexOf(defaultTab) >= 0) defaultPanel = 'sales';
+            else if (['auditexport','tracker','complaints','ith-dashboard'].indexOf(defaultTab) >= 0) defaultPanel = 'audits';
+            else if (['mywork','kanban','calendar','creator','projects','area'].indexOf(defaultTab) >= 0) defaultPanel = 'docs';
+            else if (['shop-home','rota','shop-incident','shop-complaint','shop-uniform','shop-messages','shop-ith-new','shop-ith-list'].indexOf(defaultTab) >= 0) defaultPanel = 'shop';
+
+            if (typeof setActiveTab === 'function') setActiveTab(defaultPanel);
+            if (typeof setView === 'function') setView(defaultTab);
         }
     }
 
@@ -304,6 +388,10 @@ window.Access = (function() {
         canView: canView,
         canTab: canTab,
         applyNavPermissions: applyNavPermissions,
+        getAllowedAreas: getAllowedAreas,
+        canAccessStore: canAccessStore,
+        filterByArea: filterByArea,
+        filterAuditsByArea: filterAuditsByArea,
         getAccessibleStores: getAccessibleStores,
         shareView: shareView,
         revokeShare: revokeShare,

@@ -27,21 +27,32 @@ window.Projects = (function() {
     function _projectVisible(p, user) {
         if (!user) return true;
         if (typeof window.isAdmin === 'function' && isAdmin()) return true;
+        /* Check team membership */
+        var inTeam = p.team && p.team.indexOf(user.id) >= 0;
+        /* Check area membership — if project has areas, user must be in one of them */
+        var inArea = true;
+        if (p.areas && p.areas.length) {
+            var userAreas = (typeof Access !== 'undefined' && Access.getAllowedAreas) ? Access.getAllowedAreas() : [];
+            if (userAreas.indexOf('all') < 0) {
+                inArea = p.areas.some(function(a) { return userAreas.indexOf(a) >= 0; });
+            }
+        }
         var involved =
             p.createdBy === user.id ||
+            inTeam ||
             (p.stages && p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); })) ||
             p.department === user.department ||
             (p.members && p.members.indexOf(user.id) >= 0);
         var pv = user.projectView || '';
-        if (pv === 'mine') return p.createdBy === user.id || (p.stages && p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }));
-        if (pv === 'department') return p.department === user.department || involved;
+        if (pv === 'mine') return p.createdBy === user.id || inTeam || (p.stages && p.stages.some(function(s) { return _isUserAssignedToStage(s, user.id); }));
+        if (pv === 'department') return (p.department === user.department || involved) && inArea;
         if (pv === 'multichoice') {
             var depts = user.projectViewDepts || [];
-            if (!depts.length) return involved;
-            return depts.indexOf(p.department) >= 0 || involved;
+            if (!depts.length) return involved && inArea;
+            return (depts.indexOf(p.department) >= 0 || involved) && inArea;
         }
-        if (pv === 'all') return true;
-        return involved;
+        if (pv === 'all') return inArea;
+        return involved && inArea;
     }
 
     /* ─── Storage: birds_documents IDB + Graph API (SharePoint) ── */
@@ -280,7 +291,7 @@ window.Projects = (function() {
     }
 
     /* ─── Create project ──────────────────────────────────────── */
-    async function create(name, description, department, startDate, endDate) {
+    async function create(name, description, department, startDate, endDate, team, areas) {
         var user = (typeof Users !== 'undefined') ? Users.getCurrentUser() : null;
         var project = {
             id: PROJECT_PREFIX + new Date().getFullYear() + '-' + _uid('').substring(0, 8),
@@ -296,7 +307,9 @@ window.Projects = (function() {
             overrunReason: '',
             overrunImprovement: '',
             currentStageIndex: 0,
-            stages: []
+            stages: [],
+            team: team || [],
+            areas: areas || []
         };
         _projects.unshift(project);
         await _save(project);
@@ -560,6 +573,14 @@ window.Projects = (function() {
         var allUsersHtml = users.map(function(u) {
             return '<option value="' + u.id + '">' + escapeHtml(u.name) + ' (' + escapeHtml(u.department) + ')</option>';
         }).join('');
+        /* Area options from DEFAULT_AREA_MAPPING */
+        var areaNames = typeof AM_LIST !== 'undefined' ? AM_LIST.slice() : [];
+        var areaChecks = areaNames.filter(function(a) { return a !== 'Unassigned'; }).map(function(a) {
+            return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer">' +
+                '<input type="checkbox" value="' + escapeHtml(a) + '" class="prj-area-cb accent-[#6E8E6D]">' +
+                '<span class="text-sm">' + escapeHtml(a) + '</span>' +
+                '</label>';
+        }).join('');
 
         document.getElementById('mainView').innerHTML = `
         <div style="max-width:700px;margin:0 auto;">
@@ -597,6 +618,18 @@ window.Projects = (function() {
                             <input type="date" id="prj-end" class="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-birds-green outline-none">
                         </div>
                     </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Team Members <span class="text-slate-300">(who is involved?)</span></label>
+                        <select id="prj-team" multiple class="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-birds-green outline-none" size="4">${allUsersHtml}</select>
+                        <p class="text-[10px] text-slate-400 mt-1">Hold Ctrl/Cmd to select multiple. Team members can always see this project.</p>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Visible to Areas <span class="text-slate-300">(leave empty = visible to all)</span></label>
+                        <div style="max-height:120px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafaf8;">
+                            ${areaChecks}
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1">If no areas selected, everyone can see this project. Area managers only see projects matching their area.</p>
+                    </div>
                 </div>
 
                 <div class="mt-6 pt-4 border-t border-slate-100">
@@ -613,7 +646,18 @@ window.Projects = (function() {
         var startDate = document.getElementById('prj-start');
         var endDate = document.getElementById('prj-end');
         if (!name || !name.value.trim()) { showToast('Please enter a project name', 'error'); return; }
-        var p = await create(name.value, desc ? desc.value : '', dept ? dept.value : 'General', startDate ? startDate.value : '', endDate ? endDate.value : '');
+        /* Collect team members */
+        var teamSelect = document.getElementById('prj-team');
+        var team = [];
+        if (teamSelect) {
+            for (var i = 0; i < teamSelect.options.length; i++) {
+                if (teamSelect.options[i].selected) team.push(teamSelect.options[i].value);
+            }
+        }
+        /* Collect areas */
+        var areas = [];
+        document.querySelectorAll('.prj-area-cb:checked').forEach(function(cb) { areas.push(cb.value); });
+        var p = await create(name.value, desc ? desc.value : '', dept ? dept.value : 'General', startDate ? startDate.value : '', endDate ? endDate.value : '', team, areas);
         showToast('Project created — now add your first stage', 'success');
         renderProjectDetail(p.id);
     }
@@ -914,6 +958,21 @@ window.Projects = (function() {
                         <p class="text-[11px] text-slate-400 mt-1">
                             Created by ${escapeHtml(p.createdByName || 'Unknown')} \u2022 ${escapeHtml(p.createdAt || '')} \u2022 Dept: ${escapeHtml(p.department)}
                         </p>
+                        ${function() {
+                            var tags = [];
+                            if (p.team && p.team.length) {
+                                var teamNames = p.team.map(function(uid) {
+                                    var u = (typeof Users !== 'undefined') ? Users.getById(uid) : null;
+                                    return u ? u.name : uid;
+                                });
+                                tags.push('<span style="background:#EFF6FF;color:#1E40AF;font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;">Team: ' + escapeHtml(teamNames.join(', ')) + '</span>');
+                            }
+                            if (p.areas && p.areas.length) {
+                                tags.push('<span style="background:#F0FDF4;color:#166534;font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;">Areas: ' + escapeHtml(p.areas.join(', ')) + '</span>');
+                            }
+                            if (tags.length) return '<div class="flex flex-wrap gap-1 mt-2">' + tags.join('') + '</div>';
+                            return '';
+                        }()}
                         ${function(){ var rag = getProjectRag(p); if(!rag) return ''; var rc = _ragColor(rag); return '<div class="mt-2 flex items-center gap-2"><span style="font-size:10px;font-weight:800;padding:3px 10px;border-radius:9999px;color:' + rc.color + ';background:' + rc.bg + ';border:1px solid ' + rc.border + ';">' + rc.label + '</span></div>'; }()}
                         ${(p.startDate || p.endDate) ? '<div class="mt-2 flex items-center gap-3 text-[11px] text-slate-400">' + (p.startDate ? '<span>Start: <strong>' + escapeHtml(p.startDate) + '</strong></span>' : '') + (p.endDate ? '<span>Target End: <strong>' + escapeHtml(p.endDate) + '</strong></span>' : '') + '</div>' : ''}
                         ${p.overrunReason ? '<div class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-[11px]"><strong class="text-red-700">Overrun Reason:</strong> ' + escapeHtml(p.overrunReason) + (p.overrunImprovement ? '<br><strong class="text-red-700">Improvements:</strong> ' + escapeHtml(p.overrunImprovement) : '') + '</div>' : ''}
@@ -1295,6 +1354,18 @@ window.Projects = (function() {
                 ${function(){ var rag = getProjectRag(p); if(!rag) return ''; var rc = _ragColor(rag); return '<span style="font-size:8px;font-weight:800;padding:2px 6px;border-radius:9999px;color:' + rc.color + ';background:' + rc.bg + ';border:1px solid ' + rc.border + ';white-space:nowrap;">' + rc.label + '</span>'; }()}
             </div>
             <p class="text-[11px] text-slate-400 mb-2 line-clamp-1">${escapeHtml(p.description || 'No description')}</p>
+            ${function() {
+                var tags = [];
+                if (p.team && p.team.length) {
+                    var count = p.team.length;
+                    tags.push('<span style="background:#EFF6FF;color:#1E40AF;font-size:9px;font-weight:700;padding:1px 6px;border-radius:9999px;">Team: ' + count + '</span>');
+                }
+                if (p.areas && p.areas.length) {
+                    tags.push('<span style="background:#F0FDF4;color:#166534;font-size:9px;font-weight:700;padding:1px 6px;border-radius:9999px;">Areas: ' + p.areas.length + '</span>');
+                }
+                if (tags.length) return '<div class="flex flex-wrap gap-1 mb-2">' + tags.join('') + '</div>';
+                return '';
+            }()}
             <div style="height:5px;background:#E8E5E0;border-radius:3px;overflow:hidden;margin-bottom:8px;">
                 <div style="height:100%;width:${progress}%;background:${p.status === 'resolved' ? '#6E8E6D' : '#D97706'};border-radius:3px;"></div>
             </div>

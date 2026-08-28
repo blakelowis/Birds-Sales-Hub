@@ -73,11 +73,17 @@ if(currentView === 'storecards')
   if(currentView === 'shop-complaint') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopComplaint() : null;
   if(currentView === 'shop-uniform') return (typeof ShopTools !== 'undefined') ? ShopTools.renderShopUniform() : null;
   if(currentView === 'shop-messages') return (typeof Messages !== 'undefined' && typeof ShopTools !== 'undefined') ? ShopTools.renderShopMessages() : null;
+  if(currentView === 'shop-trends') return (typeof ShopTools !== 'undefined') ? ShopTools.renderStoreTrends() : null;
+  if(currentView === 'shop-scorecard') return (typeof ShopTools !== 'undefined') ? ShopTools.renderStoreScorecard() : null;
   if(currentView === 'shop-ith-new') return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderStoreTicketForm() : null;
   if(currentView === 'shop-ith-list') return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderStoreTicketList() : null;
   if(currentView === 'shop-ith-detail') { var _ithId = (window._ithDetailId || ''); return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderStoreTicketDetail(_ithId) : null; }
   if(currentView === 'ith-dashboard') return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderITDashboard() : null;
   if(currentView === 'ith-detail') { var _ithId2 = (window._ithDetailId || ''); return (typeof ITHelpdesk !== 'undefined') ? ITHelpdesk.renderITTicketDetail(_ithId2) : null; }
+  if(currentView === 'formbuilder') return (typeof FormBuilder !== 'undefined') ? FormBuilder.renderFormBuilder() : null;
+  if(currentView === 'formreview') return (typeof FormBuilder !== 'undefined') ? FormBuilder.renderReviewDashboard() : null;
+  if(currentView === 'shop-forms') return (typeof FormBuilder !== 'undefined') ? FormBuilder.renderStoreForms() : null;
+  if(currentView === 'vault') return (typeof DocumentVault !== 'undefined') ? DocumentVault.renderVault() : null;
   if(currentView === 'kanban') return (typeof MyWorkKanban !== 'undefined') ? MyWorkKanban.render() : null;
   if(currentView === 'calendar') return (typeof MyWorkCalendar !== 'undefined') ? MyWorkCalendar.render() : null;
   if(currentView === 'rota') {
@@ -99,7 +105,10 @@ if(currentView === 'missingweeks') return renderMissingWeeksReport();
 
   
 
-  const rawKpis = await idbGetAll('kpi'); const allAudits = (await idbGetAll('audits')).filter(a => !a.isTraining);
+  const rawKpisAll = await idbGetAll('kpi'); const allAuditsAll = (await idbGetAll('audits')).filter(a => !a.isTraining);
+  /* Filter by user's allowed areas */
+  const rawKpis = (typeof Access !== 'undefined' && Access.filterByArea) ? Access.filterByArea(rawKpisAll) : rawKpisAll;
+  const allAudits = (typeof Access !== 'undefined' && Access.filterAuditsByArea) ? Access.filterAuditsByArea(allAuditsAll) : allAuditsAll;
   // Use KPI data only for current week (audits may have later weeks that make it blank)
   if (!rawKpis.length && currentView !== 'control') return;
   latestWkGlobal = Math.max(...rawKpis.map(k => Number(k.Week) || 0));
@@ -219,6 +228,16 @@ if(currentView === 'overview'){
       var bAvgs = { Sales: bAvgSales, Product: bAvgProduct, Waste: bAvgWaste, Labour: bAvgLabour, Energy: bAvgEnergy, ATV: bAvgATV, HotBev: bAvgHotBev, HotRolls: bAvgHotRolls, Sandwiches: bAvgSandwiches, FilledRolls: bAvgFilledRolls };
       var pAvgs = { Sales: pbAvgSales, Product: pbAvgProduct, Waste: pbAvgWaste, Labour: pbAvgLabour, Energy: pbAvgEnergy, ATV: pbAvgATV, HotBev: pbAvgHotBev, HotRolls: pbAvgHotRolls, Sandwiches: pbAvgSandwiches, FilledRolls: pbAvgFilledRolls };
       var complaints = window.ComplaintsData || []; if (!complaints.length) { try { complaints = await idbGetAll('complaints'); } catch(e) {} }
+      /* Filter complaints by allowed areas */
+      if (typeof Access !== 'undefined' && Access.getAllowedAreas) {
+          var allowedAreas = Access.getAllowedAreas();
+          if (allowedAreas.indexOf('all') < 0 && allowedAreas.length) {
+              complaints = complaints.filter(function(c) {
+                  var store = c.Store || c.StoreName || c.store || '';
+                  return store && Access.canAccessStore(store);
+              });
+          }
+      }
       // Top 5 stores this week by composite score
       var topStores = rawKpis.filter(function(k) { return k.Week == effectiveWeek && (k.Year || effectiveYear) == effectiveYear; }).map(function(k) { return { name: k.Branch || k.BranchId, score: calculateStoreScore({ Sales: k.Sales || 0, Product: k.Product || 0, Waste: k.Waste || 0, Labour: k.Labour || 0, Energy: k.Energy || 0 }) }; }).filter(function(s) { return s.name; }).sort(function(a, b) { return b.score - a.score; }).slice(0, 5);
       // Area medal leaderboard from area_winners_log (same as YTD awards)

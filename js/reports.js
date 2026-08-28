@@ -747,10 +747,20 @@ window.exportCurrentViewPNG = async function(){
 
 window.renderStoreReports = async function(){
 
-    const stores =
+    var stores =
         Array.from(
             originalStoreNames.values()
         ).sort();
+    /* Filter stores by allowed areas */
+    if (typeof Access !== 'undefined' && Access.getAllowedAreas) {
+        var allowedAreas = Access.getAllowedAreas();
+        if (allowedAreas.indexOf('all') < 0 && allowedAreas.length) {
+            stores = stores.filter(function(name) {
+                var cid = canonicalStoreId(name);
+                return Access.canAccessStore(cid);
+            });
+        }
+    }
 
     document.getElementById('mainView').innerHTML = `
 
