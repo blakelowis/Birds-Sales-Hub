@@ -61,6 +61,14 @@
             </div>
             <button onclick="Users.doLogout()" style="background:transparent;color:#999;font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px;border:1px solid #E8E5E0;cursor:pointer;" title="Sign out">&#x2715;</button>
           </div>
+          <div id="notificationBell" onclick="toggleNotifications()" style="position:relative;cursor:pointer;padding:6px 8px;border-radius:8px;border:1px solid #E8E5E0;background:#fff;display:none;" title="Notifications">
+            <span style="font-size:16px;">&#128276;</span>
+            <span id="notifBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#DC2626;color:#fff;font-size:9px;font-weight:800;min-width:16px;height:16px;border-radius:8px;text-align:center;line-height:16px;padding:0 4px;">0</span>
+          </div>
+          <div id="notifDropdown" style="display:none;position:absolute;top:100%;right:0;width:320px;max-height:400px;overflow-y:auto;background:#fff;border:1px solid #E8E5E0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:1000;padding:12px;">
+            <div style="font-size:12px;font-weight:800;color:#4A4A4A;margin-bottom:8px;">Notifications</div>
+            <div id="notifList"></div>
+          </div>
           <button onclick="startAudit()" style="background:#C17F4E;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Perform a retail audit">Audit Store</button>
           <input type="file" id="mobileAuditZipInput" accept=".zip" class="hidden" onchange="importMobileAuditZIP(event)">
           <button onclick="document.getElementById('mobileAuditZipInput').click()" style="background:#7A7A7A;color:#fff;font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;" title="Import audit ZIP from mobile app">Import Mobile Audit</button>
@@ -105,8 +113,11 @@
         <button onclick="setView('tracker')" id="btn-tracker" class="seg-btn flex-1 whitespace-nowrap">Tracker</button>
         <button onclick="setView('complaints')" id="btn-complaints" class="seg-btn flex-1 whitespace-nowrap">Complaints Hub</button>
         <button onclick="setView('ith-dashboard')" id="btn-ith-dashboard" class="seg-btn flex-1 whitespace-nowrap">IT Helpdesk</button>
+        <button onclick="setView('formbuilder')" id="btn-formbuilder" class="seg-btn flex-1 whitespace-nowrap">Form Builder</button>
+        <button onclick="setView('formreview')" id="btn-formreview" class="seg-btn flex-1 whitespace-nowrap">Form Review</button>
       </div>
       <div class="nav-panel" data-panel="docs">
+        <button onclick="setView('vault')" id="btn-vault" class="seg-btn flex-1 whitespace-nowrap">Document Vault</button>
         <button onclick="setView('mywork')" id="btn-mywork" class="seg-btn flex-1 whitespace-nowrap">My Work</button>
         <button onclick="setView('kanban')" id="btn-kanban" class="seg-btn flex-1 whitespace-nowrap">Kanban</button>
         <button onclick="setView('calendar')" id="btn-calendar" class="seg-btn flex-1 whitespace-nowrap">Calendar</button>
@@ -116,11 +127,14 @@
       </div>
       <div class="nav-panel" data-panel="shop">
         <button onclick="setView('shop-home')" id="btn-shop-home" class="seg-btn flex-1 whitespace-nowrap">Home</button>
+        <button onclick="setView('shop-trends')" id="btn-shop-trends" class="seg-btn flex-1 whitespace-nowrap">Trends</button>
+        <button onclick="setView('shop-scorecard')" id="btn-shop-scorecard" class="seg-btn flex-1 whitespace-nowrap">Scorecard</button>
         <button onclick="setView('rota')" id="btn-rota" class="seg-btn flex-1 whitespace-nowrap">Rota</button>
         <button onclick="setView('shop-incident')" id="btn-shop-incident" class="seg-btn flex-1 whitespace-nowrap">Incident</button>
         <button onclick="setView('shop-complaint')" id="btn-shop-complaint" class="seg-btn flex-1 whitespace-nowrap">Complaint</button>
         <button onclick="setView('shop-uniform')" id="btn-shop-uniform" class="seg-btn flex-1 whitespace-nowrap">Uniform</button>
         <button onclick="setView('shop-messages')" id="btn-shop-messages" class="seg-btn flex-1 whitespace-nowrap">Messages</button>
+        <button onclick="setView('shop-forms')" id="btn-shop-forms" class="seg-btn flex-1 whitespace-nowrap">Forms</button>
         <button onclick="setView('shop-ith-new')" id="btn-shop-ith" class="seg-btn flex-1 whitespace-nowrap">IT Helpdesk</button>
       </div>
     </nav>
@@ -171,6 +185,8 @@
   <script src="js/store-context.js?v=1"></script>
   <script src="js/shop.js?v=9"></script>
   <script src="js/it-helpdesk.js?v=1"></script>
+  <script src="js/form-builder.js?v=1"></script>
+  <script src="js/document-vault.js?v=1"></script>
   <script src="Sortable.min.js"></script>
   <script src="vanilla-calendar.min.js"></script>
   <script src="js/app.js?v=175"></script>
@@ -253,6 +269,50 @@
     }
 
     // Settings modal helpers
+    /* ─── Notification System ────────────────────────────────────── */
+    var _notifItems = [];
+    function toggleNotifications() {
+        var dd = document.getElementById('notifDropdown');
+        if (dd.style.display === 'none') { dd.style.display = 'block'; updateNotifList(); }
+        else { dd.style.display = 'none'; }
+    }
+    function updateNotifBadge() {
+        var badge = document.getElementById('notifBadge');
+        var bell = document.getElementById('notificationBell');
+        if (!badge || !bell) return;
+        var unread = _notifItems.filter(function(n) { return !n.read; }).length;
+        if (unread > 0) { badge.style.display = 'block'; badge.textContent = unread; bell.style.display = 'block'; }
+        else { badge.style.display = 'none'; bell.style.display = _notifItems.length ? 'block' : 'none'; }
+    }
+    function updateNotifList() {
+        var list = document.getElementById('notifList');
+        if (!list) return;
+        if (!_notifItems.length) { list.innerHTML = '<p style="font-size:11px;color:#94A3B8;text-align:center;padding:12px;">No notifications</p>'; return; }
+        list.innerHTML = _notifItems.slice(0, 20).map(function(n) {
+            var icon = n.type === 'message' ? '&#128172;' : n.type === 'ticket' ? '&#128196;' : n.type === 'action' ? '&#9888;' : '&#128276;';
+            return '<div onclick="markNotifRead(\'' + n.id + '\')" style="padding:8px;border-radius:8px;margin-bottom:4px;cursor:pointer;background:' + (n.read ? 'transparent' : '#F0FDF4') + ';border:1px solid ' + (n.read ? 'transparent' : '#E2E8F0') + ';">'
+                + '<div style="display:flex;align-items:flex-start;gap:8px;">'
+                + '<span style="font-size:14px;">' + icon + '</span>'
+                + '<div style="flex:1;min-width:0;"><p style="font-size:11px;font-weight:700;color:#4A4A4A;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (n.title || '') + '</p>'
+                + '<p style="font-size:10px;color:#94A3B8;margin:2px 0 0;">' + (n.detail || '') + '</p></div>'
+                + '<span style="font-size:9px;color:#94A3B8;white-space:nowrap;">' + (n.time || '') + '</span>'
+                + '</div></div>';
+        }).join('');
+    }
+    function addNotification(type, title, detail, view) {
+        var id = 'n-' + Date.now() + '-' + Math.random().toString(36).substr(2,4);
+        _notifItems.unshift({ id: id, type: type, title: title, detail: detail, view: view || '', read: false, time: new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'}) });
+        updateNotifBadge();
+    }
+    function markNotifRead(id) {
+        var n = _notifItems.find(function(x) { return x.id === id; });
+        if (n) { n.read = true; updateNotifBadge(); updateNotifList(); }
+        if (n && n.view) setView(n.view);
+    }
+    window.addNotification = addNotification;
+    window.toggleNotifications = toggleNotifications;
+    window.markNotifRead = markNotifRead;
+
     async function doRefresh() {
       const btn = document.getElementById('syncBtn');
       const origText = btn.innerHTML;
@@ -330,7 +390,7 @@
   <script>
     // Force SW update: when new SW installs, send SKIP_WAITING and reload
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=185').then(function(reg) {
+      navigator.serviceWorker.register('./sw.js?v=193').then(function(reg) {
         function promptUpdate() {
           if (reg.waiting) {
             console.log('[SW] New SW waiting, sending SKIP_WAITING');
